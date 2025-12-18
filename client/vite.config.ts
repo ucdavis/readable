@@ -8,7 +8,7 @@ import { tanstackRouter } from '@tanstack/router-plugin/vite';
 
 const target = env.ASPNETCORE_URLS
   ? env.ASPNETCORE_URLS.split(';')[0]
-  : 'http://localhost:5165';
+  : 'http://localhost:5166';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -28,7 +28,7 @@ export default defineConfig({
   server: {
     host: true,
     open: true,
-    port: 5173,
+    port: 5175,
     proxy: {
       '/health': {
         secure: false,

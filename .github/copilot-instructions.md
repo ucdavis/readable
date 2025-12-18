@@ -12,7 +12,7 @@ This is a full-stack web application template using modern React and .NET techno
 
 ### Build Tools & Development
 
-- **Vite** (`^7.1.5`) - Primary build tool and dev server (port 5173)
+- **Vite** (`^7.1.5`) - Primary build tool and dev server (port 5175)
 - **TypeScript** (`^5.9.2`) - Primary language for all React components
 - **Node.js** `>=22.0.0` - Runtime requirement
 

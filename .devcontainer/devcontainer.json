@@ -3,16 +3,6 @@
     "dockerComposeFile": "docker-compose.yml",
     "service": "devcontainer",
     "workspaceFolder": "/workspace",
-    "features": {
-        "ghcr.io/devcontainers/features/node:1": {
-            "version": "22"
-        },
-        "ghcr.io/devcontainers/features/dotnet:2": {
-            "version": "8.0",
-            "sdk": true
-        },
-        "ghcr.io/devcontainers/features/git:1": {}
-    },
     "customizations": {
         "vscode": {
             "extensions": [
@@ -33,20 +23,20 @@
     },
     "containerEnv": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "ASPNETCORE_URLS": "http://0.0.0.0:5165"
+        "ASPNETCORE_URLS": "http://0.0.0.0:5166"
     },
     "postCreateCommand": "bash .devcontainer/setup.sh",
     "postStartCommand": "bash .devcontainer/wait-for-sql.sh",
     "remoteUser": "vscode",
     "forwardPorts": [
-        5173,
-        5165
+        5175,
+        5166
     ],
     "portsAttributes": {
-        "5173": {
+        "5175": {
             "label": "Vite Dev Server"
         },
-        "5165": {
+        "5166": {
             "label": "ASP.NET HTTP API"
         }
     }
