@@ -1,8 +1,8 @@
 {
   "profiles": {
-    "IngestFunction": {
+    "function_ingest": {
       "commandName": "Project",
-      "commandLineArgs": "--port 7036",
+      "commandLineArgs": "--port 7278",
       "launchBrowser": false
     }
   }
