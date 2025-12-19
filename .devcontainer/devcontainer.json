@@ -12,7 +12,8 @@
                 "ms-vscode.js-debug",
                 "esbenp.prettier-vscode",
                 "dbaeumer.vscode-eslint",
-                "bradlc.vscode-tailwindcss"
+                "bradlc.vscode-tailwindcss",
+                "ms-azuretools.vscode-bicep"
             ],
             "settings": {
                 "terminal.integrated.defaultProfile.linux": "bash",

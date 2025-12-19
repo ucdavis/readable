@@ -26,6 +26,7 @@ This project will allow uploading PDF files to Azure Blob Storage. We'll then qu
    - Click the prompt to open in container (or manually select from the command palette).
 
 _Using the DevContainer is optional, but it will get you the right version of dotnet + node, plus install all dependencies and setup a local SQL instance for you_
+_The DevContainer also includes Azure Functions Core Tools v4 so you can run functions locally (`func`). See https://learn.microsoft.com/en-us/azure/azure-functions/functions-run-local._
 
 3. **Start the application**
 
