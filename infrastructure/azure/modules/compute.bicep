@@ -4,11 +4,11 @@ param location string
 @description('Tags to apply to compute resources.')
 param tags object
 
-@description('App Service plan name for the API.')
-param apiPlanName string
+@description('App Service plan name for the web app.')
+param webPlanName string
 
-@description('Web App name for the API.')
-param apiAppName string
+@description('Web App name for the web app.')
+param webAppName string
 
 @description('Function App plan name.')
 param functionPlanName string
@@ -59,8 +59,8 @@ param environmentName string
 @description('Chunk size for pipeline processing.')
 param pipelineChunkSizePages int = 100
 
-resource apiPlan 'Microsoft.Web/serverfarms@2022-09-01' = {
-  name: apiPlanName
+resource webPlan 'Microsoft.Web/serverfarms@2022-09-01' = {
+  name: webPlanName
   location: location
   kind: 'linux'
   sku: {
@@ -75,8 +75,8 @@ resource apiPlan 'Microsoft.Web/serverfarms@2022-09-01' = {
   }
 }
 
-resource apiApp 'Microsoft.Web/sites@2022-09-01' = {
-  name: apiAppName
+resource webApp 'Microsoft.Web/sites@2022-09-01' = {
+  name: webAppName
   location: location
   kind: 'app,linux'
   identity: {
@@ -84,7 +84,7 @@ resource apiApp 'Microsoft.Web/sites@2022-09-01' = {
   }
   tags: tags
   properties: {
-    serverFarmId: apiPlan.id
+    serverFarmId: webPlan.id
     httpsOnly: true
     siteConfig: {
       linuxFxVersion: 'DOTNETCORE|8.0'
@@ -221,7 +221,7 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
   }
 }
 
-output apiAppName string = apiApp.name
+output webAppName string = webApp.name
 output functionAppName string = functionApp.name
-output apiPrincipalId string = apiApp.identity.principalId
+output webPrincipalId string = webApp.identity.principalId
 output functionPrincipalId string = functionApp.identity.principalId

@@ -28,7 +28,7 @@ param sqlAdminLogin string
 param sqlAdminPassword string
 
 @description('SQL database name.')
-param sqlDatabaseName string = 'db-${appName}-${env}'
+param sqlDatabaseName string = appName
 
 @description('Service Bus queue base name. Leave empty for `files`.')
 param serviceBusQueueBaseName string = ''
@@ -49,8 +49,8 @@ var functionStorageName = take('st${appSlug}${envSlug}f${nameToken}', 24)
 var serviceBusNamespaceName = toLower('sb-${appNameSafe}-${env}-${nameToken}')
 var eventGridTopicName = toLower('eg-${appNameSafe}-${env}-${nameToken}')
 var sqlServerName = toLower('sql-${appNameSafe}-${env}-${nameToken}')
-var apiPlanName = toLower('asp-${appNameSafe}-${env}-${nameToken}')
-var apiAppName = toLower('api-${appNameSafe}-${env}-${nameToken}')
+var webPlanName = toLower('asp-${appNameSafe}-${env}-${nameToken}')
+var webAppName = toLower('web-${appNameSafe}-${env}-${nameToken}')
 var functionPlanName = toLower('func-${appNameSafe}-${env}-${nameToken}')
 var functionAppName = toLower('fn-${appNameSafe}-${env}-${nameToken}')
 
@@ -162,8 +162,8 @@ module compute 'modules/compute.bicep' = {
   params: {
     location: location
     tags: resourceTags
-    apiPlanName: apiPlanName
-    apiAppName: apiAppName
+    webPlanName: webPlanName
+    webAppName: webAppName
     functionPlanName: functionPlanName
     functionAppName: functionAppName
     dataStorageAccountName: storage.outputs.accountName
@@ -193,7 +193,7 @@ module eventGridRbac 'modules/rbac-eventgrid.bicep' = {
 module computeRbac 'modules/rbac-compute.bicep' = {
   name: 'rbac-compute'
   params: {
-    apiPrincipalId: compute!.outputs.apiPrincipalId
+    webPrincipalId: compute!.outputs.webPrincipalId
     functionPrincipalId: compute!.outputs.functionPrincipalId
     storageAccountName: storage.outputs.accountName
     serviceBusNamespaceName: serviceBusNamespaceName
@@ -208,5 +208,5 @@ output serviceBusQueueNames array = fileQueueNames
 output eventGridSystemTopicName string = eventGrid.outputs.topicName
 output sqlServerName string = sql.outputs.serverName
 output sqlDatabaseName string = sqlDatabaseName
-output apiAppName string = apiAppName
+output webAppName string = webAppName
 output functionAppName string = functionAppName

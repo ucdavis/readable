@@ -1,5 +1,5 @@
-@description('Principal ID of the API app.')
-param apiPrincipalId string
+@description('Principal ID of the web app.')
+param webPrincipalId string
 
 @description('Principal ID of the Function app.')
 param functionPrincipalId string
@@ -42,22 +42,22 @@ resource funcServiceBusReceiver 'Microsoft.Authorization/roleAssignments@2022-04
   }
 }
 
-resource apiBlobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, apiPrincipalId, roleStorageBlobDataContributor)
+resource webBlobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, webPrincipalId, roleStorageBlobDataContributor)
   scope: storageAccount
   properties: {
     roleDefinitionId: roleStorageBlobDataContributor
-    principalId: apiPrincipalId
+    principalId: webPrincipalId
     principalType: 'ServicePrincipal'
   }
 }
 
-resource apiBlobDelegator 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, apiPrincipalId, roleStorageBlobDelegator)
+resource webBlobDelegator 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, webPrincipalId, roleStorageBlobDelegator)
   scope: storageAccount
   properties: {
     roleDefinitionId: roleStorageBlobDelegator
-    principalId: apiPrincipalId
+    principalId: webPrincipalId
     principalType: 'ServicePrincipal'
   }
 }
