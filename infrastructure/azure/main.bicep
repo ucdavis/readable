@@ -39,14 +39,6 @@ param serviceBusQueueBaseName string = ''
 @description('Queue name for the function app to process. Leave empty to use the first queue.')
 param functionQueueName string = ''
 
-@secure()
-@description('API key for accessibility service (optional).')
-param accessibilityApiKey string = ''
-
-@secure()
-@description('API key for LLM service (optional).')
-param llmApiKey string = ''
-
 @description('Additional resource tags to apply.')
 param tags object = {}
 
@@ -60,7 +52,6 @@ var functionStorageName = take('st${appSlug}${envSlug}f${nameToken}', 24)
 var serviceBusNamespaceName = toLower('sb-${appNameSafe}-${env}-${nameToken}')
 var eventGridTopicName = toLower('eg-${appNameSafe}-${env}-${nameToken}')
 var sqlServerName = toLower('sql-${appNameSafe}-${env}-${nameToken}')
-var keyVaultName = toLower(take('kv-${appSlug}-${envSlug}-${nameToken}', 24))
 var apiPlanName = toLower('asp-${appNameSafe}-${env}-${nameToken}')
 var apiAppName = toLower('api-${appNameSafe}-${env}-${nameToken}')
 var functionPlanName = toLower('func-${appNameSafe}-${env}-${nameToken}')
@@ -152,17 +143,6 @@ module sql 'modules/sql.bicep' = {
   }
 }
 
-module keyVault 'modules/keyvault.bicep' = {
-  name: 'keyvault'
-  params: {
-    name: keyVaultName
-    location: location
-    tags: resourceTags
-    accessibilityApiKey: accessibilityApiKey
-    llmApiKey: llmApiKey
-  }
-}
-
 var dataStorageId = resourceId('Microsoft.Storage/storageAccounts', dataStorageName)
 var dataStorageKeys = listKeys(dataStorageId, '2023-01-01')
 var dataStorageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storage.outputs.accountName};AccountKey=${dataStorageKeys.keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
@@ -187,7 +167,6 @@ module compute 'modules/compute.bicep' = if (deployCompute) {
     apiAppName: apiAppName
     functionPlanName: functionPlanName
     functionAppName: functionAppName
-    keyVaultUri: keyVault.outputs.vaultUri
     dataStorageAccountName: storage.outputs.accountName
     dataStorageConnectionString: dataStorageConnectionString
     incomingContainerName: incomingContainerName
@@ -219,7 +198,6 @@ module computeRbac 'modules/rbac-compute.bicep' = if (deployCompute) {
     functionPrincipalId: compute!.outputs.functionPrincipalId
     storageAccountName: storage.outputs.accountName
     serviceBusNamespaceName: serviceBusNamespaceName
-    keyVaultName: keyVault.outputs.vaultName
   }
 }
 
@@ -231,6 +209,5 @@ output serviceBusQueueNames array = fileQueueNames
 output eventGridSystemTopicName string = eventGrid.outputs.topicName
 output sqlServerName string = sql.outputs.serverName
 output sqlDatabaseName string = sqlDatabaseName
-output keyVaultUri string = keyVault.outputs.vaultUri
 output apiAppName string = deployCompute ? apiAppName : ''
 output functionAppName string = deployCompute ? functionAppName : ''

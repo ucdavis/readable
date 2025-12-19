@@ -16,9 +16,6 @@ param functionPlanName string
 @description('Function App name.')
 param functionAppName string
 
-@description('Key Vault URI for secrets.')
-param keyVaultUri string
-
 @description('Data storage account name.')
 param dataStorageAccountName string
 
@@ -121,10 +118,6 @@ resource apiApp 'Microsoft.Web/sites@2022-09-01' = {
           value: reportsContainerName
         }
         {
-          name: 'KeyVault__Uri'
-          value: keyVaultUri
-        }
-        {
           name: 'WEBSITE_RUN_FROM_PACKAGE'
           value: '1'
         }
@@ -208,10 +201,6 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
         {
           name: 'Storage__ReportsContainer'
           value: reportsContainerName
-        }
-        {
-          name: 'KeyVault__Uri'
-          value: keyVaultUri
         }
         {
           name: 'Pipeline__ChunkSizePages'
