@@ -7,6 +7,9 @@ param location string
 @description('Tags to apply to the storage account.')
 param tags object
 
+@description('Deployment container name for function app packages.')
+param deploymentContainerName string = 'deployment'
+
 resource storageAccount 'Microsoft.Storage/storageAccounts@2025-06-01' = {
   name: name
   location: location
@@ -19,6 +22,19 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2025-06-01' = {
     allowBlobPublicAccess: false
     minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
+  }
+}
+
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2025-06-01' = {
+  name: 'default'
+  parent: storageAccount
+}
+
+resource deploymentContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2025-06-01' = {
+  name: deploymentContainerName
+  parent: blobService
+  properties: {
+    publicAccess: 'None'
   }
 }
 

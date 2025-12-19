@@ -61,6 +61,7 @@ var processedContainerName = 'processed'
 var tempContainerName = 'temp'
 var reportsContainerName = 'reports'
 var deadLetterContainerName = 'deadletter'
+var functionDeploymentContainerName = 'deployment'
 
 var resourceTags = union(tags, {
   environment: env
@@ -97,6 +98,7 @@ module functionStorage 'modules/function-storage.bicep' = {
     name: functionStorageName
     location: location
     tags: resourceTags
+    deploymentContainerName: functionDeploymentContainerName
   }
 }
 
@@ -136,6 +138,8 @@ module compute 'modules/compute.bicep' = {
     webAppName: webAppName
     functionPlanName: functionPlanName
     functionAppName: functionAppName
+    functionStorageAccountName: functionStorageName
+    functionDeploymentContainerName: functionDeploymentContainerName
     dataStorageAccountName: storage.outputs.accountName
     dataStorageConnectionString: storage.outputs.connectionString
     incomingContainerName: incomingContainerName

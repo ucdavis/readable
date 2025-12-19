@@ -16,6 +16,12 @@ param functionPlanName string
 @description('Function App name.')
 param functionAppName string
 
+@description('Function host storage account name.')
+param functionStorageAccountName string
+
+@description('Deployment container name for function app packages.')
+param functionDeploymentContainerName string
+
 @description('Data storage account name.')
 param dataStorageAccountName string
 
@@ -221,8 +227,12 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
     functionAppConfig: {
       deployment: {
         storage: {
-          type: 'StorageAccount'
-          value: functionStorageConnectionString
+          type: 'BlobContainer'
+          value: 'https://${functionStorageAccountName}.blob.${environment().suffixes.storage}/${functionDeploymentContainerName}'
+          authentication: {
+            type: 'StorageAccountConnectionString'
+            storageAccountConnectionStringName: 'AzureWebJobsStorage'
+          }
         }
       }
       runtime: {
