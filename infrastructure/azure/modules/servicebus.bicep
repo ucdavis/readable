@@ -41,7 +41,6 @@ resource appAuthRule 'Microsoft.ServiceBus/namespaces/authorizationRules@2024-01
     rights: [
       'Listen'
       'Send'
-      'Manage'
     ]
   }
 }
