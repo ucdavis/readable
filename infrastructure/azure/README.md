@@ -5,8 +5,7 @@ This directory contains the v1 Bicep templates for the Readable architecture:
 - Storage account + blob containers (`incoming`, `processed`, `temp`, `reports`, `deadletter`)
 - Event Grid system topic + subscriptions to Service Bus queue(s)
 - Service Bus namespace + queue(s)
-- Azure SQL server + database + Entra ID admin
-- Log Analytics + Application Insights
+- Azure SQL server + database (SQL auth)
 - Key Vault (RBAC) for external API keys
 - Optional compute: App Service (API) + Functions (Durable)
 - Managed identity RBAC for Event Grid, API, and Functions
@@ -29,8 +28,7 @@ az deployment group create \
   -f infrastructure/azure/main.bicep \
   -p appName=readable env=test deployCompute=true \
   -p corsAllowedOrigins='["*"]' \
-  -p sqlAdminLogin='sqladmin' sqlAdminPassword='123' \
-  -p sqlAadAdminObjectId='...' sqlAadAdminLogin='readable SQL Admins'
+  -p sqlAdminLogin='sqladmin' sqlAdminPassword='123'
 ```
 
 ## Parameters
@@ -41,7 +39,6 @@ az deployment group create \
 - `deployCompute` (optional, default `true`): Creates App Service + Functions when `true`.
 - `corsAllowedOrigins` (optional): CORS origins for blob upload; omit or empty array to disable rules.
 - `sqlAdminLogin` / `sqlAdminPassword` (required): SQL auth credentials.
-- `sqlAadAdminObjectId` / `sqlAadAdminLogin` (required): Entra ID admin for SQL.
 - `sqlDatabaseName` (optional, default `sqldb-{appName}-{env}`): SQL database name.
 - `serviceBusQueueBaseName` (optional): Overrides the base queue name (`files`).
 - `functionQueueName` (optional): Queue name for the function app (defaults to the first queue; set explicitly when multiple dev aliases are used).

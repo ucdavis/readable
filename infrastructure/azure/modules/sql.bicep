@@ -14,12 +14,6 @@ param adminLogin string
 @description('SQL admin password for SQL authentication.')
 param adminPassword string
 
-@description('Entra ID admin object id for SQL.')
-param aadAdminObjectId string
-
-@description('Entra ID admin login name for SQL.')
-param aadAdminLogin string
-
 @description('SQL database name.')
 param databaseName string
 
@@ -38,17 +32,6 @@ resource sqlServer 'Microsoft.Sql/servers@2022-05-01-preview' = {
     administratorLoginPassword: adminPassword
     publicNetworkAccess: 'Enabled'
     minimalTlsVersion: '1.2'
-  }
-}
-
-resource sqlAadAdmin 'Microsoft.Sql/servers/administrators@2022-05-01-preview' = {
-  name: 'activeDirectory'
-  parent: sqlServer
-  properties: {
-    administratorType: 'ActiveDirectory'
-    login: aadAdminLogin
-    sid: aadAdminObjectId
-    tenantId: subscription().tenantId
   }
 }
 

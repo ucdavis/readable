@@ -30,12 +30,6 @@ param sqlAdminLogin string
 @description('SQL admin password for SQL authentication.')
 param sqlAdminPassword string
 
-@description('Entra ID (Azure AD) admin object id for SQL.')
-param sqlAadAdminObjectId string
-
-@description('Entra ID (Azure AD) admin login name for SQL.')
-param sqlAadAdminLogin string
-
 @description('SQL database name.')
 param sqlDatabaseName string = 'sqldb-${appName}-${env}'
 
@@ -66,8 +60,6 @@ var functionStorageName = take('st${appSlug}${envSlug}f${nameToken}', 24)
 var serviceBusNamespaceName = toLower('sb-${appNameSafe}-${env}-${nameToken}')
 var eventGridTopicName = toLower('eg-${appNameSafe}-${env}-${nameToken}')
 var sqlServerName = toLower('sql-${appNameSafe}-${env}-${nameToken}')
-var logAnalyticsName = toLower('log-${appNameSafe}-${env}-${nameToken}')
-var appInsightsName = toLower('appi-${appNameSafe}-${env}-${nameToken}')
 var keyVaultName = toLower(take('kv-${appSlug}-${envSlug}-${nameToken}', 24))
 var apiPlanName = toLower('asp-${appNameSafe}-${env}-${nameToken}')
 var apiAppName = toLower('api-${appNameSafe}-${env}-${nameToken}')
@@ -96,16 +88,6 @@ var resourceTags = union(tags, {
   environment: env
   application: appName
 })
-
-module monitoring 'modules/monitoring.bicep' = {
-  name: 'monitoring'
-  params: {
-    logAnalyticsName: logAnalyticsName
-    appInsightsName: appInsightsName
-    location: location
-    tags: resourceTags
-  }
-}
 
 module storage 'modules/storage.bicep' = {
   name: 'storage'
@@ -166,8 +148,6 @@ module sql 'modules/sql.bicep' = {
     tags: resourceTags
     adminLogin: sqlAdminLogin
     adminPassword: sqlAdminPassword
-    aadAdminObjectId: sqlAadAdminObjectId
-    aadAdminLogin: sqlAadAdminLogin
     databaseName: sqlDatabaseName
   }
 }
@@ -207,7 +187,6 @@ module compute 'modules/compute.bicep' = if (deployCompute) {
     apiAppName: apiAppName
     functionPlanName: functionPlanName
     functionAppName: functionAppName
-    appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
     keyVaultUri: keyVault.outputs.vaultUri
     dataStorageAccountName: storage.outputs.accountName
     dataStorageConnectionString: dataStorageConnectionString
@@ -253,7 +232,5 @@ output eventGridSystemTopicName string = eventGrid.outputs.topicName
 output sqlServerName string = sql.outputs.serverName
 output sqlDatabaseName string = sqlDatabaseName
 output keyVaultUri string = keyVault.outputs.vaultUri
-output logAnalyticsWorkspaceName string = logAnalyticsName
-output appInsightsName string = appInsightsName
 output apiAppName string = deployCompute ? apiAppName : ''
 output functionAppName string = deployCompute ? functionAppName : ''

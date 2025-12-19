@@ -16,10 +16,6 @@ param functionPlanName string
 @description('Function App name.')
 param functionAppName string
 
-@secure()
-@description('Application Insights connection string.')
-param appInsightsConnectionString string
-
 @description('Key Vault URI for secrets.')
 param keyVaultUri string
 
@@ -129,14 +125,6 @@ resource apiApp 'Microsoft.Web/sites@2022-09-01' = {
           value: keyVaultUri
         }
         {
-          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-          value: appInsightsConnectionString
-        }
-        {
-          name: 'APPINSIGHTS_CONNECTION_STRING'
-          value: appInsightsConnectionString
-        }
-        {
           name: 'WEBSITE_RUN_FROM_PACKAGE'
           value: '1'
         }
@@ -228,14 +216,6 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
         {
           name: 'Pipeline__ChunkSizePages'
           value: string(pipelineChunkSizePages)
-        }
-        {
-          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-          value: appInsightsConnectionString
-        }
-        {
-          name: 'APPINSIGHTS_CONNECTION_STRING'
-          value: appInsightsConnectionString
         }
       ], serviceBusQueueName != '' ? [
         {
