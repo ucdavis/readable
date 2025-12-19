@@ -45,9 +45,13 @@ resource appAuthRule 'Microsoft.ServiceBus/namespaces/authorizationRules@2024-01
   }
 }
 
+var appAuthRuleKeys = listKeys(appAuthRule.id, '2021-11-01')
+
 output namespaceName string = serviceBusNamespace.name
 output namespaceId string = serviceBusNamespace.id
 output fullyQualifiedNamespace string = '${serviceBusNamespace.name}.servicebus.windows.net'
 output queueNames array = queueNames
 output queueIds array = [for queueName in queueNames: resourceId('Microsoft.ServiceBus/namespaces/queues', serviceBusNamespace.name, queueName)]
 output authRuleId string = appAuthRule.id
+@secure()
+output connectionString string = appAuthRuleKeys.primaryConnectionString

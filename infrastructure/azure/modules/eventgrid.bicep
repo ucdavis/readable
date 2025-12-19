@@ -16,6 +16,9 @@ param serviceBusQueueIds array
 @description('Deadletter container name in the storage account.')
 param deadLetterContainerName string
 
+@description('User-assigned managed identity resource ID for Event Grid delivery.')
+param deliveryIdentityResourceId string
+
 resource systemTopic 'Microsoft.EventGrid/systemTopics@2025-02-15' = {
   name: name
   location: location
@@ -48,7 +51,8 @@ resource defaultSubscription 'Microsoft.EventGrid/systemTopics/eventSubscription
     }
     deliveryWithResourceIdentity: {
       identity: {
-        type: 'SystemAssigned'
+        type: 'UserAssigned'
+        userAssignedIdentity: deliveryIdentityResourceId
       }
       destination: {
         endpointType: 'ServiceBusQueue'
@@ -59,7 +63,8 @@ resource defaultSubscription 'Microsoft.EventGrid/systemTopics/eventSubscription
     }
     deadLetterWithResourceIdentity: {
       identity: {
-        type: 'SystemAssigned'
+        type: 'UserAssigned'
+        userAssignedIdentity: deliveryIdentityResourceId
       }
       deadLetterDestination: {
         endpointType: 'StorageBlob'

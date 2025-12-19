@@ -42,6 +42,7 @@ var dataStorageName = take('st${appSlug}${envSlug}d${nameToken}', 24)
 var functionStorageName = take('st${appSlug}${envSlug}f${nameToken}', 24)
 var serviceBusNamespaceName = toLower('sb-${appNameSafe}-${env}-${nameToken}')
 var eventGridTopicName = toLower('eg-${appNameSafe}-${env}-${nameToken}')
+var eventGridDeliveryIdentityName = toLower('uai-eg-${appNameSafe}-${env}-${nameToken}')
 var sqlServerName = toLower('sql-${appNameSafe}-${env}-${nameToken}')
 var webPlanName = toLower('asp-${appNameSafe}-${env}-${nameToken}')
 var webAppName = toLower('web-${appNameSafe}-${env}-${nameToken}')
@@ -65,6 +66,12 @@ var resourceTags = union(tags, {
   environment: env
   application: appName
 })
+
+resource eventGridDeliveryIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
+  name: eventGridDeliveryIdentityName
+  location: location
+  tags: resourceTags
+}
 
 module storage 'modules/storage.bicep' = {
   name: 'storage'
@@ -103,18 +110,6 @@ module serviceBus 'modules/servicebus.bicep' = {
   }
 }
 
-module eventGrid 'modules/eventgrid.bicep' = {
-  name: 'eventgrid'
-  params: {
-    name: eventGridTopicName
-    location: location
-    tags: resourceTags
-    storageAccountId: storage.outputs.accountId
-    serviceBusQueueIds: serviceBus.outputs.queueIds
-    deadLetterContainerName: deadLetterContainerName
-  }
-}
-
 module sql 'modules/sql.bicep' = {
   name: 'sql'
   params: {
@@ -129,20 +124,6 @@ module sql 'modules/sql.bicep' = {
   }
 }
 
-var dataStorageId = resourceId('Microsoft.Storage/storageAccounts', dataStorageName)
-var dataStorageKeys = listKeys(dataStorageId, '2023-01-01')
-var dataStorageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storage.outputs.accountName};AccountKey=${dataStorageKeys.keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
-
-var serviceBusAuthRuleId = resourceId(
-  'Microsoft.ServiceBus/namespaces/authorizationRules',
-  serviceBusNamespaceName,
-  'app'
-)
-var serviceBusKeys = listKeys(serviceBusAuthRuleId, '2021-11-01')
-var serviceBusConnectionString = serviceBusKeys.primaryConnectionString
-
-var functionStorageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${functionStorageName};AccountKey=${listKeys(resourceId('Microsoft.Storage/storageAccounts', functionStorageName), '2023-01-01').keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
-
 var sqlServerFqdn = '${sqlServerName}.${environment().suffixes.sqlServerHostname}'
 var sqlConnectionString = 'Server=tcp:${sqlServerFqdn},1433;Initial Catalog=${sqlDatabaseName};Persist Security Info=False;User ID=${sqlAdminLogin};Password=${sqlAdminPassword};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
 
@@ -156,15 +137,15 @@ module compute 'modules/compute.bicep' = {
     functionPlanName: functionPlanName
     functionAppName: functionAppName
     dataStorageAccountName: storage.outputs.accountName
-    dataStorageConnectionString: dataStorageConnectionString
+    dataStorageConnectionString: storage.outputs.connectionString
     incomingContainerName: incomingContainerName
     processedContainerName: processedContainerName
     tempContainerName: tempContainerName
     reportsContainerName: reportsContainerName
-    serviceBusConnectionString: serviceBusConnectionString
+    serviceBusConnectionString: serviceBus.outputs.connectionString
     serviceBusFullyQualifiedNamespace: serviceBus.outputs.fullyQualifiedNamespace
     serviceBusQueueName: baseQueueName
-    functionStorageConnectionString: functionStorageConnectionString
+    functionStorageConnectionString: functionStorage.outputs.connectionString
     sqlConnectionString: sqlConnectionString
     environmentName: env
   }
@@ -173,10 +154,26 @@ module compute 'modules/compute.bicep' = {
 module eventGridRbac 'modules/rbac-eventgrid.bicep' = {
   name: 'rbac-eventgrid'
   params: {
-    eventGridPrincipalId: eventGrid.outputs.principalId
-    serviceBusNamespaceName: serviceBusNamespaceName
+    eventGridPrincipalId: eventGridDeliveryIdentity.principalId
+    serviceBusNamespaceName: serviceBus.outputs.namespaceName
     storageAccountName: storage.outputs.accountName
   }
+}
+
+module eventGrid 'modules/eventgrid.bicep' = {
+  name: 'eventgrid'
+  params: {
+    name: eventGridTopicName
+    location: location
+    tags: resourceTags
+    storageAccountId: storage.outputs.accountId
+    serviceBusQueueIds: serviceBus.outputs.queueIds
+    deadLetterContainerName: deadLetterContainerName
+    deliveryIdentityResourceId: eventGridDeliveryIdentity.id
+  }
+  dependsOn: [
+    eventGridRbac
+  ]
 }
 
 module computeRbac 'modules/rbac-compute.bicep' = {
