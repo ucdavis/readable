@@ -13,6 +13,12 @@ if ! az account show >/dev/null 2>&1; then
   exit 1
 fi
 
+SUBSCRIPTION_NAME="UC Davis CAES Test"
+SUBSCRIPTION_ID="105dede4-4731-492e-8c28-5121226319b0"
+
+echo "Setting Azure subscription to $SUBSCRIPTION_NAME ($SUBSCRIPTION_ID)..."
+az account set --subscription "$SUBSCRIPTION_ID"
+
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 BICEP_FILE="$SCRIPT_DIR/../main.bicep"
 
