@@ -38,7 +38,7 @@ az deployment group create \
 - `deployCompute` (optional, default `true`): Creates App Service + Functions when `true`.
 - `corsAllowedOrigins` (optional): CORS origins for blob upload; omit or empty array to disable rules.
 - `sqlAdminLogin` / `sqlAdminPassword` (required): SQL auth credentials.
-- `sqlDatabaseName` (optional, default `sqldb-{appName}-{env}`): SQL database name.
+- `sqlDatabaseName` (optional, default `db-{appName}-{env}`): SQL database name.
 - `serviceBusQueueBaseName` (optional): Overrides the base queue name (`files`).
 - `functionQueueName` (optional): Queue name for the function app (defaults to the first queue; set explicitly when multiple dev aliases are used).
 

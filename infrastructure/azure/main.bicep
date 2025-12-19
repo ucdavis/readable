@@ -17,7 +17,7 @@ param location string = resourceGroup().location
 @description('Dev aliases used only when env == dev (creates per-dev queues + event subscriptions).')
 param devAliases array = []
 
-@description('Deploy compute resources (API App Service + Functions). In dev you may set false if running locally.')
+@description('Deploy compute resources (API App Service + Functions). In dev you may set false if running locally though we probably will not do that.')
 param deployCompute bool = true
 
 @description('Allowed CORS origins for blob uploads (SPA URLs). Example: ["https://localhost:5175"].')
@@ -31,7 +31,7 @@ param sqlAdminLogin string
 param sqlAdminPassword string
 
 @description('SQL database name.')
-param sqlDatabaseName string = 'sqldb-${appName}-${env}'
+param sqlDatabaseName string = 'db-${appName}-${env}'
 
 @description('Service Bus queue base name. Leave empty for `files`.')
 param serviceBusQueueBaseName string = ''
@@ -147,7 +147,11 @@ var dataStorageId = resourceId('Microsoft.Storage/storageAccounts', dataStorageN
 var dataStorageKeys = listKeys(dataStorageId, '2023-01-01')
 var dataStorageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storage.outputs.accountName};AccountKey=${dataStorageKeys.keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
 
-var serviceBusAuthRuleId = resourceId('Microsoft.ServiceBus/namespaces/authorizationRules', serviceBusNamespaceName, 'app')
+var serviceBusAuthRuleId = resourceId(
+  'Microsoft.ServiceBus/namespaces/authorizationRules',
+  serviceBusNamespaceName,
+  'app'
+)
 var serviceBusKeys = listKeys(serviceBusAuthRuleId, '2021-11-01')
 var serviceBusConnectionString = serviceBusKeys.primaryConnectionString
 
