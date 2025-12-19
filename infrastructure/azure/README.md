@@ -1,41 +1,23 @@
-# Azure infrastructure (Bicep)
+# Azure infrastructure
 
-This directory contains the v1 Bicep templates for the Readable architecture:
+Use the dev deploy script to provision the Azure resources for development.
 
-- Storage account + blob containers (`incoming`, `processed`, `temp`, `reports`, `deadletter`)
-- Event Grid system topic + subscriptions to Service Bus queue(s)
-- Service Bus namespace + queue(s)
-- Azure SQL server + database (SQL auth)
-- App Service (Web) + Functions (Flex Consumption)
-- Managed identity RBAC for Event Grid, Web App, and Functions
+## Deploy (dev)
 
-## Deploy
-
-1. Create a resource group if you do not already have one:
+1. Log in to Azure:
 
 ```bash
-az group create -n rg-readable-test -l westus2
+az login
 ```
 
-2. Run the deployment (example with compute enabled):
-
-[Add `what-if` flag to preview changes without applying them, ex `az deployment group create what-if ...`]
+2. Export the SQL admin password and run the script:
 
 ```bash
-az deployment group create \
-  -g rg-readable-test \
-  -f infrastructure/azure/main.bicep \
-  -p appName=readable env=test \
-  -p corsAllowedOrigins='["*"]' \
-  -p sqlAdminLogin='sqladmin' sqlAdminPassword='123'
+export SQL_ADMIN_PASSWORD='your-strong-password'
+./infrastructure/azure/scripts/deploy_dev.sh
 ```
 
-## Parameters
+## Notes
 
-- `appName` (optional, default `readable`): Base name used for resource naming.
-- `env` (optional, default `dev`): Environment name (`dev`, `test`, `prod`).
-- `corsAllowedOrigins` (optional): CORS origins for blob upload; omit or empty array to disable rules.
-- `sqlAdminLogin` / `sqlAdminPassword` (required): SQL auth credentials.
-- `sqlDatabaseName` (optional, default `{appName}`): SQL database name.
-- SQL SKU defaults to `S0` for `prod`, `Basic` for `dev`/`test`.
-- `serviceBusQueueBaseName` (optional): Overrides the base queue name (`files`).
+- The script expects Azure CLI to be installed and will fail fast if it is missing.
+- Additional environment scripts (test/prod) will be added later.
