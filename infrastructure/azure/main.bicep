@@ -53,6 +53,8 @@ var webPlanName = toLower('asp-${appNameSafe}-${env}-${nameToken}')
 var webAppName = toLower('web-${appNameSafe}-${env}-${nameToken}')
 var functionPlanName = toLower('func-${appNameSafe}-${env}-${nameToken}')
 var functionAppName = toLower('fn-${appNameSafe}-${env}-${nameToken}')
+var sqlSkuName = env == 'prod' ? 'S0' : 'Basic'
+var sqlSkuTier = env == 'prod' ? 'Standard' : 'Basic'
 
 var baseQueueName = serviceBusQueueBaseName == '' ? 'files' : serviceBusQueueBaseName
 var devQueueNames = [for alias in devAliases: '${baseQueueName}-${toLower(alias)}']
@@ -137,6 +139,8 @@ module sql 'modules/sql.bicep' = {
     adminLogin: sqlAdminLogin
     adminPassword: sqlAdminPassword
     databaseName: sqlDatabaseName
+    skuName: sqlSkuName
+    skuTier: sqlSkuTier
   }
 }
 

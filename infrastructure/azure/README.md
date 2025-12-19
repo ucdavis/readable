@@ -6,7 +6,7 @@ This directory contains the v1 Bicep templates for the Readable architecture:
 - Event Grid system topic + subscriptions to Service Bus queue(s)
 - Service Bus namespace + queue(s)
 - Azure SQL server + database (SQL auth)
-- App Service (Web) + Functions (Durable)
+- App Service (Web) + Functions (Flex Consumption)
 - Managed identity RBAC for Event Grid, Web App, and Functions
 
 ## Deploy
@@ -38,6 +38,7 @@ az deployment group create \
 - `corsAllowedOrigins` (optional): CORS origins for blob upload; omit or empty array to disable rules.
 - `sqlAdminLogin` / `sqlAdminPassword` (required): SQL auth credentials.
 - `sqlDatabaseName` (optional, default `{appName}`): SQL database name.
+- SQL SKU defaults to `S0` for `prod`, `Basic` for `dev`/`test`.
 - `serviceBusQueueBaseName` (optional): Overrides the base queue name (`files`).
 - `functionQueueName` (optional): Queue name for the function app (defaults to the first queue; set explicitly when multiple dev aliases are used).
 

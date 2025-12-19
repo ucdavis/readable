@@ -131,8 +131,8 @@ resource functionPlan 'Microsoft.Web/serverfarms@2022-09-01' = {
   location: location
   kind: 'functionapp'
   sku: {
-    name: 'Y1'
-    tier: 'Dynamic'
+    name: 'FC1'
+    tier: 'FlexConsumption'
   }
   tags: tags
   properties: {
