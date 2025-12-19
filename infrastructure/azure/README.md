@@ -6,7 +6,7 @@ This directory contains the v1 Bicep templates for the Readable architecture:
 - Event Grid system topic + subscriptions to Service Bus queue(s)
 - Service Bus namespace + queue(s)
 - Azure SQL server + database (SQL auth)
-- Optional compute: App Service (API) + Functions (Durable)
+- App Service (API) + Functions (Durable)
 - Managed identity RBAC for Event Grid, API, and Functions
 
 ## Deploy
@@ -25,7 +25,7 @@ az group create -n rg-readable-test -l westus2
 az deployment group create \
   -g rg-readable-test \
   -f infrastructure/azure/main.bicep \
-  -p appName=readable env=test deployCompute=true \
+  -p appName=readable env=test \
   -p corsAllowedOrigins='["*"]' \
   -p sqlAdminLogin='sqladmin' sqlAdminPassword='123'
 ```
@@ -35,7 +35,6 @@ az deployment group create \
 - `appName` (optional, default `readable`): Base name used for resource naming.
 - `env` (optional, default `dev`): Environment name (`dev`, `test`, `prod`).
 - `devAliases` (optional): When `env=dev`, creates per-dev queues + subscriptions (`files-{alias}`).
-- `deployCompute` (optional, default `true`): Creates App Service + Functions when `true`.
 - `corsAllowedOrigins` (optional): CORS origins for blob upload; omit or empty array to disable rules.
 - `sqlAdminLogin` / `sqlAdminPassword` (required): SQL auth credentials.
 - `sqlDatabaseName` (optional, default `db-{appName}-{env}`): SQL database name.

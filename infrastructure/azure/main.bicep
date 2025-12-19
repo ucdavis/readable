@@ -17,9 +17,6 @@ param location string = resourceGroup().location
 @description('Dev aliases used only when env == dev (creates per-dev queues + event subscriptions).')
 param devAliases array = []
 
-@description('Deploy compute resources (API App Service + Functions). In dev you may set false if running locally though we probably will not do that.')
-param deployCompute bool = true
-
 @description('Allowed CORS origins for blob uploads (SPA URLs). Example: ["https://localhost:5175"].')
 param corsAllowedOrigins array = []
 
@@ -98,7 +95,7 @@ module storage 'modules/storage.bicep' = {
   }
 }
 
-module functionStorage 'modules/function-storage.bicep' = if (deployCompute) {
+module functionStorage 'modules/function-storage.bicep' = {
   name: 'functionStorage'
   params: {
     name: functionStorageName
@@ -155,14 +152,12 @@ var serviceBusAuthRuleId = resourceId(
 var serviceBusKeys = listKeys(serviceBusAuthRuleId, '2021-11-01')
 var serviceBusConnectionString = serviceBusKeys.primaryConnectionString
 
-var functionStorageConnectionString = deployCompute
-  ? 'DefaultEndpointsProtocol=https;AccountName=${functionStorageName};AccountKey=${listKeys(resourceId('Microsoft.Storage/storageAccounts', functionStorageName), '2023-01-01').keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
-  : ''
+var functionStorageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${functionStorageName};AccountKey=${listKeys(resourceId('Microsoft.Storage/storageAccounts', functionStorageName), '2023-01-01').keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
 
 var sqlServerFqdn = '${sqlServerName}.${environment().suffixes.sqlServerHostname}'
 var sqlConnectionString = 'Server=tcp:${sqlServerFqdn},1433;Initial Catalog=${sqlDatabaseName};Persist Security Info=False;User ID=${sqlAdminLogin};Password=${sqlAdminPassword};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
 
-module compute 'modules/compute.bicep' = if (deployCompute) {
+module compute 'modules/compute.bicep' = {
   name: 'compute'
   params: {
     location: location
@@ -195,7 +190,7 @@ module eventGridRbac 'modules/rbac-eventgrid.bicep' = {
   }
 }
 
-module computeRbac 'modules/rbac-compute.bicep' = if (deployCompute) {
+module computeRbac 'modules/rbac-compute.bicep' = {
   name: 'rbac-compute'
   params: {
     apiPrincipalId: compute!.outputs.apiPrincipalId
@@ -207,11 +202,11 @@ module computeRbac 'modules/rbac-compute.bicep' = if (deployCompute) {
 
 output storageAccountName string = storage.outputs.accountName
 output storageBlobEndpoint string = storage.outputs.blobEndpoint
-output functionStorageAccountName string = deployCompute ? functionStorageName : ''
+output functionStorageAccountName string = functionStorageName
 output serviceBusNamespaceName string = serviceBusNamespaceName
 output serviceBusQueueNames array = fileQueueNames
 output eventGridSystemTopicName string = eventGrid.outputs.topicName
 output sqlServerName string = sql.outputs.serverName
 output sqlDatabaseName string = sqlDatabaseName
-output apiAppName string = deployCompute ? apiAppName : ''
-output functionAppName string = deployCompute ? functionAppName : ''
+output apiAppName string = apiAppName
+output functionAppName string = functionAppName
