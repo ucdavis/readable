@@ -12,7 +12,7 @@ flowchart LR
 
   U -->|PUT PDF via SAS| BLOB[(Blob Storage<br/>incoming/)]
   BLOB -->|BlobCreated| EG[Event Grid System Topic]
-  EG --> SB[(Service Bus Queue<br/>files or files-{devAlias})]
+  EG --> SB[(Service Bus Queue<br/>files)]
 
   SB --> START[Functions: SB Trigger "Starter"]
   START --> ORCH[Durable Orchestrator<br/>instanceId = fileId]

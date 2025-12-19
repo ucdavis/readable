@@ -14,9 +14,6 @@ param env string = 'dev'
 @description('Azure region for all resources.')
 param location string = resourceGroup().location
 
-@description('Dev aliases used only when env == dev (creates per-dev queues + event subscriptions).')
-param devAliases array = []
-
 @description('Allowed CORS origins for blob uploads (SPA URLs). Example: ["https://localhost:5175"].')
 param corsAllowedOrigins array = []
 
@@ -32,9 +29,6 @@ param sqlDatabaseName string = appName
 
 @description('Service Bus queue base name. Leave empty for `files`.')
 param serviceBusQueueBaseName string = ''
-
-@description('Queue name for the function app to process. Leave empty to use the first queue.')
-param functionQueueName string = ''
 
 @description('Additional resource tags to apply.')
 param tags object = {}
@@ -57,22 +51,15 @@ var sqlSkuName = env == 'prod' ? 'S0' : 'Basic'
 var sqlSkuTier = env == 'prod' ? 'Standard' : 'Basic'
 
 var baseQueueName = serviceBusQueueBaseName == '' ? 'files' : serviceBusQueueBaseName
-var devQueueNames = [for alias in devAliases: '${baseQueueName}-${toLower(alias)}']
-var fileQueueNames = (env == 'dev' && length(devAliases) > 0)
-  ? devQueueNames
-  : [
-      baseQueueName
-    ]
+var fileQueueNames = [
+  baseQueueName
+]
 
 var incomingContainerName = 'incoming'
 var processedContainerName = 'processed'
 var tempContainerName = 'temp'
 var reportsContainerName = 'reports'
 var deadLetterContainerName = 'deadletter'
-
-var resolvedFunctionQueueName = functionQueueName != ''
-  ? functionQueueName
-  : (env == 'dev' && length(devAliases) > 1 ? '' : fileQueueNames[0])
 
 var resourceTags = union(tags, {
   environment: env
@@ -122,8 +109,6 @@ module eventGrid 'modules/eventgrid.bicep' = {
     name: eventGridTopicName
     location: location
     tags: resourceTags
-    env: env
-    devAliases: devAliases
     storageAccountId: storage.outputs.accountId
     serviceBusQueueIds: serviceBus.outputs.queueIds
     deadLetterContainerName: deadLetterContainerName
@@ -178,7 +163,7 @@ module compute 'modules/compute.bicep' = {
     reportsContainerName: reportsContainerName
     serviceBusConnectionString: serviceBusConnectionString
     serviceBusFullyQualifiedNamespace: serviceBus.outputs.fullyQualifiedNamespace
-    serviceBusQueueName: resolvedFunctionQueueName
+    serviceBusQueueName: baseQueueName
     functionStorageConnectionString: functionStorageConnectionString
     sqlConnectionString: sqlConnectionString
     environmentName: env
