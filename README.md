@@ -9,6 +9,7 @@ This project will allow uploading PDF files to Azure Blob Storage. We'll then qu
 - **Authentication**: OIDC with Microsoft Entra ID (Azure AD)
 - **Styling**: Tailwind CSS
 - **Development**: Hot reload for both frontend and backend
+- **Diagrams**: See `docs/architecture.md`
 
 ## Quick Start
 

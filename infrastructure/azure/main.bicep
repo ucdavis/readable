@@ -1,0 +1,201 @@
+targetScope = 'resourceGroup'
+
+@description('Base name used for resources (keep short).')
+param appName string = 'readable'
+
+@allowed([
+  'dev'
+  'test'
+  'prod'
+])
+@description('Deployment environment name.')
+param env string = 'dev'
+
+@description('Azure region for all resources.')
+param location string = resourceGroup().location
+
+@description('Allowed CORS origins for blob uploads (SPA URLs). Example: ["https://localhost:5175"].')
+param corsAllowedOrigins array = []
+
+@description('SQL admin login for SQL authentication.')
+param sqlAdminLogin string
+
+@secure()
+@description('SQL admin password for SQL authentication.')
+param sqlAdminPassword string
+
+@description('SQL database name.')
+param sqlDatabaseName string = appName
+
+@description('Service Bus queue base name. Leave empty for `files`.')
+param serviceBusQueueBaseName string = ''
+
+@description('Additional resource tags to apply.')
+param tags object = {}
+
+var appSlug = toLower(replace(replace(replace(appName, '-', ''), '_', ''), ' ', ''))
+var appNameSafe = toLower(replace(replace(appName, ' ', ''), '_', ''))
+var envSlug = toLower(replace(replace(env, '-', ''), ' ', ''))
+var nameToken = substring(uniqueString(resourceGroup().id, appName, env), 0, 6)
+
+var dataStorageName = take('st${appSlug}${envSlug}d${nameToken}', 24)
+var functionStorageName = take('st${appSlug}${envSlug}f${nameToken}', 24)
+var serviceBusNamespaceName = toLower('sb-${appNameSafe}-${env}-${nameToken}')
+var eventGridTopicName = toLower('eg-${appNameSafe}-${env}-${nameToken}')
+var sqlServerName = toLower('sql-${appNameSafe}-${env}-${nameToken}')
+var webPlanName = toLower('asp-${appNameSafe}-${env}-${nameToken}')
+var webAppName = toLower('web-${appNameSafe}-${env}-${nameToken}')
+var functionPlanName = toLower('func-${appNameSafe}-${env}-${nameToken}')
+var functionAppName = toLower('fn-${appNameSafe}-${env}-${nameToken}')
+var sqlSkuName = env == 'prod' ? 'S0' : 'Basic'
+var sqlSkuTier = env == 'prod' ? 'Standard' : 'Basic'
+
+var baseQueueName = serviceBusQueueBaseName == '' ? 'files' : serviceBusQueueBaseName
+var fileQueueNames = [
+  baseQueueName
+]
+
+var incomingContainerName = 'incoming'
+var processedContainerName = 'processed'
+var tempContainerName = 'temp'
+var reportsContainerName = 'reports'
+var deadLetterContainerName = 'deadletter'
+
+var resourceTags = union(tags, {
+  environment: env
+  application: appName
+})
+
+module storage 'modules/storage.bicep' = {
+  name: 'storage'
+  params: {
+    name: dataStorageName
+    location: location
+    tags: resourceTags
+    corsAllowedOrigins: corsAllowedOrigins
+    containerNames: [
+      incomingContainerName
+      processedContainerName
+      tempContainerName
+      reportsContainerName
+      deadLetterContainerName
+    ]
+    tempContainerName: tempContainerName
+  }
+}
+
+module functionStorage 'modules/function-storage.bicep' = {
+  name: 'functionStorage'
+  params: {
+    name: functionStorageName
+    location: location
+    tags: resourceTags
+  }
+}
+
+module serviceBus 'modules/servicebus.bicep' = {
+  name: 'servicebus'
+  params: {
+    name: serviceBusNamespaceName
+    location: location
+    tags: resourceTags
+    queueNames: fileQueueNames
+  }
+}
+
+module eventGrid 'modules/eventgrid.bicep' = {
+  name: 'eventgrid'
+  params: {
+    name: eventGridTopicName
+    location: location
+    tags: resourceTags
+    storageAccountId: storage.outputs.accountId
+    serviceBusQueueIds: serviceBus.outputs.queueIds
+    deadLetterContainerName: deadLetterContainerName
+  }
+}
+
+module sql 'modules/sql.bicep' = {
+  name: 'sql'
+  params: {
+    name: sqlServerName
+    location: location
+    tags: resourceTags
+    adminLogin: sqlAdminLogin
+    adminPassword: sqlAdminPassword
+    databaseName: sqlDatabaseName
+    skuName: sqlSkuName
+    skuTier: sqlSkuTier
+  }
+}
+
+var dataStorageId = resourceId('Microsoft.Storage/storageAccounts', dataStorageName)
+var dataStorageKeys = listKeys(dataStorageId, '2023-01-01')
+var dataStorageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storage.outputs.accountName};AccountKey=${dataStorageKeys.keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
+
+var serviceBusAuthRuleId = resourceId(
+  'Microsoft.ServiceBus/namespaces/authorizationRules',
+  serviceBusNamespaceName,
+  'app'
+)
+var serviceBusKeys = listKeys(serviceBusAuthRuleId, '2021-11-01')
+var serviceBusConnectionString = serviceBusKeys.primaryConnectionString
+
+var functionStorageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${functionStorageName};AccountKey=${listKeys(resourceId('Microsoft.Storage/storageAccounts', functionStorageName), '2023-01-01').keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
+
+var sqlServerFqdn = '${sqlServerName}.${environment().suffixes.sqlServerHostname}'
+var sqlConnectionString = 'Server=tcp:${sqlServerFqdn},1433;Initial Catalog=${sqlDatabaseName};Persist Security Info=False;User ID=${sqlAdminLogin};Password=${sqlAdminPassword};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
+
+module compute 'modules/compute.bicep' = {
+  name: 'compute'
+  params: {
+    location: location
+    tags: resourceTags
+    webPlanName: webPlanName
+    webAppName: webAppName
+    functionPlanName: functionPlanName
+    functionAppName: functionAppName
+    dataStorageAccountName: storage.outputs.accountName
+    dataStorageConnectionString: dataStorageConnectionString
+    incomingContainerName: incomingContainerName
+    processedContainerName: processedContainerName
+    tempContainerName: tempContainerName
+    reportsContainerName: reportsContainerName
+    serviceBusConnectionString: serviceBusConnectionString
+    serviceBusFullyQualifiedNamespace: serviceBus.outputs.fullyQualifiedNamespace
+    serviceBusQueueName: baseQueueName
+    functionStorageConnectionString: functionStorageConnectionString
+    sqlConnectionString: sqlConnectionString
+    environmentName: env
+  }
+}
+
+module eventGridRbac 'modules/rbac-eventgrid.bicep' = {
+  name: 'rbac-eventgrid'
+  params: {
+    eventGridPrincipalId: eventGrid.outputs.principalId
+    serviceBusNamespaceName: serviceBusNamespaceName
+    storageAccountName: storage.outputs.accountName
+  }
+}
+
+module computeRbac 'modules/rbac-compute.bicep' = {
+  name: 'rbac-compute'
+  params: {
+    webPrincipalId: compute!.outputs.webPrincipalId
+    functionPrincipalId: compute!.outputs.functionPrincipalId
+    storageAccountName: storage.outputs.accountName
+    serviceBusNamespaceName: serviceBusNamespaceName
+  }
+}
+
+output storageAccountName string = storage.outputs.accountName
+output storageBlobEndpoint string = storage.outputs.blobEndpoint
+output functionStorageAccountName string = functionStorageName
+output serviceBusNamespaceName string = serviceBusNamespaceName
+output serviceBusQueueNames array = fileQueueNames
+output eventGridSystemTopicName string = eventGrid.outputs.topicName
+output sqlServerName string = sql.outputs.serverName
+output sqlDatabaseName string = sqlDatabaseName
+output webAppName string = webAppName
+output functionAppName string = functionAppName
