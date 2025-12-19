@@ -154,7 +154,7 @@ module compute 'modules/compute.bicep' = {
 module eventGridRbac 'modules/rbac-eventgrid.bicep' = {
   name: 'rbac-eventgrid'
   params: {
-    eventGridPrincipalId: eventGridDeliveryIdentity.principalId
+    eventGridPrincipalId: eventGridDeliveryIdentity.properties.principalId
     serviceBusNamespaceName: serviceBus.outputs.namespaceName
     storageAccountName: storage.outputs.accountName
   }

@@ -218,6 +218,18 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
         }
       ])
     }
+    functionAppConfig: {
+      deployment: {
+        storage: {
+          type: 'StorageAccount'
+          value: functionStorageConnectionString
+        }
+      }
+      runtime: {
+        name: 'dotnet-isolated'
+        version: '8.0'
+      }
+    }
   }
 }
 
