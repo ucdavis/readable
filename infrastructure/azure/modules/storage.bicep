@@ -27,7 +27,7 @@ param blobDeleteRetentionDays int = 7
 @description('Enable blob versioning.')
 param enableBlobVersioning bool = true
 
-resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
+resource storageAccount 'Microsoft.Storage/storageAccounts@2025-06-01' = {
   name: name
   location: location
   kind: 'StorageV2'
@@ -42,7 +42,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
   }
 }
 
-resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-01-01' = {
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2025-06-01' = {
   name: 'default'
   parent: storageAccount
   properties: {
@@ -75,7 +75,7 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-01-01'
   }
 }
 
-resource containers 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = [for containerName in containerNames: {
+resource containers 'Microsoft.Storage/storageAccounts/blobServices/containers@2025-06-01' = [for containerName in containerNames: {
   name: containerName
   parent: blobService
   properties: {
@@ -83,7 +83,7 @@ resource containers 'Microsoft.Storage/storageAccounts/blobServices/containers@2
   }
 }]
 
-resource managementPolicy 'Microsoft.Storage/storageAccounts/managementPolicies@2023-01-01' = if (tempDeleteAfterDays > 0) {
+resource managementPolicy 'Microsoft.Storage/storageAccounts/managementPolicies@2025-06-01' = if (tempDeleteAfterDays > 0) {
   name: 'default'
   parent: storageAccount
   properties: {

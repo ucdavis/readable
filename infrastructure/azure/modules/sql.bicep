@@ -23,7 +23,7 @@ param skuName string = 'S0'
 @description('SQL database SKU tier.')
 param skuTier string = 'Standard'
 
-resource sqlServer 'Microsoft.Sql/servers@2022-05-01-preview' = {
+resource sqlServer 'Microsoft.Sql/servers@2023-08-01' = {
   name: name
   location: location
   tags: tags
@@ -35,7 +35,7 @@ resource sqlServer 'Microsoft.Sql/servers@2022-05-01-preview' = {
   }
 }
 
-resource database 'Microsoft.Sql/servers/databases@2022-05-01-preview' = {
+resource database 'Microsoft.Sql/servers/databases@2023-08-01' = {
   name: databaseName
   parent: sqlServer
   location: location

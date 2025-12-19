@@ -10,7 +10,7 @@ param tags object
 @description('Service Bus queue names.')
 param queueNames array
 
-resource serviceBusNamespace 'Microsoft.ServiceBus/namespaces@2021-11-01' = {
+resource serviceBusNamespace 'Microsoft.ServiceBus/namespaces@2024-01-01' = {
   name: name
   location: location
   sku: {
@@ -20,7 +20,7 @@ resource serviceBusNamespace 'Microsoft.ServiceBus/namespaces@2021-11-01' = {
   tags: tags
 }
 
-resource queues 'Microsoft.ServiceBus/namespaces/queues@2021-11-01' = [for queueName in queueNames: {
+resource queues 'Microsoft.ServiceBus/namespaces/queues@2024-01-01' = [for queueName in queueNames: {
   name: queueName
   parent: serviceBusNamespace
   properties: {
@@ -34,7 +34,7 @@ resource queues 'Microsoft.ServiceBus/namespaces/queues@2021-11-01' = [for queue
   }
 }]
 
-resource appAuthRule 'Microsoft.ServiceBus/namespaces/authorizationRules@2021-11-01' = {
+resource appAuthRule 'Microsoft.ServiceBus/namespaces/authorizationRules@2024-01-01' = {
   name: 'app'
   parent: serviceBusNamespace
   properties: {

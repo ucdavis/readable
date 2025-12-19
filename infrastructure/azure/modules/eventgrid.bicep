@@ -16,7 +16,7 @@ param serviceBusQueueIds array
 @description('Deadletter container name in the storage account.')
 param deadLetterContainerName string
 
-resource systemTopic 'Microsoft.EventGrid/systemTopics@2022-06-15' = {
+resource systemTopic 'Microsoft.EventGrid/systemTopics@2025-02-15' = {
   name: name
   location: location
   identity: {
@@ -29,7 +29,7 @@ resource systemTopic 'Microsoft.EventGrid/systemTopics@2022-06-15' = {
   }
 }
 
-resource defaultSubscription 'Microsoft.EventGrid/systemTopics/eventSubscriptions@2022-06-15' = {
+resource defaultSubscription 'Microsoft.EventGrid/systemTopics/eventSubscriptions@2025-02-15' = {
   name: 'on-incoming-pdf'
   parent: systemTopic
   properties: {

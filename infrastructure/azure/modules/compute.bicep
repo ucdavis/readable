@@ -59,7 +59,7 @@ param environmentName string
 @description('Chunk size for pipeline processing.')
 param pipelineChunkSizePages int = 100
 
-resource webPlan 'Microsoft.Web/serverfarms@2022-09-01' = {
+resource webPlan 'Microsoft.Web/serverfarms@2025-03-01' = {
   name: webPlanName
   location: location
   kind: 'linux'
@@ -75,7 +75,7 @@ resource webPlan 'Microsoft.Web/serverfarms@2022-09-01' = {
   }
 }
 
-resource webApp 'Microsoft.Web/sites@2022-09-01' = {
+resource webApp 'Microsoft.Web/sites@2025-03-01' = {
   name: webAppName
   location: location
   kind: 'app,linux'
@@ -126,7 +126,7 @@ resource webApp 'Microsoft.Web/sites@2022-09-01' = {
   }
 }
 
-resource functionPlan 'Microsoft.Web/serverfarms@2022-09-01' = {
+resource functionPlan 'Microsoft.Web/serverfarms@2025-03-01' = {
   name: functionPlanName
   location: location
   kind: 'functionapp'
@@ -140,7 +140,7 @@ resource functionPlan 'Microsoft.Web/serverfarms@2022-09-01' = {
   }
 }
 
-resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
+resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
   name: functionAppName
   location: location
   kind: 'functionapp,linux'

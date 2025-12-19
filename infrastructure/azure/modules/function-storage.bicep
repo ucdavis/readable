@@ -7,7 +7,7 @@ param location string
 @description('Tags to apply to the storage account.')
 param tags object
 
-resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
+resource storageAccount 'Microsoft.Storage/storageAccounts@2025-06-01' = {
   name: name
   location: location
   kind: 'StorageV2'
