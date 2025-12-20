@@ -39,13 +39,41 @@ fi
 echo "Ensuring resource group $RESOURCE_GROUP exists in $LOCATION..."
 az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
 
-echo "Deploying $BICEP_FILE in resource group $RESOURCE_GROUP..."
+echo "Deploying base resources in $RESOURCE_GROUP..."
 
 az deployment group create \
   --resource-group "$RESOURCE_GROUP" \
   --template-file "$BICEP_FILE" \
   --parameters appName="$APP_NAME" env="$ENVIRONMENT" \
   --parameters corsAllowedOrigins="$CORS_ALLOWED_ORIGINS" \
-  --parameters sqlAdminLogin="$SQL_ADMIN_LOGIN" sqlAdminPassword="$SQL_ADMIN_PASSWORD"
+  --parameters sqlAdminLogin="$SQL_ADMIN_LOGIN" sqlAdminPassword="$SQL_ADMIN_PASSWORD" \
+  --parameters deployEventGridSubscription=false
 
-echo "Deployment request submitted. Review the Azure CLI output for details."
+echo "Waiting for role assignments to propagate before creating the Event Grid subscription..."
+sleep 60
+
+max_attempts=5
+attempt=1
+
+while (( attempt <= max_attempts )); do
+  echo "Deploying Event Grid subscription (attempt $attempt/$max_attempts)..."
+  if az deployment group create \
+    --resource-group "$RESOURCE_GROUP" \
+    --template-file "$BICEP_FILE" \
+    --parameters appName="$APP_NAME" env="$ENVIRONMENT" \
+    --parameters corsAllowedOrigins="$CORS_ALLOWED_ORIGINS" \
+    --parameters sqlAdminLogin="$SQL_ADMIN_LOGIN" sqlAdminPassword="$SQL_ADMIN_PASSWORD" \
+    --parameters deployEventGridSubscription=true; then
+    echo "Deployment complete."
+    exit 0
+  fi
+
+  if (( attempt == max_attempts )); then
+    echo "Event Grid subscription deployment failed after $max_attempts attempts." >&2
+    exit 1
+  fi
+
+  echo "Retrying Event Grid subscription deployment after a short wait..."
+  sleep 30
+  attempt=$(( attempt + 1 ))
+done

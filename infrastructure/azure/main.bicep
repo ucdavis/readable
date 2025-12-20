@@ -33,6 +33,9 @@ param serviceBusQueueBaseName string = ''
 @description('Additional resource tags to apply.')
 param tags object = {}
 
+@description('Whether to deploy the Event Grid subscription.')
+param deployEventGridSubscription bool = true
+
 var appSlug = toLower(replace(replace(replace(appName, '-', ''), '_', ''), ' ', ''))
 var appNameSafe = toLower(replace(replace(appName, ' ', ''), '_', ''))
 var envSlug = toLower(replace(replace(env, '-', ''), ' ', ''))
@@ -112,6 +115,17 @@ module serviceBus 'modules/servicebus.bicep' = {
   }
 }
 
+module eventGrid 'modules/eventgrid.bicep' = {
+  name: 'eventgrid'
+  params: {
+    name: eventGridTopicName
+    location: location
+    tags: resourceTags
+    storageAccountId: storage.outputs.accountId
+    deliveryIdentityResourceId: eventGridDeliveryIdentity.id
+  }
+}
+
 module sql 'modules/sql.bicep' = {
   name: 'sql'
   params: {
@@ -164,12 +178,10 @@ module eventGridRbac 'modules/rbac-eventgrid.bicep' = {
   }
 }
 
-module eventGrid 'modules/eventgrid.bicep' = {
-  name: 'eventgrid'
+module eventGridSubscription 'modules/eventgrid-subscription.bicep' = if (deployEventGridSubscription) {
+  name: 'eventgrid-subscription'
   params: {
-    name: eventGridTopicName
-    location: location
-    tags: resourceTags
+    systemTopicName: eventGrid.outputs.topicName
     storageAccountId: storage.outputs.accountId
     serviceBusQueueIds: serviceBus.outputs.queueIds
     deadLetterContainerName: deadLetterContainerName

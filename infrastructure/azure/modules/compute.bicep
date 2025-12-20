@@ -65,6 +65,19 @@ param environmentName string
 @description('Chunk size for pipeline processing.')
 param pipelineChunkSizePages int = 100
 
+@allowed([
+  512
+  2048
+  4096
+])
+@description('Memory size (MB) for Flex Consumption function instances.')
+param functionInstanceMemoryMB int = 2048
+
+@minValue(1)
+@maxValue(1000)
+@description('Maximum number of Flex Consumption instances.')
+param functionMaximumInstanceCount int = 10
+
 resource webPlan 'Microsoft.Web/serverfarms@2025-03-01' = {
   name: webPlanName
   location: location
@@ -158,19 +171,10 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
     serverFarmId: functionPlan.id
     httpsOnly: true
     siteConfig: {
-      linuxFxVersion: 'DOTNET-ISOLATED|8.0'
       appSettings: concat([
         {
           name: 'AzureWebJobsStorage'
           value: functionStorageConnectionString
-        }
-        {
-          name: 'FUNCTIONS_EXTENSION_VERSION'
-          value: '~4'
-        }
-        {
-          name: 'FUNCTIONS_WORKER_RUNTIME'
-          value: 'dotnet-isolated'
         }
         {
           name: 'DB_CONNECTION'
@@ -238,6 +242,10 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
       runtime: {
         name: 'dotnet-isolated'
         version: '8.0'
+      }
+      scaleAndConcurrency: {
+        instanceMemoryMB: functionInstanceMemoryMB
+        maximumInstanceCount: functionMaximumInstanceCount
       }
     }
   }
