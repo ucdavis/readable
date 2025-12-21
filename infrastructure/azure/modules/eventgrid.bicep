@@ -10,17 +10,17 @@ param tags object
 @description('Resource ID of the Storage Account to source events from.')
 param storageAccountId string
 
-@description('Resource IDs of the Service Bus queues.')
-param serviceBusQueueIds array
-
-@description('Deadletter container name in the storage account.')
-param deadLetterContainerName string
+@description('User-assigned managed identity resource ID for Event Grid delivery.')
+param deliveryIdentityResourceId string
 
 resource systemTopic 'Microsoft.EventGrid/systemTopics@2025-02-15' = {
   name: name
   location: location
   identity: {
-    type: 'SystemAssigned'
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${deliveryIdentityResourceId}': {}
+    }
   }
   tags: tags
   properties: {
@@ -29,49 +29,6 @@ resource systemTopic 'Microsoft.EventGrid/systemTopics@2025-02-15' = {
   }
 }
 
-resource defaultSubscription 'Microsoft.EventGrid/systemTopics/eventSubscriptions@2025-02-15' = {
-  name: 'on-incoming-pdf'
-  parent: systemTopic
-  properties: {
-    eventDeliverySchema: 'CloudEventSchemaV1_0'
-    filter: {
-      includedEventTypes: [
-        'Microsoft.Storage.BlobCreated'
-      ]
-      subjectBeginsWith: '/blobServices/default/containers/incoming/blobs/'
-      subjectEndsWith: '.pdf'
-      isSubjectCaseSensitive: false
-    }
-    retryPolicy: {
-      maxDeliveryAttempts: 10
-      eventTimeToLiveInMinutes: 1440
-    }
-    deliveryWithResourceIdentity: {
-      identity: {
-        type: 'SystemAssigned'
-      }
-      destination: {
-        endpointType: 'ServiceBusQueue'
-        properties: {
-          resourceId: serviceBusQueueIds[0]
-        }
-      }
-    }
-    deadLetterWithResourceIdentity: {
-      identity: {
-        type: 'SystemAssigned'
-      }
-      deadLetterDestination: {
-        endpointType: 'StorageBlob'
-        properties: {
-          resourceId: storageAccountId
-          blobContainerName: deadLetterContainerName
-        }
-      }
-    }
-  }
-}
-
 output topicName string = systemTopic.name
 output topicId string = systemTopic.id
-output principalId string = systemTopic.identity.principalId
+output principalId string = systemTopic.identity.userAssignedIdentities[deliveryIdentityResourceId].principalId

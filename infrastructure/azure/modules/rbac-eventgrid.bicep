@@ -1,4 +1,4 @@
-@description('Principal ID of the Event Grid system topic.')
+@description('Principal ID of the Event Grid delivery identity.')
 param eventGridPrincipalId string
 
 @description('Service Bus namespace name.')
