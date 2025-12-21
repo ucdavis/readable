@@ -7,6 +7,12 @@
             "Worker": "Information",
             "Function": "Information"
         },
+        "applicationInsights": {
+            "samplingSettings": {
+                "isEnabled": true,
+                "maxTelemetryItemsPerSecond": 5
+            }
+        },
         "console": {
             "isEnabled": true
         }
