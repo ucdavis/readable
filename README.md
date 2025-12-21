@@ -16,8 +16,8 @@ This project will allow uploading PDF files to Azure Blob Storage. We'll then qu
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/ucdavis/web-app-template/
-   cd web-app-template
+   git clone https://github.com/ucdavis/readable
+   cd readable
    ```
 
 2. **Open In DevContainer**

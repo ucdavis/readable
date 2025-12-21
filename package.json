@@ -1,5 +1,5 @@
 {
-  "name": "web-app-template",
+  "name": "readable",
   "private": true,
   "scripts": {
     "start": "dotnet watch --project server/server.csproj"
