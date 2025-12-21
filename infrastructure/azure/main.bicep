@@ -46,8 +46,11 @@ var appNameSafe = toLower(replace(replace(appName, ' ', ''), '_', ''))
 var envSlug = toLower(replace(replace(env, '-', ''), ' ', ''))
 var nameToken = substring(uniqueString(resourceGroup().id, appName, env), 0, 6)
 
-var dataStorageName = take('st${appSlug}${envSlug}d${nameToken}', 24)
-var functionStorageName = take('st${appSlug}${envSlug}f${nameToken}', 24)
+var storageNameToken = nameToken
+var dataStoragePrefix = take('st${appSlug}${envSlug}data', 24 - length(storageNameToken))
+var functionStoragePrefix = take('st${appSlug}${envSlug}function', 24 - length(storageNameToken))
+var dataStorageName = '${dataStoragePrefix}${storageNameToken}'
+var functionStorageName = '${functionStoragePrefix}${storageNameToken}'
 var serviceBusNamespaceName = toLower('sb-${appNameSafe}-${env}-${nameToken}')
 var eventGridTopicName = toLower('eg-${appNameSafe}-${env}-${nameToken}')
 var eventGridDeliveryIdentityName = toLower('uai-eg-${appNameSafe}-${env}-${nameToken}')
