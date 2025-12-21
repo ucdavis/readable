@@ -199,8 +199,8 @@ module compute 'modules/compute.bicep' = {
     functionStorageConnectionString: functionStorage.outputs.connectionString
     sqlConnectionString: sqlConnectionString
     environmentName: env
-    appInsightsConnectionString: reference(appInsights.id, '2020-02-02').ConnectionString
-    appInsightsInstrumentationKey: reference(appInsights.id, '2020-02-02').InstrumentationKey
+    appInsightsConnectionString: appInsights.properties.ConnectionString
+    appInsightsInstrumentationKey: appInsights.properties.InstrumentationKey
   }
 }
 
