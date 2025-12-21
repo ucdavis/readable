@@ -36,7 +36,7 @@ az functionapp list -g rg-readable-dev --query "[].name" -o tsv
 
 ```bash
 cd workers/function.ingest
-func azure functionapp publish <FUNCTION_APP_NAME> --dotnet-isolated
+func azure functionapp publish <FUNCTION_APP_NAME> --dotnet-isolated --nozip
 ```
 
 ## Tail logs (no Application Insights)

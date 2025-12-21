@@ -221,12 +221,7 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
           name: 'ServiceBus__QueueName'
           value: serviceBusQueueName
         }
-      ] : [], [
-        {
-          name: 'WEBSITE_RUN_FROM_PACKAGE'
-          value: '1'
-        }
-      ])
+      ] : [])
     }
     functionAppConfig: {
       deployment: {
