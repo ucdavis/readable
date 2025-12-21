@@ -37,3 +37,7 @@ msbuild.wrn
 
 # Jetbrains
 .idea/
+
+# Azure
+.azurepub/
+.azure/
