@@ -17,7 +17,7 @@ resource systemTopic 'Microsoft.EventGrid/systemTopics@2025-02-15' = {
   name: name
   location: location
   identity: {
-    type: 'SystemAssigned, UserAssigned'
+    type: 'UserAssigned'
     userAssignedIdentities: {
       '${deliveryIdentityResourceId}': {}
     }
@@ -31,4 +31,4 @@ resource systemTopic 'Microsoft.EventGrid/systemTopics@2025-02-15' = {
 
 output topicName string = systemTopic.name
 output topicId string = systemTopic.id
-output principalId string = systemTopic.identity.principalId
+output principalId string = systemTopic.identity.userAssignedIdentities[deliveryIdentityResourceId].principalId

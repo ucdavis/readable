@@ -116,7 +116,8 @@ resource managementPolicy 'Microsoft.Storage/storageAccounts/managementPolicies@
   }
 }
 
-var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${listKeys(storageAccount.id, '2023-01-01').keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
+var storageAccountKeys = storageAccount.listKeys()
+var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccountKeys.keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
 
 output accountName string = storageAccount.name
 output accountId string = storageAccount.id
