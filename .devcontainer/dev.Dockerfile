@@ -1,8 +1,28 @@
 FROM mcr.microsoft.com/devcontainers/base:ubuntu
 
-# Base utilities only (removed 'sqlcmd' – it was invalid)
+# Base utilities only
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl jq bash-completion procps iputils-ping netcat-traditional \
+    apt-transport-https ca-certificates curl gnupg lsb-release \
+    jq bash-completion procps iputils-ping netcat-traditional \
+    && rm -rf /var/lib/apt/lists/*
+
+# Azure CLI (https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-linux?view=azure-cli-latest&pivots=apt)
+RUN mkdir -p /etc/apt/keyrings \
+    && curl -sLS https://packages.microsoft.com/keys/microsoft.asc \
+    | gpg --dearmor \
+    | tee /etc/apt/keyrings/microsoft.gpg > /dev/null \
+    && chmod go+r /etc/apt/keyrings/microsoft.gpg \
+    && AZ_DIST="$(lsb_release -cs)" \
+    && printf '%s\n' \
+    "Types: deb" \
+    "URIs: https://packages.microsoft.com/repos/azure-cli/" \
+    "Suites: ${AZ_DIST}" \
+    "Components: main" \
+    "Architectures: $(dpkg --print-architecture)" \
+    "Signed-by: /etc/apt/keyrings/microsoft.gpg" \
+    > /etc/apt/sources.list.d/azure-cli.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends azure-cli \
     && rm -rf /var/lib/apt/lists/*
 
 # NodeJS 22

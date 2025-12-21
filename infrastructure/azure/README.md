@@ -22,7 +22,7 @@ export SQL_ADMIN_PASSWORD='your-strong-password'
 - The script expects Azure CLI to be installed and will fail fast if it is missing.
 - Additional environment scripts (test/prod) will be added later.
 
-## DEV-ONLY - Deploy function code (ingest)
+## Deploy function code (ingest)
 
 The infra deployment provisions the Function App, but does not publish code to it.
 
@@ -36,10 +36,7 @@ az functionapp list -g rg-readable-dev --query "[].name" -o tsv
 
 ```bash
 cd workers/function.ingest
-dotnet publish -c Release -o ./bin/publish
-cd ./bin/publish
-zip -r ../function_ingest.zip .
-az functionapp deployment source config-zip -g rg-readable-dev -n <FUNCTION_APP_NAME> --src ../function_ingest.zip
+func azure functionapp publish <FUNCTION_APP_NAME> --dotnet-isolated
 ```
 
 ## Tail logs (no Application Insights)
