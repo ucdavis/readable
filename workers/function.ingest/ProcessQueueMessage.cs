@@ -17,7 +17,7 @@ public class ProcessQueueMessage
 
     [Function(nameof(ProcessQueueMessage))]
     public async Task Run(
-        [ServiceBusTrigger("%ServiceBus__QueueName%", Connection = "ServiceBus__ConnectionString")]
+        [ServiceBusTrigger("%ServiceBus__QueueName%", Connection = "ServiceBus")]
         ServiceBusReceivedMessage message,
         ServiceBusMessageActions messageActions)
     {

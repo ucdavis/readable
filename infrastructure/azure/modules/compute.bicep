@@ -185,7 +185,7 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
           value: serviceBusFullyQualifiedNamespace
         }
         {
-          name: 'ServiceBus__ConnectionString'
+          name: 'ServiceBus'
           value: serviceBusConnectionString
         }
         {
