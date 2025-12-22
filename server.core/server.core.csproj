@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Adobe.PDFServicesSDK" Version="4.3.1" />
     <PackageReference Include="itext" Version="9.4.0" />
     <PackageReference Include="itext.bouncy-castle-adapter" Version="9.4.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.21" />

@@ -1,5 +1,6 @@
 using System.Text;
 using iText.Kernel.Pdf;
+using iText.Kernel.Utils;
 using Microsoft.Extensions.Logging;
 
 namespace server.core.Ingest;
@@ -17,10 +18,12 @@ public sealed record PdfChunk(int Index, int FromPage, int ToPage, string Path)
 public sealed class PdfProcessor : IPdfProcessor
 {
     private const int MaxPagesPerChunk = 200;
+    private readonly IAdobePdfServices _adobePdfServices;
     private readonly ILogger<PdfProcessor> _logger;
 
-    public PdfProcessor(ILogger<PdfProcessor> logger)
+    public PdfProcessor(IAdobePdfServices adobePdfServices, ILogger<PdfProcessor> logger)
     {
+        _adobePdfServices = adobePdfServices;
         _logger = logger;
     }
 
@@ -49,7 +52,32 @@ public sealed class PdfProcessor : IPdfProcessor
             chunks.Count,
             workDir);
 
-        // Remaining pipeline steps are still TODO (auto-tagging, merging, a11y, upload, DB updates).
+        // Autotag each chunk via Adobe PDF Services.
+        var taggedChunkPaths = new List<string>(chunks.Count);
+        foreach (var chunk in chunks)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var taggedPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.tagged.pdf");
+            var reportPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.autotag-report.xlsx");
+
+            await _adobePdfServices.AutotagPdfAsync(
+                inputPdfPath: chunk.Path,
+                outputTaggedPdfPath: taggedPath,
+                outputTaggingReportPath: reportPath,
+                cancellationToken: cancellationToken);
+
+            taggedChunkPaths.Add(taggedPath);
+        }
+
+        // Merge all tagged chunk PDFs back into a single tagged PDF.
+        var mergedTaggedPath = Path.Combine(workDir, $"{safeFileId}.tagged.pdf");
+        MergePdfsInOrder(taggedChunkPaths, mergedTaggedPath, cancellationToken);
+
+        _logger.LogInformation("Merged tagged PDF written to {path}", mergedTaggedPath);
+
+        // TODO: Generate a final a11y report on the merged tagged PDF (PDFAccessibilityCheckerJob).
+        // TODO: Merge/tagging reports, upload to `processed/`, and update DB status + artifact URIs.
     }
 
     private static List<PdfChunk> SplitIntoChunks(
@@ -107,6 +135,22 @@ public sealed class PdfProcessor : IPdfProcessor
         }
 
         return sb.ToString().Trim();
+    }
+
+    private static void MergePdfsInOrder(IReadOnlyList<string> inputPaths, string outputPath, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        using var dest = new PdfDocument(new PdfWriter(outputPath));
+        var merger = new PdfMerger(dest);
+
+        foreach (var inputPath in inputPaths)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var src = new PdfDocument(new PdfReader(inputPath));
+            merger.Merge(src, 1, src.GetNumberOfPages());
+        }
     }
 }
 
