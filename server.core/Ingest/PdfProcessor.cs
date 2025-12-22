@@ -52,7 +52,9 @@ public sealed class PdfProcessor : IPdfProcessor
             chunks.Count,
             workDir);
 
-        // Autotag each chunk via Adobe PDF Services.
+        // 2. TODO (maybe) - get an a10y report for the 'before' step
+
+        // 3. Autotag each chunk via Adobe PDF Services.
         var taggedChunkPaths = new List<string>(chunks.Count);
         foreach (var chunk in chunks)
         {

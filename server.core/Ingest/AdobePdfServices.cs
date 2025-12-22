@@ -29,7 +29,7 @@ public interface IAdobePdfServices
 
 public sealed record AdobeAutotagOutput(string TaggedPdfPath, string TaggingReportPath);
 
-public sealed record AdobeAccessibilityCheckOutput(string OutputPdfPath, string ReportPath);
+public sealed record AdobeAccessibilityCheckOutput(string OutputPdfPath, string ReportPath, string? ReportJson);
 
 public sealed class AdobePdfServices : IAdobePdfServices
 {
@@ -128,12 +128,20 @@ public sealed class AdobePdfServices : IAdobePdfServices
         var reportStreamAsset = pdfServices.GetContent(reportAsset);
         await WriteStreamAssetAsync(reportStreamAsset, outputReportPath, cancellationToken);
 
+        // Convenience: return the JSON string so callers can persist it directly (e.g., to a DB column).
+        // The PDF Services API returns a JSON report for this job; we still write it to disk for traceability.
+        string? reportJson = null;
+        if (File.Exists(outputReportPath))
+        {
+            reportJson = await File.ReadAllTextAsync(outputReportPath, cancellationToken);
+        }
+
         _logger.LogInformation(
             "Adobe Accessibility Checker complete: {input} -> {report}",
             inputPdfPath,
             outputReportPath);
 
-        return new AdobeAccessibilityCheckOutput(outputPdfPath, outputReportPath);
+        return new AdobeAccessibilityCheckOutput(outputPdfPath, outputReportPath, reportJson);
     }
 
     private PDFServices CreateClient()
