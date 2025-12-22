@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using server.core.Ingest;
@@ -35,7 +36,7 @@ if (blobUrl is not null)
     }
 
     if (!StorageBlobCreatedEventParser.TryParse(
-            $$"""{"data":{"url":"{{uri}}"}}""",
+            JsonSerializer.Serialize(new { data = new { url = uri.ToString() } }),
             out request,
             out var error))
     {
@@ -81,4 +82,3 @@ static (string? BlobUrl, string? CloudEventPath) ParseArgs(string[] args)
 
     return (blobUrl, cloudEventPath);
 }
-
