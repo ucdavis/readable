@@ -9,6 +9,11 @@ public static class IngestServiceCollectionExtensions
         var options = new FileIngestOptions();
         configure?.Invoke(options);
 
+        services.AddOptions<PdfProcessorOptions>().Configure(o =>
+        {
+            o.MaxPagesPerChunk = options.PdfMaxPagesPerChunk;
+            o.WorkDirRoot = options.PdfWorkDirRoot;
+        });
         services.AddSingleton<IBlobStreamOpener, AzureBlobStreamOpener>();
 
         if (options.UseNoopAdobePdfServices)

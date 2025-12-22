@@ -2,6 +2,7 @@ using System.Text;
 using iText.Kernel.Pdf;
 using iText.Kernel.Utils;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace server.core.Ingest;
 
@@ -17,25 +18,35 @@ public sealed record PdfChunk(int Index, int FromPage, int ToPage, string Path)
 
 public sealed class PdfProcessor : IPdfProcessor
 {
-    private const int MaxPagesPerChunk = 200;
     private readonly IAdobePdfServices _adobePdfServices;
     private readonly IPdfRemediationProcessor _pdfRemediationProcessor;
+    private readonly PdfProcessorOptions _options;
     private readonly ILogger<PdfProcessor> _logger;
 
     public PdfProcessor(
         IAdobePdfServices adobePdfServices,
         IPdfRemediationProcessor pdfRemediationProcessor,
+        IOptions<PdfProcessorOptions> options,
         ILogger<PdfProcessor> logger)
     {
         _adobePdfServices = adobePdfServices;
         _pdfRemediationProcessor = pdfRemediationProcessor;
+        _options = options.Value;
         _logger = logger;
+
+        if (_options.MaxPagesPerChunk <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(_options.MaxPagesPerChunk),
+                _options.MaxPagesPerChunk,
+                "MaxPagesPerChunk must be > 0.");
+        }
     }
 
     public async Task ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
     {
         var safeFileId = SanitizeForFileName(fileId);
-        var workDir = GetWorkDir(safeFileId);
+        var workDir = GetWorkDir(safeFileId, _options.WorkDirRoot);
         Directory.CreateDirectory(workDir);
 
         // persist the incoming stream locally so we can reliably split it.
@@ -49,7 +60,7 @@ public sealed class PdfProcessor : IPdfProcessor
         //    - Write each chunk to a temp file under `/tmp` (e.g. `/tmp/{fileId}.partNNN.pdf`).
         //    - Keep an ordered list of the chunk file paths (and any per-chunk metadata).
 
-        var chunks = SplitIntoChunks(sourcePath, workDir, safeFileId, MaxPagesPerChunk, cancellationToken);
+        var chunks = SplitIntoChunks(sourcePath, workDir, safeFileId, _options.MaxPagesPerChunk, cancellationToken);
 
         _logger.LogInformation(
             "Split {fileId} into {chunkCount} chunk(s) in {workDir}",
@@ -137,10 +148,14 @@ public sealed class PdfProcessor : IPdfProcessor
         return chunks;
     }
 
-    private static string GetWorkDir(string safeFileId)
+    private static string GetWorkDir(string safeFileId, string? workDirRoot)
     {
         // Prefer `/tmp`; fall back to platform temp if unavailable.
-        var baseTmp = Directory.Exists("/tmp") ? "/tmp" : Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        var baseTmp =
+            string.IsNullOrWhiteSpace(workDirRoot)
+                ? (Directory.Exists("/tmp") ? "/tmp" : Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar))
+                : workDirRoot.TrimEnd(Path.DirectorySeparatorChar);
+
         return Path.Combine(baseTmp, "readable-ingest", safeFileId);
     }
 
