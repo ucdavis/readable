@@ -48,9 +48,6 @@ param serviceBusConnectionString string
 @description('Service Bus fully qualified namespace.')
 param serviceBusFullyQualifiedNamespace string
 
-@description('Service Bus queue name for the function app.')
-param serviceBusQueueName string = ''
-
 @secure()
 @description('Function host storage connection string.')
 param functionStorageConnectionString string
@@ -242,11 +239,6 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
         {
           name: 'APPLICATIONINSIGHTS_AGENT_EXTENSION_VERSION'
           value: '~3'
-        }
-      ] : [], serviceBusQueueName != '' ? [
-        {
-          name: 'ServiceBus__QueueName'
-          value: serviceBusQueueName
         }
       ] : [])
     }

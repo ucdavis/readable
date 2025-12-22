@@ -195,7 +195,6 @@ module compute 'modules/compute.bicep' = {
     reportsContainerName: reportsContainerName
     serviceBusConnectionString: serviceBus.outputs.connectionString
     serviceBusFullyQualifiedNamespace: serviceBus.outputs.fullyQualifiedNamespace
-    serviceBusQueueName: baseQueueName
     functionStorageConnectionString: functionStorage.outputs.connectionString
     sqlConnectionString: sqlConnectionString
     environmentName: env
