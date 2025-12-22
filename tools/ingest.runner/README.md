@@ -26,12 +26,14 @@ dotnet run --project tools/ingest.runner -- --cloud-event-json /path/to/event.js
 
 The runner opens the blob in one of these ways:
 
-1. If you set `Storage__ConnectionString`, it uses that to authenticate and open the blob.
+1. If `Storage__ConnectionString` is set, it uses that to authenticate and open the blob.
 2. Otherwise it tries the blob URL directly (works for public blobs or URLs with a SAS token).
 
 ### Local env
 
-Set this in your environment (or in `server/.env` if you’re running the Web API and want to reuse the same value):
+The runner loads environment values from `server/.env` (and `.env` at the repo root) if present, and then overlays OS environment variables.
+
+Set this in your environment (or in `server/.env` to reuse the same value as the Web API):
 
 ```bash
 export Storage__ConnectionString="<storage-connection-string>"

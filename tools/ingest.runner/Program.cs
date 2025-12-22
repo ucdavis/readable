@@ -1,10 +1,19 @@
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using server.core.Ingest;
 using server.core.Telemetry;
 
 var builder = Host.CreateApplicationBuilder(args);
+
+// Keep parity with the Web API (server/Program.cs) so local secrets in `server/.env` are picked up.
+builder.Configuration
+    .AddEnvFile("server/.env", optional: true)
+    .AddEnvFile($"server/.env.{builder.Environment.EnvironmentName}", optional: true)
+    .AddEnvFile(".env", optional: true)
+    .AddEnvFile($".env.{builder.Environment.EnvironmentName}", optional: true)
+    .AddEnvironmentVariables(); // OS env vars override everything
 
 TelemetryHelper.ConfigureLogging(
     builder.Logging,

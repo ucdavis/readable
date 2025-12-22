@@ -8,8 +8,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Dotenv.Extensions.Microsoft.Configuration" Version="3.1.0" />
     <ProjectReference Include="..\..\server.core\server.core.csproj" />
   </ItemGroup>
 
 </Project>
-
