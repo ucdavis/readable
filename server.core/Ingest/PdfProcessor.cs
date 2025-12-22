@@ -1,8 +1,112 @@
+using System.Text;
+using iText.Kernel.Pdf;
+using Microsoft.Extensions.Logging;
+
 namespace server.core.Ingest;
 
 public interface IPdfProcessor
 {
     Task ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken);
+}
+
+public sealed record PdfChunk(int Index, int FromPage, int ToPage, string Path)
+{
+    public int PageCount => ToPage - FromPage + 1;
+}
+
+public sealed class PdfProcessor : IPdfProcessor
+{
+    private const int MaxPagesPerChunk = 200;
+    private readonly ILogger<PdfProcessor> _logger;
+
+    public PdfProcessor(ILogger<PdfProcessor> logger)
+    {
+        _logger = logger;
+    }
+
+    public async Task ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
+    {
+        var safeFileId = SanitizeForFileName(fileId);
+        var workDir = GetWorkDir(safeFileId);
+        Directory.CreateDirectory(workDir);
+
+        // Step 1: persist the incoming stream locally so we can reliably split it.
+        var sourcePath = Path.Combine(workDir, $"{safeFileId}.source.pdf");
+        await using (var sourceFile = File.Create(sourcePath))
+        {
+            await pdfStream.CopyToAsync(sourceFile, cancellationToken);
+        }
+
+        // TODO: 1) Split the incoming PDF stream into chunks of <= 200 pages each.
+        // TODO:    - Write each chunk to a temp file under `/tmp` (e.g. `/tmp/{fileId}.partNNN.pdf`).
+        // TODO:    - Keep an ordered list of the chunk file paths (and any per-chunk metadata).
+        var chunks = SplitIntoChunks(sourcePath, workDir, safeFileId, MaxPagesPerChunk, cancellationToken);
+
+        _logger.LogInformation(
+            "Split {fileId} into {chunkCount} chunk(s) in {workDir}",
+            fileId,
+            chunks.Count,
+            workDir);
+
+        // Remaining pipeline steps are still TODO (auto-tagging, merging, a11y, upload, DB updates).
+    }
+
+    private static List<PdfChunk> SplitIntoChunks(
+        string sourcePath,
+        string workDir,
+        string safeFileId,
+        int maxPagesPerChunk,
+        CancellationToken cancellationToken)
+    {
+        using var src = new PdfDocument(new PdfReader(sourcePath));
+        var totalPages = src.GetNumberOfPages();
+
+        var chunkCount = (int)Math.Ceiling(totalPages / (double)maxPagesPerChunk);
+        var chunks = new List<PdfChunk>(capacity: Math.Max(1, chunkCount));
+
+        var chunkIndex = 0;
+        for (var fromPage = 1; fromPage <= totalPages; fromPage += maxPagesPerChunk)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var toPage = Math.Min(totalPages, fromPage + maxPagesPerChunk - 1);
+            var chunkPath = Path.Combine(workDir, $"{safeFileId}.part{chunkIndex + 1:000}.pdf");
+
+            using (var dest = new PdfDocument(new PdfWriter(chunkPath)))
+            {
+                src.CopyPagesTo(fromPage, toPage, dest);
+            }
+
+            chunks.Add(new PdfChunk(chunkIndex, fromPage, toPage, chunkPath));
+            chunkIndex++;
+        }
+
+        return chunks;
+    }
+
+    private static string GetWorkDir(string safeFileId)
+    {
+        // Prefer `/tmp` as requested; fall back to platform temp if unavailable.
+        var baseTmp = Directory.Exists("/tmp") ? "/tmp" : Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        return Path.Combine(baseTmp, "readable-ingest", safeFileId);
+    }
+
+    private static string SanitizeForFileName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "file";
+        }
+
+        var invalid = Path.GetInvalidFileNameChars();
+        var sb = new StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            sb.Append(Array.IndexOf(invalid, ch) >= 0 ? '_' : ch);
+        }
+
+        return sb.ToString().Trim();
+    }
 }
 
 public sealed class NoopPdfProcessor : IPdfProcessor
