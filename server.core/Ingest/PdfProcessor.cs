@@ -30,16 +30,17 @@ public sealed class PdfProcessor : IPdfProcessor
         var workDir = GetWorkDir(safeFileId);
         Directory.CreateDirectory(workDir);
 
-        // Step 1: persist the incoming stream locally so we can reliably split it.
+        // persist the incoming stream locally so we can reliably split it.
         var sourcePath = Path.Combine(workDir, $"{safeFileId}.source.pdf");
         await using (var sourceFile = File.Create(sourcePath))
         {
             await pdfStream.CopyToAsync(sourceFile, cancellationToken);
         }
 
-        // TODO: 1) Split the incoming PDF stream into chunks of <= 200 pages each.
-        // TODO:    - Write each chunk to a temp file under `/tmp` (e.g. `/tmp/{fileId}.partNNN.pdf`).
-        // TODO:    - Keep an ordered list of the chunk file paths (and any per-chunk metadata).
+        // 1) Split the incoming PDF stream into chunks of <= 200 pages each.
+        //    - Write each chunk to a temp file under `/tmp` (e.g. `/tmp/{fileId}.partNNN.pdf`).
+        //    - Keep an ordered list of the chunk file paths (and any per-chunk metadata).
+
         var chunks = SplitIntoChunks(sourcePath, workDir, safeFileId, MaxPagesPerChunk, cancellationToken);
 
         _logger.LogInformation(
@@ -86,7 +87,7 @@ public sealed class PdfProcessor : IPdfProcessor
 
     private static string GetWorkDir(string safeFileId)
     {
-        // Prefer `/tmp` as requested; fall back to platform temp if unavailable.
+        // Prefer `/tmp`; fall back to platform temp if unavailable.
         var baseTmp = Directory.Exists("/tmp") ? "/tmp" : Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
         return Path.Combine(baseTmp, "readable-ingest", safeFileId);
     }
