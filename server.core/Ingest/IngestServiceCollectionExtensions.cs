@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using server.core.Remediate;
 
 namespace server.core.Ingest;
 
@@ -31,8 +32,7 @@ public static class IngestServiceCollectionExtensions
         }
         else
         {
-            // Placeholder until a real remediation processor exists.
-            services.AddSingleton<IPdfRemediationProcessor, NoopPdfRemediationProcessor>();
+            services.AddSingleton<IPdfRemediationProcessor, PdfRemediationProcessor>();
         }
 
         services.AddSingleton<IPdfProcessor, PdfProcessor>();

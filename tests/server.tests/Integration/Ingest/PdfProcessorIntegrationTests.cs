@@ -3,6 +3,7 @@ using iText.Kernel.Pdf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using server.core.Ingest;
+using server.core.Remediate;
 
 namespace server.tests.Integration.Ingest;
 
@@ -80,4 +81,3 @@ public sealed class PdfProcessorIntegrationTests
         return pdf.GetNumberOfPages();
     }
 }
-

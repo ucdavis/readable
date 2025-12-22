@@ -3,6 +3,7 @@ using iText.Kernel.Pdf;
 using iText.Kernel.Utils;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using server.core.Remediate;
 
 namespace server.core.Ingest;
 
