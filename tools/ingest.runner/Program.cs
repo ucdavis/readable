@@ -22,7 +22,13 @@ TelemetryHelper.ConfigureLogging(
     addJsonConsole: true);
 TelemetryHelper.ConfigureOpenTelemetry(builder.Services, builder.Configuration, TelemetryHostKind.Worker);
 
-builder.Services.AddFileIngest();
+builder.Services.AddFileIngest(o =>
+{
+    // Default to a noop Adobe implementation unless credentials are configured.
+    o.UseNoopAdobePdfServices =
+        string.IsNullOrWhiteSpace(builder.Configuration["PDF_SERVICES_CLIENT_ID"])
+        || string.IsNullOrWhiteSpace(builder.Configuration["PDF_SERVICES_CLIENT_SECRET"]);
+});
 
 using var host = builder.Build();
 
