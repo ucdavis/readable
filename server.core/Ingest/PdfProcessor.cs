@@ -19,11 +19,16 @@ public sealed class PdfProcessor : IPdfProcessor
 {
     private const int MaxPagesPerChunk = 200;
     private readonly IAdobePdfServices _adobePdfServices;
+    private readonly IPdfRemediationProcessor _pdfRemediationProcessor;
     private readonly ILogger<PdfProcessor> _logger;
 
-    public PdfProcessor(IAdobePdfServices adobePdfServices, ILogger<PdfProcessor> logger)
+    public PdfProcessor(
+        IAdobePdfServices adobePdfServices,
+        IPdfRemediationProcessor pdfRemediationProcessor,
+        ILogger<PdfProcessor> logger)
     {
         _adobePdfServices = adobePdfServices;
+        _pdfRemediationProcessor = pdfRemediationProcessor;
         _logger = logger;
     }
 
@@ -72,13 +77,30 @@ public sealed class PdfProcessor : IPdfProcessor
             taggedChunkPaths.Add(taggedPath);
         }
 
-        // Merge all tagged chunk PDFs back into a single tagged PDF.
+        // 4. Merge all tagged chunk PDFs back into a single tagged PDF.
         var mergedTaggedPath = Path.Combine(workDir, $"{safeFileId}.tagged.pdf");
         MergePdfsInOrder(taggedChunkPaths, mergedTaggedPath, cancellationToken);
 
         _logger.LogInformation("Merged tagged PDF written to {path}", mergedTaggedPath);
 
-        // TODO: Generate a final a11y report on the merged tagged PDF (PDFAccessibilityCheckerJob).
+        // 5. Post-process the merged tagged PDF:
+        //    - Walk the PDF structure by page to find images and links; add/repair alt text where missing.
+        //    - Infer/set a document title.
+        //    - Optional: build/insert a TOC.
+        //
+        // For now, this is a placeholder no-op processor that produces a new PDF file which becomes the exclusive input
+        // for all downstream steps.
+        var remediatedPdfPath = Path.Combine(workDir, $"{safeFileId}.remediated.pdf");
+        var remediation = await _pdfRemediationProcessor.ProcessAsync(
+            fileId,
+            mergedTaggedPath,
+            remediatedPdfPath,
+            cancellationToken);
+        var finalPdfPath = remediation.OutputPdfPath;
+
+        _logger.LogInformation("Remediated PDF written to {path}", finalPdfPath);
+
+        // TODO: Generate a final a11y report on the remediated PDF (PDFAccessibilityCheckerJob) and persist JSON to DB.
         // TODO: Merge/tagging reports, upload to `processed/`, and update DB status + artifact URIs.
     }
 

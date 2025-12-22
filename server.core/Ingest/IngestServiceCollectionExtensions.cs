@@ -8,6 +8,7 @@ public static class IngestServiceCollectionExtensions
     {
         services.AddSingleton<IBlobStreamOpener, AzureBlobStreamOpener>();
         services.AddSingleton<IAdobePdfServices, AdobePdfServices>();
+        services.AddSingleton<IPdfRemediationProcessor, NoopPdfRemediationProcessor>();
         services.AddSingleton<IPdfProcessor, PdfProcessor>();
         services.AddSingleton<IFileIngestProcessor, FileIngestProcessor>();
         return services;
