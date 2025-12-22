@@ -55,6 +55,13 @@ The backend requires a SQL Server connection string. By default `appsettings.Dev
 
 When you want to specify your own DB connection, provide it by setting the `DB_CONNECTION` environment variable (for example in a `.env` file) or by updating `ConnectionStrings:DefaultConnection` in `appsettings.*.json` (`.env` is recommended)
 
+### Observability (OpenTelemetry / OTLP)
+
+The Web API and the `function_ingest` worker are configured to export logs/traces/metrics via OTLP using standard `OTEL_*` environment variables.
+
+- Web API: copy `server/.env.example` to `server/.env` and set `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` / `OTEL_SERVICE_NAME`.
+- Azure Functions (local): set the same keys in `workers/function.ingest/local.settings.json` under `Values`.
+
 ### Auth Configuration
 
 We use OIDC with Microsoft Entra ID (Azure AD) for authentication. The auth flow doesn't use any secrets and the settings in `appsettings.*.json` are sufficient for local development.

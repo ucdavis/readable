@@ -18,4 +18,8 @@
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.0.7" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\server.core\server.core.csproj" />
+  </ItemGroup>
+
 </Project>
