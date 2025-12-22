@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using server.core.Data;
+using server.core.Telemetry;
 using server.Helpers;
 using Server.Services;
 
@@ -18,8 +19,8 @@ builder.Configuration
     .AddEnvironmentVariables(); // OS env vars override everything
 
 // setup logging and telemetry
-TelemetryHelper.ConfigureLogging(builder.Logging);
-TelemetryHelper.ConfigureOpenTelemetry(builder.Services);
+TelemetryHelper.ConfigureLogging(builder.Logging, builder.Configuration);
+TelemetryHelper.ConfigureOpenTelemetry(builder.Services, builder.Configuration);
 
 // handy for getting true client IP
 builder.Services.Configure<ForwardedHeadersOptions>(o =>

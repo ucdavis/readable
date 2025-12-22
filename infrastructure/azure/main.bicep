@@ -36,13 +36,21 @@ param tags object = {}
 @description('Whether to deploy the Event Grid subscription.')
 param deployEventGridSubscription bool = true
 
+@minValue(30)
+@maxValue(730)
+@description('Application Insights retention in days.')
+param appInsightsRetentionInDays int = 30
+
 var appSlug = toLower(replace(replace(replace(appName, '-', ''), '_', ''), ' ', ''))
 var appNameSafe = toLower(replace(replace(appName, ' ', ''), '_', ''))
 var envSlug = toLower(replace(replace(env, '-', ''), ' ', ''))
 var nameToken = substring(uniqueString(resourceGroup().id, appName, env), 0, 6)
 
-var dataStorageName = take('st${appSlug}${envSlug}d${nameToken}', 24)
-var functionStorageName = take('st${appSlug}${envSlug}f${nameToken}', 24)
+var storageNameToken = nameToken
+var dataStoragePrefix = take('st${appSlug}${envSlug}data', 24 - length(storageNameToken))
+var functionStoragePrefix = take('st${appSlug}${envSlug}function', 24 - length(storageNameToken))
+var dataStorageName = '${dataStoragePrefix}${storageNameToken}'
+var functionStorageName = '${functionStoragePrefix}${storageNameToken}'
 var serviceBusNamespaceName = toLower('sb-${appNameSafe}-${env}-${nameToken}')
 var eventGridTopicName = toLower('eg-${appNameSafe}-${env}-${nameToken}')
 var eventGridDeliveryIdentityName = toLower('uai-eg-${appNameSafe}-${env}-${nameToken}')
@@ -51,6 +59,8 @@ var webPlanName = toLower('asp-${appNameSafe}-${env}-${nameToken}')
 var webAppName = toLower('web-${appNameSafe}-${env}-${nameToken}')
 var functionPlanName = toLower('func-${appNameSafe}-${env}-${nameToken}')
 var functionAppName = toLower('fn-${appNameSafe}-${env}-${nameToken}')
+var appInsightsName = toLower('appi-${appNameSafe}-${env}-${nameToken}')
+var logAnalyticsWorkspaceName = toLower('log-${appNameSafe}-${env}-${nameToken}')
 var sqlSkuName = env == 'prod' ? 'S0' : 'Basic'
 var sqlSkuTier = env == 'prod' ? 'Standard' : 'Basic'
 
@@ -70,6 +80,29 @@ var resourceTags = union(tags, {
   environment: env
   application: appName
 })
+
+resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: appInsightsName
+  location: location
+  kind: 'web'
+  tags: resourceTags
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logAnalyticsWorkspace.id
+  }
+}
+
+resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2025-07-01' = {
+  name: logAnalyticsWorkspaceName
+  location: location
+  tags: resourceTags
+  properties: {
+    sku: {
+      name: 'PerGB2018'
+    }
+    retentionInDays: appInsightsRetentionInDays
+  }
+}
 
 resource eventGridDeliveryIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
   name: eventGridDeliveryIdentityName
@@ -162,10 +195,11 @@ module compute 'modules/compute.bicep' = {
     reportsContainerName: reportsContainerName
     serviceBusConnectionString: serviceBus.outputs.connectionString
     serviceBusFullyQualifiedNamespace: serviceBus.outputs.fullyQualifiedNamespace
-    serviceBusQueueName: baseQueueName
     functionStorageConnectionString: functionStorage.outputs.connectionString
     sqlConnectionString: sqlConnectionString
     environmentName: env
+    appInsightsConnectionString: appInsights.properties.ConnectionString
+    appInsightsInstrumentationKey: appInsights.properties.InstrumentationKey
   }
 }
 

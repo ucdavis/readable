@@ -48,9 +48,6 @@ param serviceBusConnectionString string
 @description('Service Bus fully qualified namespace.')
 param serviceBusFullyQualifiedNamespace string
 
-@description('Service Bus queue name for the function app.')
-param serviceBusQueueName string = ''
-
 @secure()
 @description('Function host storage connection string.')
 param functionStorageConnectionString string
@@ -64,6 +61,12 @@ param environmentName string
 
 @description('Chunk size for pipeline processing.')
 param pipelineChunkSizePages int = 100
+
+@description('Application Insights connection string (optional).')
+param appInsightsConnectionString string = ''
+
+@description('Application Insights instrumentation key (optional).')
+param appInsightsInstrumentationKey string = ''
 
 @allowed([
   512
@@ -177,6 +180,14 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
           value: functionStorageConnectionString
         }
         {
+          name: 'FUNCTIONS_EXTENSION_VERSION'
+          value: '~4'
+        }
+        {
+          name: 'FUNCTIONS_WORKER_RUNTIME'
+          value: 'dotnet-isolated'
+        }
+        {
           name: 'DB_CONNECTION'
           value: sqlConnectionString
         }
@@ -185,7 +196,7 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
           value: serviceBusFullyQualifiedNamespace
         }
         {
-          name: 'ServiceBus__ConnectionString'
+          name: 'ServiceBus'
           value: serviceBusConnectionString
         }
         {
@@ -216,10 +227,18 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
           name: 'Pipeline__ChunkSizePages'
           value: string(pipelineChunkSizePages)
         }
-      ], serviceBusQueueName != '' ? [
+      ], appInsightsConnectionString != '' ? [
         {
-          name: 'ServiceBus__QueueName'
-          value: serviceBusQueueName
+          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+          value: appInsightsConnectionString
+        }
+        {
+          name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
+          value: appInsightsInstrumentationKey
+        }
+        {
+          name: 'APPLICATIONINSIGHTS_AGENT_EXTENSION_VERSION'
+          value: '~3'
         }
       ] : [])
     }
