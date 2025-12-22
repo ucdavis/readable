@@ -7,7 +7,6 @@ project.lock.json
 *.pyc
 
 # Visual Studio Code
-.vscode
 
 # User-specific files
 *.suo
