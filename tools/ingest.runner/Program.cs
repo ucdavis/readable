@@ -26,9 +26,9 @@ builder.Services.AddFileIngest(o =>
 {
     // Runner defaults:
     // - Do not use Adobe PDF Services unless explicitly enabled.
-    // - Do not use OpenAI remediation unless explicitly enabled.
+    // - Do not use PDF remediation unless explicitly enabled (requires OpenAI key).
     o.UseAdobePdfServices = false;
-    o.UseOpenAiRemediationServices = false;
+    o.UsePdfRemediationProcessor = false;
 });
 
 using var host = builder.Build();

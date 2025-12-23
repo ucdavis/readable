@@ -13,9 +13,10 @@ public static class IngestServiceCollectionExtensions
     /// Registers the PDF ingest pipeline (blob read, PDF processing, autotagging, and remediation).
     /// </summary>
     /// <remarks>
-    /// When OpenAI is enabled (<c>OPENAI_API_KEY</c>), remediation uses chat-based services for title and alt text.
-    /// Without an API key, deterministic "Sample*" services are used as a local fallback. Model selection can be
-    /// overridden via <c>OPENAI_ALT_TEXT_MODEL</c> and <c>OPENAI_PDF_TITLE_MODEL</c>.
+    /// When PDF remediation is enabled, OpenAI-backed services are required for title and alt text generation.
+    /// Model selection can be overridden via <c>OPENAI_ALT_TEXT_MODEL</c> and <c>OPENAI_PDF_TITLE_MODEL</c>.
+    /// When Adobe PDF Services is enabled, credentials must be provided via environment variables
+    /// or configuration settings.
     /// </remarks>
     public static IServiceCollection AddFileIngest(this IServiceCollection services, Action<FileIngestOptions>? configure = null)
     {
@@ -44,26 +45,16 @@ public static class IngestServiceCollectionExtensions
             services.AddSingleton<IAdobePdfServices, NoopAdobePdfServices>();
         }
 
-        if (options.UseNoopPdfRemediationProcessor)
+        if (options.UsePdfRemediationProcessor)
         {
-            services.AddSingleton<IPdfRemediationProcessor, NoopPdfRemediationProcessor>();
-        }
-        else
-        {
-            services.AddSingleton<IAltTextService>(_ =>
+            services.AddSingleton<IAltTextService>(sp =>
             {
-                var configuration = _.GetRequiredService<IConfiguration>();
+                var configuration = sp.GetRequiredService<IConfiguration>();
                 var apiKey = GetOpenAiApiKey(configuration);
-
-                if (options.UseOpenAiRemediationServices is true && string.IsNullOrWhiteSpace(apiKey))
+                if (string.IsNullOrWhiteSpace(apiKey))
                 {
                     throw new InvalidOperationException(
-                        "OpenAI remediation is enabled but no API key is configured. Set OPENAI_API_KEY.");
-                }
-
-                if (options.UseOpenAiRemediationServices is false || string.IsNullOrWhiteSpace(apiKey))
-                {
-                    return new SampleAltTextService();
+                        "PDF remediation is enabled but no OpenAI API key is configured. Set OPENAI_API_KEY.");
                 }
 
                 var model =
@@ -74,20 +65,14 @@ public static class IngestServiceCollectionExtensions
 
                 return new OpenAIAltTextService(apiKey, model);
             });
-            services.AddSingleton<IPdfTitleService>(_ =>
+            services.AddSingleton<IPdfTitleService>(sp =>
             {
-                var configuration = _.GetRequiredService<IConfiguration>();
+                var configuration = sp.GetRequiredService<IConfiguration>();
                 var apiKey = GetOpenAiApiKey(configuration);
-
-                if (options.UseOpenAiRemediationServices is true && string.IsNullOrWhiteSpace(apiKey))
+                if (string.IsNullOrWhiteSpace(apiKey))
                 {
                     throw new InvalidOperationException(
-                        "OpenAI remediation is enabled but no API key is configured. Set OPENAI_API_KEY.");
-                }
-
-                if (options.UseOpenAiRemediationServices is false || string.IsNullOrWhiteSpace(apiKey))
-                {
-                    return new SamplePdfTitleService();
+                        "PDF remediation is enabled but no OpenAI API key is configured. Set OPENAI_API_KEY.");
                 }
 
                 var model =
@@ -99,6 +84,10 @@ public static class IngestServiceCollectionExtensions
                 return new OpenAIPdfTitleService(apiKey, model);
             });
             services.AddSingleton<IPdfRemediationProcessor, PdfRemediationProcessor>();
+        }
+        else
+        {
+            services.AddSingleton<IPdfRemediationProcessor, NoopPdfRemediationProcessor>();
         }
 
         services.AddSingleton<IPdfProcessor, PdfProcessor>();
