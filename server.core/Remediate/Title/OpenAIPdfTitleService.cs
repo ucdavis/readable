@@ -44,7 +44,7 @@ public sealed class OpenAIPdfTitleService : IPdfTitleService
         ClientResult<ChatCompletion> result =
             await _chatClient.CompleteChatAsync(messages, new ChatCompletionOptions(), cancellationToken);
 
-        return ExtractText(result.Value);
+        return RemediationHelpers.ExtractFirstTextOrEmpty(result.Value);
     }
 
     /// <summary>
@@ -52,8 +52,8 @@ public sealed class OpenAIPdfTitleService : IPdfTitleService
     /// </summary>
     private static string BuildPrompt(string currentTitle, string extractedText)
     {
-        currentTitle = NormalizeWhitespace(currentTitle);
-        extractedText = NormalizeWhitespace(extractedText);
+        currentTitle = RemediationHelpers.NormalizeWhitespace(currentTitle);
+        extractedText = RemediationHelpers.NormalizeWhitespace(extractedText);
 
         var sb = new StringBuilder();
         sb.AppendLine(
@@ -75,45 +75,5 @@ public sealed class OpenAIPdfTitleService : IPdfTitleService
         sb.AppendLine();
         sb.AppendLine("Output only the title as the response and please do not reply with anything else except the generated title.");
         return sb.ToString();
-    }
-
-    private static string ExtractText(ChatCompletion completion)
-    {
-        if (completion.Content.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        return completion.Content[0].Text ?? string.Empty;
-    }
-
-    private static string NormalizeWhitespace(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return string.Empty;
-        }
-
-        var sb = new StringBuilder(text.Length);
-        var inWhitespace = true;
-
-        foreach (var ch in text)
-        {
-            if (char.IsWhiteSpace(ch))
-            {
-                inWhitespace = true;
-                continue;
-            }
-
-            if (inWhitespace && sb.Length > 0)
-            {
-                sb.Append(' ');
-            }
-
-            sb.Append(ch);
-            inWhitespace = false;
-        }
-
-        return sb.ToString().Trim();
     }
 }

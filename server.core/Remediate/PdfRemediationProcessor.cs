@@ -815,34 +815,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         }
 
         public static string NormalizeWhitespace(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                return string.Empty;
-            }
-
-            var sb = new StringBuilder(text.Length);
-            var inWhitespace = true;
-
-            foreach (var ch in text)
-            {
-                if (char.IsWhiteSpace(ch))
-                {
-                    inWhitespace = true;
-                    continue;
-                }
-
-                if (inWhitespace && sb.Length > 0)
-                {
-                    sb.Append(' ');
-                }
-
-                sb.Append(ch);
-                inWhitespace = false;
-            }
-
-            return sb.ToString().Trim();
-        }
+            => RemediationHelpers.NormalizeWhitespace(text);
 
         private static string KeepFirstChars(string text, int maxChars)
         {

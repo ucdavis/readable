@@ -46,7 +46,7 @@ public sealed class OpenAIAltTextService : IAltTextService
         ];
 
         ClientResult<ChatCompletion> result = await _chatClient.CompleteChatAsync(messages, new ChatCompletionOptions(), cancellationToken);
-        var text = ExtractText(result.Value);
+        var text = RemediationHelpers.ExtractFirstTextOrEmpty(result.Value);
         return NormalizeAltText(text, fallback: GetFallbackAltTextForImage());
     }
 
@@ -64,7 +64,7 @@ public sealed class OpenAIAltTextService : IAltTextService
         ];
 
         ClientResult<ChatCompletion> result = await _chatClient.CompleteChatAsync(messages, new ChatCompletionOptions(), cancellationToken);
-        var text = ExtractText(result.Value);
+        var text = RemediationHelpers.ExtractFirstTextOrEmpty(result.Value);
         return NormalizeAltText(text, fallback: GetFallbackAltTextForLink());
     }
 
@@ -110,7 +110,7 @@ public sealed class OpenAIAltTextService : IAltTextService
         if (!string.IsNullOrWhiteSpace(linkText))
         {
             sb.Append("\nVisible text: ");
-            sb.Append(NormalizeWhitespace(linkText));
+            sb.Append(RemediationHelpers.NormalizeWhitespace(linkText));
         }
 
         var context = BuildContext(contextBefore, contextAfter, marker: "[LINK]");
@@ -125,8 +125,8 @@ public sealed class OpenAIAltTextService : IAltTextService
 
     private static string BuildContext(string contextBefore, string contextAfter, string marker)
     {
-        var before = NormalizeWhitespace(contextBefore);
-        var after = NormalizeWhitespace(contextAfter);
+        var before = RemediationHelpers.NormalizeWhitespace(contextBefore);
+        var after = RemediationHelpers.NormalizeWhitespace(contextAfter);
 
         if (string.IsNullOrWhiteSpace(before))
         {
@@ -141,22 +141,12 @@ public sealed class OpenAIAltTextService : IAltTextService
         return $"{before} {marker} {after}".Trim();
     }
 
-    private static string ExtractText(ChatCompletion completion)
-    {
-        if (completion.Content.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        return completion.Content[0].Text ?? string.Empty;
-    }
-
     /// <summary>
     /// Normalizes and bounds model output, returning a fallback when the output is empty.
     /// </summary>
     private static string NormalizeAltText(string text, string fallback)
     {
-        text = NormalizeWhitespace(text);
+        text = RemediationHelpers.NormalizeWhitespace(text);
 
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -171,35 +161,5 @@ public sealed class OpenAIAltTextService : IAltTextService
         }
 
         return text;
-    }
-
-    private static string NormalizeWhitespace(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return string.Empty;
-        }
-
-        var sb = new StringBuilder(text.Length);
-        var inWhitespace = true;
-
-        foreach (var ch in text)
-        {
-            if (char.IsWhiteSpace(ch))
-            {
-                inWhitespace = true;
-                continue;
-            }
-
-            if (inWhitespace && sb.Length > 0)
-            {
-                sb.Append(' ');
-            }
-
-            sb.Append(ch);
-            inWhitespace = false;
-        }
-
-        return sb.ToString().Trim();
     }
 }
