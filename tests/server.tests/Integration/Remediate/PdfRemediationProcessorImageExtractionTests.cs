@@ -26,7 +26,7 @@ public sealed class PdfRemediationProcessorImageExtractionTests
         {
             var outputPdfPath = Path.Combine(runRoot, "output.pdf");
             var altText = new CapturingAltTextService();
-            var sut = new PdfRemediationProcessor(altText);
+            var sut = new PdfRemediationProcessor(altText, new FakePdfTitleService());
 
             await sut.ProcessAsync(
                 fileId: "fixture",
@@ -75,6 +75,16 @@ public sealed class PdfRemediationProcessorImageExtractionTests
         public string GetFallbackAltTextForImage() => "fake image alt text";
 
         public string GetFallbackAltTextForLink() => "fake link alt text";
+    }
+
+    private sealed class FakePdfTitleService : server.core.Remediate.Title.IPdfTitleService
+    {
+        public Task<string> GenerateTitleAsync(server.core.Remediate.Title.PdfTitleRequest request, CancellationToken cancellationToken)
+        {
+            _ = request;
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult("fake title");
+        }
     }
 
     private static string FindRepoRoot()

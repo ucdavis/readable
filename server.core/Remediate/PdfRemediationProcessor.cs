@@ -9,6 +9,7 @@ using iText.Kernel.Pdf.Canvas.Parser.Listener;
 using iText.Kernel.Pdf.Xobject;
 using IOPath = System.IO.Path;
 using server.core.Remediate.AltText;
+using server.core.Remediate.Title;
 
 namespace server.core.Remediate;
 
@@ -43,11 +44,17 @@ public sealed class NoopPdfRemediationProcessor : IPdfRemediationProcessor
 public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 {
     private const int ContextMaxCharsPerSide = 800;
+    private const int TitleContextMinWords = 100;
+    private const int TitleContextMaxPages = 5;
+    private const int TitleMaxChars = 200;
+    private const string TitlePlaceholder = "Untitled PDF document";
     private readonly IAltTextService _altTextService;
+    private readonly IPdfTitleService _pdfTitleService;
 
-    public PdfRemediationProcessor(IAltTextService altTextService)
+    public PdfRemediationProcessor(IAltTextService altTextService, IPdfTitleService pdfTitleService)
     {
         _altTextService = altTextService ?? throw new ArgumentNullException(nameof(altTextService));
+        _pdfTitleService = pdfTitleService ?? throw new ArgumentNullException(nameof(pdfTitleService));
     }
 
     public async Task<PdfRemediationResult> ProcessAsync(
@@ -61,15 +68,10 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(IOPath.GetDirectoryName(outputPdfPath)!);
 
-        if (!IsTaggedPdf(inputPdfPath))
-        {
-            // TODO: requires tagging step before remediation - for now just copy input to output
-            // Maybe throw here instead to avoid confusion?
-            File.Copy(inputPdfPath, outputPdfPath, overwrite: true);
-            return new PdfRemediationResult(outputPdfPath);
-        }
-
         using var pdf = new PdfDocument(new PdfReader(inputPdfPath), new PdfWriter(outputPdfPath));
+
+        await EnsurePdfHasTitleAsync(pdf, cancellationToken);
+
         if (!pdf.IsTagged())
         {
             return new PdfRemediationResult(outputPdfPath);
@@ -146,10 +148,122 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         return new PdfRemediationResult(outputPdfPath);
     }
 
-    private static bool IsTaggedPdf(string pdfPath)
+    private async Task EnsurePdfHasTitleAsync(PdfDocument pdf, CancellationToken cancellationToken)
     {
-        using var pdf = new PdfDocument(new PdfReader(pdfPath));
-        return pdf.IsTagged();
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var info = pdf.GetDocumentInfo();
+        var currentTitle = TextContext.NormalizeWhitespace(info.GetTitle() ?? string.Empty);
+
+        var (extractedText, wordCount) = ExtractTitleContext(pdf);
+        if (wordCount < TitleContextMinWords)
+        {
+            if (string.IsNullOrWhiteSpace(currentTitle))
+            {
+                info.SetTitle(TitlePlaceholder);
+            }
+
+            return;
+        }
+
+        var suggestedTitle = await _pdfTitleService.GenerateTitleAsync(
+            new PdfTitleRequest(currentTitle, extractedText),
+            cancellationToken);
+
+        suggestedTitle = NormalizeTitle(suggestedTitle, fallback: currentTitle);
+
+        if (string.IsNullOrWhiteSpace(suggestedTitle))
+        {
+            suggestedTitle = TitlePlaceholder;
+        }
+
+        info.SetTitle(suggestedTitle);
+    }
+
+    private static (string ExtractedText, int WordCount) ExtractTitleContext(PdfDocument pdf)
+    {
+        var pagesToScan = Math.Min(pdf.GetNumberOfPages(), TitleContextMaxPages);
+        if (pagesToScan <= 0)
+        {
+            return (string.Empty, 0);
+        }
+
+        var sb = new StringBuilder();
+        var wordCount = 0;
+
+        for (var pageNumber = 1; pageNumber <= pagesToScan; pageNumber++)
+        {
+            var page = pdf.GetPage(pageNumber);
+            var pageText = PdfTextExtractor.GetTextFromPage(page, new SimpleTextExtractionStrategy());
+            pageText = TextContext.NormalizeWhitespace(pageText);
+            if (string.IsNullOrWhiteSpace(pageText))
+            {
+                continue;
+            }
+
+            if (sb.Length > 0)
+            {
+                sb.Append(' ');
+            }
+
+            sb.Append(pageText);
+            wordCount = CountWords(sb.ToString());
+
+            if (wordCount >= TitleContextMinWords)
+            {
+                break;
+            }
+        }
+
+        var extracted = TextContext.NormalizeWhitespace(sb.ToString());
+        return (extracted, wordCount);
+    }
+
+    private static int CountWords(string text)
+    {
+        text = TextContext.NormalizeWhitespace(text);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return 0;
+        }
+
+        var count = 0;
+        var inWord = false;
+
+        foreach (var ch in text)
+        {
+            if (char.IsWhiteSpace(ch))
+            {
+                inWord = false;
+                continue;
+            }
+
+            if (!inWord)
+            {
+                count++;
+                inWord = true;
+            }
+        }
+
+        return count;
+    }
+
+    private static string NormalizeTitle(string title, string fallback)
+    {
+        title = TextContext.NormalizeWhitespace(title);
+        fallback = TextContext.NormalizeWhitespace(fallback);
+
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return fallback;
+        }
+
+        if (title.Length > TitleMaxChars)
+        {
+            title = title[..TitleMaxChars].Trim();
+        }
+
+        return title;
     }
 
     private static (byte[] Bytes, string MimeType) ExtractImageBytes(PdfImageXObject image)

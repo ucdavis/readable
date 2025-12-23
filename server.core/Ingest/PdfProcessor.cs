@@ -99,9 +99,6 @@ public sealed class PdfProcessor : IPdfProcessor
         //    - Walk the PDF structure by page to find images and links; add/repair alt text where missing.
         //    - Infer/set a document title.
         //    - Optional: build/insert a TOC.
-        //
-        // For now, this is a placeholder no-op processor that produces a new PDF file which becomes the exclusive input
-        // for all downstream steps.
         var remediatedPdfPath = Path.Combine(workDir, $"{safeFileId}.remediated.pdf");
         var remediation = await _pdfRemediationProcessor.ProcessAsync(
             fileId,
