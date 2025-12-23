@@ -7,6 +7,14 @@ namespace server.core.Ingest;
 
 public static class IngestServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers the PDF ingest pipeline (blob read, PDF processing, autotagging, and remediation).
+    /// </summary>
+    /// <remarks>
+    /// When OpenAI is enabled (<c>OPENAI_API_KEY</c>), remediation uses chat-based services for title and alt text.
+    /// Without an API key, deterministic "Sample*" services are used as a local fallback. Model selection can be
+    /// overridden via <c>OPENAI_ALT_TEXT_MODEL</c> and <c>OPENAI_PDF_TITLE_MODEL</c>.
+    /// </remarks>
     public static IServiceCollection AddFileIngest(this IServiceCollection services, Action<FileIngestOptions>? configure = null)
     {
         var options = new FileIngestOptions();

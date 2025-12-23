@@ -23,6 +23,13 @@ public sealed class OpenAIAltTextService : IAltTextService
         _chatClient = new ChatClient(model: model, apiKey: apiKey);
     }
 
+    /// <summary>
+    /// Generates accessible alt text for an image using the surrounding PDF text as context.
+    /// </summary>
+    /// <remarks>
+    /// The prompt instructs the model to return only the alt text (no quotes/markdown) and the output is trimmed and
+    /// length-limited before returning.
+    /// </remarks>
     public async Task<string> GetAltTextForImageAsync(ImageAltTextRequest request, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -43,6 +50,9 @@ public sealed class OpenAIAltTextService : IAltTextService
         return NormalizeAltText(text, fallback: GetFallbackAltTextForImage());
     }
 
+    /// <summary>
+    /// Generates accessible replacement text for a link using link target/text and nearby PDF context.
+    /// </summary>
     public async Task<string> GetAltTextForLinkAsync(LinkAltTextRequest request, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -62,6 +72,9 @@ public sealed class OpenAIAltTextService : IAltTextService
 
     public string GetFallbackAltTextForLink() => "alt text for link";
 
+    /// <summary>
+    /// Returns the system instructions used to constrain response formatting.
+    /// </summary>
     private static string BuildSystemInstructions() =>
         "You write accessible PDF alt text. Return ONLY the alt text, with no quotes, no markdown, and no extra commentary. "
         + "Prefer a short phrase or one concise sentence. Don't start with 'Image of'.";
@@ -138,6 +151,9 @@ public sealed class OpenAIAltTextService : IAltTextService
         return completion.Content[0].Text ?? string.Empty;
     }
 
+    /// <summary>
+    /// Normalizes and bounds model output, returning a fallback when the output is empty.
+    /// </summary>
     private static string NormalizeAltText(string text, string fallback)
     {
         text = NormalizeWhitespace(text);

@@ -44,6 +44,13 @@ public sealed class PdfProcessor : IPdfProcessor
         }
     }
 
+    /// <summary>
+    /// Runs the PDF ingest pipeline: chunking, autotagging, merging, and remediation.
+    /// </summary>
+    /// <remarks>
+    /// This method writes intermediate artifacts to a per-file working directory under <c>/tmp</c> (or a configured
+    /// root), and expects <see cref="IAdobePdfServices" /> to produce tagged PDFs for each chunk.
+    /// </remarks>
     public async Task ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
     {
         var safeFileId = SanitizeForFileName(fileId);
@@ -113,6 +120,9 @@ public sealed class PdfProcessor : IPdfProcessor
         // TODO: Merge/tagging reports, upload to `processed/`, and update DB status + artifact URIs.
     }
 
+    /// <summary>
+    /// Splits a PDF into ordered page-range chunks and writes each chunk to disk.
+    /// </summary>
     private static List<PdfChunk> SplitIntoChunks(
         string sourcePath,
         string workDir,
@@ -146,6 +156,13 @@ public sealed class PdfProcessor : IPdfProcessor
         return chunks;
     }
 
+    /// <summary>
+    /// Computes the working directory used for intermediate ingest artifacts.
+    /// </summary>
+    /// <remarks>
+    /// Prefers <c>/tmp</c> when available to avoid filling application directories, and falls back to the platform
+    /// temp directory when needed.
+    /// </remarks>
     private static string GetWorkDir(string safeFileId, string? workDirRoot)
     {
         // Prefer `/tmp`; fall back to platform temp if unavailable.
@@ -157,6 +174,9 @@ public sealed class PdfProcessor : IPdfProcessor
         return Path.Combine(baseTmp, "readable-ingest", safeFileId);
     }
 
+    /// <summary>
+    /// Produces a filesystem-safe identifier for use in temporary file names.
+    /// </summary>
     private static string SanitizeForFileName(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -174,6 +194,9 @@ public sealed class PdfProcessor : IPdfProcessor
         return sb.ToString().Trim();
     }
 
+    /// <summary>
+    /// Merges PDFs into a single document, preserving the provided input order.
+    /// </summary>
     private static void MergePdfsInOrder(IReadOnlyList<string> inputPaths, string outputPath, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

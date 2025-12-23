@@ -23,6 +23,13 @@ public sealed class OpenAIPdfTitleService : IPdfTitleService
         _chatClient = new ChatClient(model: model, apiKey: apiKey);
     }
 
+    /// <summary>
+    /// Generates a concise PDF title from extracted early-page text, optionally keeping the current title.
+    /// </summary>
+    /// <remarks>
+    /// The prompt explicitly allows the model to return the current title unchanged when it matches the extracted
+    /// context, reducing unnecessary title churn.
+    /// </remarks>
     public async Task<string> GenerateTitleAsync(PdfTitleRequest request, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -40,6 +47,9 @@ public sealed class OpenAIPdfTitleService : IPdfTitleService
         return ExtractText(result.Value);
     }
 
+    /// <summary>
+    /// Builds a prompt that asks for a single plain-text title and includes current title and extracted context.
+    /// </summary>
     private static string BuildPrompt(string currentTitle, string extractedText)
     {
         currentTitle = NormalizeWhitespace(currentTitle);
@@ -107,4 +117,3 @@ public sealed class OpenAIPdfTitleService : IPdfTitleService
         return sb.ToString().Trim();
     }
 }
-

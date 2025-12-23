@@ -15,6 +15,12 @@ namespace server.core.Remediate;
 
 public interface IPdfRemediationProcessor
 {
+    /// <summary>
+    /// Applies PDF remediation steps and writes a remediated PDF to <paramref name="outputPdfPath" />.
+    /// </summary>
+    /// <remarks>
+    /// This processor may modify metadata (such as the document title) even when the PDF is untagged.
+    /// </remarks>
     Task<PdfRemediationResult> ProcessAsync(
         string fileId,
         string inputPdfPath,
@@ -57,6 +63,14 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         _pdfTitleService = pdfTitleService ?? throw new ArgumentNullException(nameof(pdfTitleService));
     }
 
+    /// <summary>
+    /// Remediates a PDF by ensuring it has a title and (when tagged) adding missing alt text for figures and links.
+    /// </summary>
+    /// <remarks>
+    /// Alt-text remediation relies on the PDF tag tree, so it only runs for tagged PDFs. A fallback pass ensures
+    /// any remaining <c>/Figure</c> and <c>/Link</c> structure elements have some <c>/Alt</c> value even when exact
+    /// content-to-tag matching is imperfect.
+    /// </remarks>
     public async Task<PdfRemediationResult> ProcessAsync(
         string fileId,
         string inputPdfPath,
@@ -148,6 +162,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         return new PdfRemediationResult(outputPdfPath);
     }
 
+    /// <summary>
+    /// Ensures the PDF metadata has a reasonable title, generating one from early-page text when possible.
+    /// </summary>
     private async Task EnsurePdfHasTitleAsync(PdfDocument pdf, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -180,6 +197,14 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         info.SetTitle(suggestedTitle);
     }
 
+    /// <summary>
+    /// Extracts text content from the initial pages of a PDF document to establish title context.
+    /// </summary>
+    /// <remarks>
+    /// Scans up to <c>TitleContextMaxPages</c> pages and continues until at least
+    /// <c>TitleContextMinWords</c> words are collected. Whitespace is normalized in the extracted text.
+    /// Empty or whitespace-only pages are skipped during extraction.
+    /// </remarks>
     private static (string ExtractedText, int WordCount) ExtractTitleContext(PdfDocument pdf)
     {
         var pagesToScan = Math.Min(pdf.GetNumberOfPages(), TitleContextMaxPages);
@@ -219,6 +244,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         return (extracted, wordCount);
     }
 
+    /// <summary>
+    /// Counts whitespace-delimited words in a string after normalizing whitespace.
+    /// </summary>
     private static int CountWords(string text)
     {
         text = TextContext.NormalizeWhitespace(text);
@@ -248,6 +276,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         return count;
     }
 
+    /// <summary>
+    /// Normalizes and length-limits a title, falling back to the existing title when needed.
+    /// </summary>
     private static string NormalizeTitle(string title, string fallback)
     {
         title = TextContext.NormalizeWhitespace(title);
@@ -266,6 +297,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         return title;
     }
 
+    /// <summary>
+    /// Extracts raw image bytes from an iText image object and best-effort infers a MIME type.
+    /// </summary>
     private static (byte[] Bytes, string MimeType) ExtractImageBytes(PdfImageXObject image)
     {
         byte[] bytes;
@@ -281,6 +315,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         return (bytes, GuessImageMimeType(bytes) ?? "application/octet-stream");
     }
 
+    /// <summary>
+    /// Attempts to identify a common image MIME type from file signatures.
+    /// </summary>
     private static string? GuessImageMimeType(byte[] bytes)
     {
         if (LooksLikePng(bytes))
@@ -333,6 +370,13 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         && bytes[10] == 0x87
         && bytes[11] == 0x0A;
 
+    /// <summary>
+    /// Best-effort extracts a link target from an annotation action.
+    /// </summary>
+    /// <remarks>
+    /// Some link annotations do not use a simple <c>/URI</c> action; in those cases this may return a destination
+    /// object string or <see langword="null" />.
+    /// </remarks>
     private static string? TryGetLinkTarget(PdfLinkAnnotation linkAnnotation)
     {
         var action = linkAnnotation.GetAction();
@@ -365,6 +409,13 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         }
     }
 
+    /// <summary>
+    /// Resolves a structure element for a page by object reference or MCID.
+    /// </summary>
+    /// <remarks>
+    /// PDFs can associate tagged content via either MCIDs in marked content sequences or via explicit object
+    /// references; object references take precedence when both are present.
+    /// </remarks>
     private static PdfDictionary? ResolveStructElem(
         PdfStructTreeIndex index,
         int pageNumber,
@@ -386,12 +437,18 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         return null;
     }
 
+    /// <summary>
+    /// Checks whether a structure element already has a non-empty <c>/Alt</c> entry.
+    /// </summary>
     private static bool HasNonEmptyAlt(PdfDictionary structElem)
     {
         var alt = structElem.GetAsString(PdfName.Alt)?.ToUnicodeString();
         return !string.IsNullOrWhiteSpace(alt);
     }
 
+    /// <summary>
+    /// Writes an <c>/Alt</c> entry to a structure element if the provided text is non-empty.
+    /// </summary>
     private static void SetAlt(PdfDictionary structElem, string altText)
     {
         if (string.IsNullOrWhiteSpace(altText))
@@ -421,6 +478,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
     private static class PdfContentScanner
     {
+        /// <summary>
+        /// Scans a page content stream to locate rendered images and capture nearby text context.
+        /// </summary>
         public static IReadOnlyList<ImageOccurrence> ListImageOccurrences(PdfPage page, int pageNumber)
         {
             var listener = new ImageOccurrenceListener(pageNumber);
@@ -428,6 +488,13 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             return listener.GetOccurrences();
         }
 
+        /// <summary>
+        /// Scans a page for link annotations and heuristically assigns link text and nearby context.
+        /// </summary>
+        /// <remarks>
+        /// PDF link annotations do not reliably carry "visible text". This method uses annotation rectangles and
+        /// text chunk bounds to approximate what a user sees, and falls back to nearest text when overlap is unknown.
+        /// </remarks>
         public static IReadOnlyList<LinkOccurrence> ListLinkOccurrences(PdfPage page, int pageNumber)
         {
             var pageLinks = new List<(PdfLinkAnnotation Link, PdfIndirectReference? Ref, Rectangle? Rect)>();
@@ -566,6 +633,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
         private sealed record LinkTextMatch(string LinkText, int StartIndex, int EndIndex);
 
+        /// <summary>
+        /// Collects page text while preserving per-chunk bounds and char ranges for spatial matching.
+        /// </summary>
         private static PageTextResult CollectPageText(PdfPage page)
         {
             var listener = new PageTextListener();
@@ -598,6 +668,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             public PageTextResult GetResult() => new PageTextResult(_pageText.GetText(), _chunks);
         }
 
+        /// <summary>
+        /// Computes a conservative bounding rectangle for a rendered text run.
+        /// </summary>
         private static Rectangle GetTextBounds(TextRenderInfo textRenderInfo)
         {
             var ascent = textRenderInfo.GetAscentLine();
@@ -616,6 +689,12 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             return new Rectangle(minX, minY, maxX - minX, maxY - minY);
         }
 
+        /// <summary>
+        /// Selects the most likely "visible text" for a link by matching text chunks to the link rectangle.
+        /// </summary>
+        /// <remarks>
+        /// If no text overlaps the annotation rectangle, this falls back to the nearest text chunk by distance.
+        /// </remarks>
         private static LinkTextMatch FindLinkTextMatch(PageTextResult pageText, Rectangle? linkRect)
         {
             if (pageText.Chunks.Count == 0)
@@ -790,6 +869,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         Dictionary<(int pageNumber, int mcid), PdfDictionary> StructElemByMcid,
         Dictionary<(int pageNumber, int objNum, int genNum), PdfDictionary> StructElemByObjRef)
     {
+        /// <summary>
+        /// Builds a lookup from a page's indirect object number to its 1-based page number.
+        /// </summary>
         public static Dictionary<int, int> BuildPageObjectNumberToPageNumberMap(PdfDocument pdf)
         {
             var map = new Dictionary<int, int>();
@@ -807,6 +889,13 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             return map;
         }
 
+        /// <summary>
+        /// Builds indices to resolve tag-tree structure elements for a specific role by MCID and object reference.
+        /// </summary>
+        /// <remarks>
+        /// These indices are used to map rendered content occurrences (images/links) back to their corresponding
+        /// <c>StructElem</c> nodes so <c>/Alt</c> can be set on the tag tree.
+        /// </remarks>
         public static PdfStructTreeIndex BuildForRole(PdfDocument pdf, Dictionary<int, int> pageObjNumToPageNumber, PdfName targetRole)
         {
             var catalogDict = pdf.GetCatalog().GetPdfObject();
@@ -829,6 +918,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             return new PdfStructTreeIndex(byMcid, byObjRef);
         }
 
+        /// <summary>
+        /// Lists all structure elements in the tag tree that match a given role.
+        /// </summary>
         public static IReadOnlyList<PdfDictionary> ListStructElementsByRole(PdfDocument pdf, PdfName role)
         {
             var catalogDict = pdf.GetCatalog().GetPdfObject();
