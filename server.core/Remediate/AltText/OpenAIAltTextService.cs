@@ -58,9 +58,9 @@ public sealed class OpenAIAltTextService : IAltTextService
         return NormalizeAltText(text, fallback: GetFallbackAltTextForLink());
     }
 
-    public string GetFallbackAltTextForImage() => "sample image alt text";
+    public string GetFallbackAltTextForImage() => "alt text for image";
 
-    public string GetFallbackAltTextForLink() => "sample link alt text";
+    public string GetFallbackAltTextForLink() => "alt text for link";
 
     private static string BuildSystemInstructions() =>
         "You write accessible PDF alt text. Return ONLY the alt text, with no quotes, no markdown, and no extra commentary. "
