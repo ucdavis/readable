@@ -25,6 +25,8 @@ public static class IngestServiceCollectionExtensions
 
         services.AddOptions<PdfProcessorOptions>().Configure(o =>
         {
+            o.UseAdobePdfServices = options.UseAdobePdfServices;
+            o.UsePdfRemediationProcessor = options.UsePdfRemediationProcessor;
             o.MaxPagesPerChunk = options.PdfMaxPagesPerChunk;
             o.WorkDirRoot = options.PdfWorkDirRoot;
         });

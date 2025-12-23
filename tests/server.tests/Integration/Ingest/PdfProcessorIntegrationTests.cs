@@ -28,6 +28,8 @@ public sealed class PdfProcessorIntegrationTests
             var remediation = new NoopPdfRemediationProcessor();
             var options = Options.Create(new PdfProcessorOptions
             {
+                UseAdobePdfServices = true,
+                UsePdfRemediationProcessor = true,
                 MaxPagesPerChunk = 3,
                 WorkDirRoot = runRoot
             });
@@ -63,6 +65,163 @@ public sealed class PdfProcessorIntegrationTests
                 Directory.Delete(runRoot, recursive: true);
             }
         }
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithAdobeAndRemediationDisabled_PreservesExistingTags()
+    {
+        var fileId = $"pdf-tagged-test-{Guid.NewGuid():N}";
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", fileId);
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var repoRoot = FindRepoRoot();
+            var inputPdfPath = Path.Combine(repoRoot, "tests", "server.tests", "Fixtures", "pdfs", "tagged-missing-alt.pdf");
+            File.Exists(inputPdfPath).Should().BeTrue($"fixture should exist at {inputPdfPath}");
+
+            await using var inputStream = File.OpenRead(inputPdfPath);
+
+            using var loggerFactory = LoggerFactory.Create(_ => { });
+            var adobe = new NoopAdobePdfServices(loggerFactory.CreateLogger<NoopAdobePdfServices>());
+            var remediation = new NoopPdfRemediationProcessor();
+            var options = Options.Create(new PdfProcessorOptions
+            {
+                UseAdobePdfServices = false,
+                UsePdfRemediationProcessor = false,
+                MaxPagesPerChunk = 2,
+                WorkDirRoot = runRoot
+            });
+
+            var sut = new PdfProcessor(adobe, remediation, options, loggerFactory.CreateLogger<PdfProcessor>());
+
+            var result = await sut.ProcessAsync(fileId, inputStream, CancellationToken.None);
+            result.OutputPdfPath.Should().EndWith(".source.pdf");
+
+            using var output = new PdfDocument(new PdfReader(result.OutputPdfPath));
+            output.IsTagged().Should().BeTrue();
+
+            var workDir = Path.Combine(runRoot, "readable-ingest", fileId);
+            Directory.GetFiles(workDir, "*.part*.pdf").Should().BeEmpty();
+            Directory.GetFiles(workDir, "*.part*.tagged.pdf").Should().BeEmpty();
+            Directory.GetFiles(workDir, "*.remediated.pdf").Should().BeEmpty();
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithAdobeEnabledAndSmallPdf_DoesNotSplitOrMerge()
+    {
+        var fileId = $"pdf-small-adobe-test-{Guid.NewGuid():N}";
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", fileId);
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateTestPdf(inputPdfPath, pageCount: 2);
+            await using var inputStream = File.OpenRead(inputPdfPath);
+
+            using var loggerFactory = LoggerFactory.Create(_ => { });
+            var adobe = new CapturingAdobePdfServices();
+            var remediation = new NoopPdfRemediationProcessor();
+            var options = Options.Create(new PdfProcessorOptions
+            {
+                UseAdobePdfServices = true,
+                UsePdfRemediationProcessor = false,
+                MaxPagesPerChunk = 200,
+                WorkDirRoot = runRoot
+            });
+
+            var sut = new PdfProcessor(adobe, remediation, options, loggerFactory.CreateLogger<PdfProcessor>());
+
+            var result = await sut.ProcessAsync(fileId, inputStream, CancellationToken.None);
+
+            adobe.Calls.Should().HaveCount(1);
+            adobe.Calls[0].InputPdfPath.Should().EndWith(".source.pdf");
+            adobe.Calls[0].OutputTaggedPdfPath.Should().EndWith(".tagged.pdf");
+
+            var workDir = Path.Combine(runRoot, "readable-ingest", fileId);
+            File.Exists(Path.Combine(workDir, $"{fileId}.tagged.pdf")).Should().BeTrue();
+            Directory.GetFiles(workDir, "*.part*.pdf").Should().BeEmpty();
+            Directory.GetFiles(workDir, "*.part*.tagged.pdf").Should().BeEmpty();
+
+            result.OutputPdfPath.Should().EndWith(".tagged.pdf");
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
+    private sealed record AdobeCall(string InputPdfPath, string OutputTaggedPdfPath, string OutputTaggingReportPath);
+
+    private sealed class CapturingAdobePdfServices : IAdobePdfServices
+    {
+        public List<AdobeCall> Calls { get; } = [];
+
+        public async Task<AdobeAutotagOutput> AutotagPdfAsync(
+            string inputPdfPath,
+            string outputTaggedPdfPath,
+            string outputTaggingReportPath,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add(new AdobeCall(inputPdfPath, outputTaggedPdfPath, outputTaggingReportPath));
+
+            Directory.CreateDirectory(Path.GetDirectoryName(outputTaggedPdfPath)!);
+            await using (var input = File.OpenRead(inputPdfPath))
+            await using (var output = File.Open(outputTaggedPdfPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                await input.CopyToAsync(output, cancellationToken);
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(outputTaggingReportPath)!);
+            await File.WriteAllTextAsync(outputTaggingReportPath, "noop", cancellationToken);
+
+            return new AdobeAutotagOutput(outputTaggedPdfPath, outputTaggingReportPath);
+        }
+
+        public Task<AdobeAccessibilityCheckOutput> RunAccessibilityCheckerAsync(
+            string inputPdfPath,
+            string outputPdfPath,
+            string outputReportPath,
+            int? pageStart,
+            int? pageEnd,
+            CancellationToken cancellationToken)
+        {
+            _ = inputPdfPath;
+            _ = outputPdfPath;
+            _ = outputReportPath;
+            _ = pageStart;
+            _ = pageEnd;
+            cancellationToken.ThrowIfCancellationRequested();
+            throw new NotSupportedException("Not needed for this test.");
+        }
+    }
+
+    private static string FindRepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "app.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        if (dir is null)
+        {
+            throw new DirectoryNotFoundException("Unable to locate repo root (missing app.sln).");
+        }
+
+        return dir.FullName;
     }
 
     private static void CreateTestPdf(string outputPath, int pageCount)
