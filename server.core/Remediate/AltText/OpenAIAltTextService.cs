@@ -76,14 +76,28 @@ public sealed class OpenAIAltTextService : IAltTextService
     /// Returns the system instructions used to constrain response formatting.
     /// </summary>
     private static string BuildSystemInstructions() =>
-        "You write accessible PDF alt text. Return ONLY the alt text, with no quotes, no markdown, and no extra commentary. "
-        + "Prefer a short phrase or one concise sentence. Don't start with 'Image of'.";
+        """
+        You write WCAG 2.1-compliant PDF alt text.
+        Return ONLY the alt text (no quotes, no markdown, and no extra commentary).
+        Keep it concise (short phrase or one sentence) and do not start with "Image of".
+        """;
 
     private static string BuildImagePrompt(string contextBefore, string contextAfter)
     {
+        // reference prompt https://github.com/ASUCICREPO/PDF_Accessibility/blob/main/javascript_docker/alt-text.js
         var sb = new StringBuilder();
-        sb.Append("Write alt text for the image in this PDF. ");
-        sb.Append("Use the surrounding document context if helpful.");
+        sb.Append("Generate alt text for the provided image embedded in a PDF document. ");
+        sb.Append("Use the surrounding PDF text context to improve accuracy, but do not invent details not visible in the image.");
+        sb.Append('\n');
+        sb.Append(
+            """
+            Guidelines:
+            - Describe the key information the image conveys (objects/people/scene), and include any visible text that is necessary to understand it.
+            - If the image is functional (e.g., icon/button), describe the function or intended action.
+            - If the image is a chart/diagram, summarize the main takeaway rather than listing every value.
+            - If the image contains a mathematical equation, spell out every symbol/operator using explicit phrases like "open parenthesis", "close parenthesis", "plus", "minus", "times", "divided by", "equals", and "to the power of".
+            - For subscripts/superscripts, describe them explicitly using "with subscript … end subscript" and "with superscript … end superscript".
+            """);
 
         var context = BuildContext(contextBefore, contextAfter, marker: "[IMAGE]");
         if (!string.IsNullOrWhiteSpace(context))
@@ -98,8 +112,8 @@ public sealed class OpenAIAltTextService : IAltTextService
     private static string BuildLinkPrompt(string? target, string linkText, string contextBefore, string contextAfter)
     {
         var sb = new StringBuilder();
-        sb.Append("Write accessible alt text (replacement text) for this PDF link. ");
-        sb.Append("Return a short phrase. Prefer meaningful visible text; otherwise infer a concise label from the target and context.");
+        sb.Append("Generate accessible replacement text for a PDF link. ");
+        sb.Append("Prefer meaningful visible link text; otherwise infer a concise label from the target and context.");
 
         if (!string.IsNullOrWhiteSpace(target))
         {
@@ -147,6 +161,11 @@ public sealed class OpenAIAltTextService : IAltTextService
     private static string NormalizeAltText(string text, string fallback)
     {
         text = RemediationHelpers.NormalizeWhitespace(text);
+
+        if (text.Length >= 2 && text[0] == '"' && text[^1] == '"')
+        {
+            text = text[1..^1].Trim();
+        }
 
         if (string.IsNullOrWhiteSpace(text))
         {
