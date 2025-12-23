@@ -49,11 +49,34 @@ If you want to access endpoints individually, you can do so at the following URL
 - API Documentation (Swagger): http://localhost:5166/swagger/index.html
 - Health check: http://localhost:5166/health
 
+## PDF Processing (Ingest + Remediation)
+
+At a high level, PDFs flow through:
+
+1. Upload to Blob Storage
+2. Queue/background processing (ingest worker)
+3. Accessibility evaluation + (optional) auto-tagging via Adobe PDF Services
+4. Remediation pass (metadata + tag-tree fixes)
+5. Persist results for reporting
+
+### What remediation currently does
+
+- **PDF title**: extracts text from the first pages and writes a descriptive title into PDF metadata. If there isn't enough text, the existing title is kept (or a placeholder is used when missing).
+- **Alt text (tagged PDFs only)**: fills missing `Alt` text for tagged `Figure` and `Link` elements, using AI when configured and a fallback otherwise.
+
 ### Database configuration
 
 The backend requires a SQL Server connection string. By default `appsettings.Development.json` has a connection string configured for the local SQL Server instance.
 
 When you want to specify your own DB connection, provide it by setting the `DB_CONNECTION` environment variable (for example in a `.env` file) or by updating `ConnectionStrings:DefaultConnection` in `appsettings.*.json` (`.env` is recommended)
+
+### AI configuration (optional)
+
+AI-backed remediation is enabled when `OPENAI_API_KEY` is set. If it is not set, the app uses local “sample” implementations (useful for development/tests).
+
+- `OPENAI_API_KEY`: enables OpenAI-backed services
+- `OPENAI_ALT_TEXT_MODEL`: model for image/link alt text generation (default: `gpt-4o-mini`)
+- `OPENAI_PDF_TITLE_MODEL`: model for PDF title generation (default: `gpt-4o-mini`)
 
 ### Observability (OpenTelemetry / OTLP)
 
@@ -105,6 +128,7 @@ The frontend uses Vite's hot module replacement (HMR). Changes to React componen
 - Run `dotnet test` from the repository root to execute the .NET test project included in `app.sln`.
 - Alternatively, target the project directly with `dotnet test tests/server.tests/server.tests.csproj`.
 - The tests use EF Core's in-memory provider (see `tests/server.tests/TestDbContextFactory.cs`) so no SQL Server instance is required.
+- PDF remediation tests live under `tests/server.tests/Integration/Remediate/` and may use PDFs from `tests/server.tests/Fixtures/pdfs/` or generate simple PDFs on the fly.
 
 ## Updating Dependencies
 
@@ -137,23 +161,23 @@ And as always, after updating dependencies, make sure to run `dotnet build` and 
 
 ## Project Structure
 
+```
 ├── client/ # React frontend
-│ ├── src/
-│ │ ├── routes/ # TanStack Router routes
-│ │ ├── queries/ # TanStack Query hooks
-│ │ ├── lib/ # API client and utilities
-│ │ └── shared/ # Shared components
-│ ├── package.json
-│ └── vite.config.ts
+│   ├── src/
+│   │   ├── routes/ # TanStack Router routes
+│   │   ├── queries/ # TanStack Query hooks
+│   │   ├── lib/ # API client and utilities
+│   │   └── shared/ # Shared components
+│   ├── package.json
+│   └── vite.config.ts
 ├── server/ # .NET backend
-│ ├── Controllers/ # API controllers
-│ ├── Helpers/ # Utility classes
-│ ├── Properties/ # Launch settings
-│ ├── Program.cs # Application entry point
-│ └── server.csproj
+│   ├── Controllers/ # API controllers
+│   ├── Helpers/ # Utility classes
+│   ├── Properties/ # Launch settings
+│   ├── Program.cs # Application entry point
+│   └── server.csproj
 ├── package.json # Root package.json with start script
 └── app.sln # Visual Studio solution file
-
 ```
 
 ## Available Scripts
@@ -176,4 +200,3 @@ And as always, after updating dependencies, make sure to run `dotnet build` and 
 - `dotnet watch` - Start with hot reload
 - `dotnet build` - Build the application
 - `dotnet test` - Run tests
-```
