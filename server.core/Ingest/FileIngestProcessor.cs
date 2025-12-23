@@ -25,6 +25,9 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         _logger = logger;
     }
 
+    /// <summary>
+    /// Reads the source blob stream and hands it to the PDF processor, adding basic telemetry/logging.
+    /// </summary>
     public async Task ProcessAsync(BlobIngestRequest request, CancellationToken cancellationToken)
     {
         using var activity = TelemetryHelper.ActivitySource.StartActivity(

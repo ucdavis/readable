@@ -2,6 +2,8 @@ using System.Text;
 using iText.Kernel.Pdf;
 using iText.Kernel.Utils;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using server.core.Remediate;
 
 namespace server.core.Ingest;
 
@@ -17,25 +19,42 @@ public sealed record PdfChunk(int Index, int FromPage, int ToPage, string Path)
 
 public sealed class PdfProcessor : IPdfProcessor
 {
-    private const int MaxPagesPerChunk = 200;
     private readonly IAdobePdfServices _adobePdfServices;
     private readonly IPdfRemediationProcessor _pdfRemediationProcessor;
+    private readonly PdfProcessorOptions _options;
     private readonly ILogger<PdfProcessor> _logger;
 
     public PdfProcessor(
         IAdobePdfServices adobePdfServices,
         IPdfRemediationProcessor pdfRemediationProcessor,
+        IOptions<PdfProcessorOptions> options,
         ILogger<PdfProcessor> logger)
     {
         _adobePdfServices = adobePdfServices;
         _pdfRemediationProcessor = pdfRemediationProcessor;
+        _options = options.Value;
         _logger = logger;
+
+        if (_options.MaxPagesPerChunk <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(_options.MaxPagesPerChunk),
+                _options.MaxPagesPerChunk,
+                "MaxPagesPerChunk must be > 0.");
+        }
     }
 
+    /// <summary>
+    /// Runs the PDF ingest pipeline: chunking, autotagging, merging, and remediation.
+    /// </summary>
+    /// <remarks>
+    /// This method writes intermediate artifacts to a per-file working directory under <c>/tmp</c> (or a configured
+    /// root), and expects <see cref="IAdobePdfServices" /> to produce tagged PDFs for each chunk.
+    /// </remarks>
     public async Task ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
     {
         var safeFileId = SanitizeForFileName(fileId);
-        var workDir = GetWorkDir(safeFileId);
+        var workDir = GetWorkDir(safeFileId, _options.WorkDirRoot);
         Directory.CreateDirectory(workDir);
 
         // persist the incoming stream locally so we can reliably split it.
@@ -49,7 +68,7 @@ public sealed class PdfProcessor : IPdfProcessor
         //    - Write each chunk to a temp file under `/tmp` (e.g. `/tmp/{fileId}.partNNN.pdf`).
         //    - Keep an ordered list of the chunk file paths (and any per-chunk metadata).
 
-        var chunks = SplitIntoChunks(sourcePath, workDir, safeFileId, MaxPagesPerChunk, cancellationToken);
+        var chunks = SplitIntoChunks(sourcePath, workDir, safeFileId, _options.MaxPagesPerChunk, cancellationToken);
 
         _logger.LogInformation(
             "Split {fileId} into {chunkCount} chunk(s) in {workDir}",
@@ -87,9 +106,6 @@ public sealed class PdfProcessor : IPdfProcessor
         //    - Walk the PDF structure by page to find images and links; add/repair alt text where missing.
         //    - Infer/set a document title.
         //    - Optional: build/insert a TOC.
-        //
-        // For now, this is a placeholder no-op processor that produces a new PDF file which becomes the exclusive input
-        // for all downstream steps.
         var remediatedPdfPath = Path.Combine(workDir, $"{safeFileId}.remediated.pdf");
         var remediation = await _pdfRemediationProcessor.ProcessAsync(
             fileId,
@@ -104,6 +120,9 @@ public sealed class PdfProcessor : IPdfProcessor
         // TODO: Merge/tagging reports, upload to `processed/`, and update DB status + artifact URIs.
     }
 
+    /// <summary>
+    /// Splits a PDF into ordered page-range chunks and writes each chunk to disk.
+    /// </summary>
     private static List<PdfChunk> SplitIntoChunks(
         string sourcePath,
         string workDir,
@@ -137,13 +156,27 @@ public sealed class PdfProcessor : IPdfProcessor
         return chunks;
     }
 
-    private static string GetWorkDir(string safeFileId)
+    /// <summary>
+    /// Computes the working directory used for intermediate ingest artifacts.
+    /// </summary>
+    /// <remarks>
+    /// Prefers <c>/tmp</c> when available to avoid filling application directories, and falls back to the platform
+    /// temp directory when needed.
+    /// </remarks>
+    private static string GetWorkDir(string safeFileId, string? workDirRoot)
     {
         // Prefer `/tmp`; fall back to platform temp if unavailable.
-        var baseTmp = Directory.Exists("/tmp") ? "/tmp" : Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        var baseTmp =
+            string.IsNullOrWhiteSpace(workDirRoot)
+                ? (Directory.Exists("/tmp") ? "/tmp" : Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar))
+                : workDirRoot.TrimEnd(Path.DirectorySeparatorChar);
+
         return Path.Combine(baseTmp, "readable-ingest", safeFileId);
     }
 
+    /// <summary>
+    /// Produces a filesystem-safe identifier for use in temporary file names.
+    /// </summary>
     private static string SanitizeForFileName(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -161,6 +194,9 @@ public sealed class PdfProcessor : IPdfProcessor
         return sb.ToString().Trim();
     }
 
+    /// <summary>
+    /// Merges PDFs into a single document, preserving the provided input order.
+    /// </summary>
     private static void MergePdfsInOrder(IReadOnlyList<string> inputPaths, string outputPath, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

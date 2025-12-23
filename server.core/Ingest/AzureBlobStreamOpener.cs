@@ -17,6 +17,13 @@ public sealed class AzureBlobStreamOpener : IBlobStreamOpener
         _configuration = configuration;
     }
 
+    /// <summary>
+    /// Opens a readable stream for an Azure Blob URI, using a connection string when configured.
+    /// </summary>
+    /// <remarks>
+    /// If no connection string is present, this falls back to creating a client from the URI directly, which works
+    /// for public blobs and URIs with SAS tokens.
+    /// </remarks>
     public async Task<Stream> OpenReadAsync(Uri blobUri, CancellationToken cancellationToken)
     {
         var connectionString =
@@ -34,6 +41,9 @@ public sealed class AzureBlobStreamOpener : IBlobStreamOpener
         return await new BlobClient(blobUri).OpenReadAsync(cancellationToken: cancellationToken);
     }
 
+    /// <summary>
+    /// Parses a blob URI path into container and blob names.
+    /// </summary>
     private static (string ContainerName, string BlobName) ParseContainerAndBlob(Uri blobUri)
     {
         var path = blobUri.AbsolutePath.Trim('/');

@@ -19,6 +19,9 @@ public class DbInitializer : IDbInitializer
         _logger = logger;
     }
 
+    /// <summary>
+    /// Applies pending EF Core migrations and optionally seeds development data.
+    /// </summary>
     public async Task InitializeAsync(bool includeDevSeed, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Applying database migrations...");
@@ -35,6 +38,9 @@ public class DbInitializer : IDbInitializer
         }
     }
 
+    /// <summary>
+    /// Seeds local development data in an idempotent way.
+    /// </summary>
     private async Task SeedDevelopmentAsync(CancellationToken ct)
     {
         if (!await _db.WeatherForecasts.AnyAsync(ct))

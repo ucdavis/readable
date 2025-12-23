@@ -42,6 +42,12 @@ public sealed class AdobePdfServices : IAdobePdfServices
         _logger = logger;
     }
 
+    /// <summary>
+    /// Runs Adobe "Autotag" on an input PDF and writes the tagged PDF plus an XLSX report to disk.
+    /// </summary>
+    /// <remarks>
+    /// This is an external call to Adobe PDF Services; credentials must be configured via environment or app config.
+    /// </remarks>
     public async Task<AdobeAutotagOutput> AutotagPdfAsync(
         string inputPdfPath,
         string outputTaggedPdfPath,
@@ -83,6 +89,12 @@ public sealed class AdobePdfServices : IAdobePdfServices
         return new AdobeAutotagOutput(outputTaggedPdfPath, outputTaggingReportPath);
     }
 
+    /// <summary>
+    /// Runs Adobe's accessibility checker job and writes the output PDF plus a JSON report to disk.
+    /// </summary>
+    /// <remarks>
+    /// The report JSON is also returned as a convenience for callers that want to persist it directly.
+    /// </remarks>
     public async Task<AdobeAccessibilityCheckOutput> RunAccessibilityCheckerAsync(
         string inputPdfPath,
         string outputPdfPath,
@@ -144,6 +156,9 @@ public sealed class AdobePdfServices : IAdobePdfServices
         return new AdobeAccessibilityCheckOutput(outputPdfPath, outputReportPath, reportJson);
     }
 
+    /// <summary>
+    /// Creates an authenticated Adobe PDF Services client from configured credentials.
+    /// </summary>
     private PDFServices CreateClient()
     {
         var clientId =
@@ -166,6 +181,9 @@ public sealed class AdobePdfServices : IAdobePdfServices
         return new PDFServices(credentials);
     }
 
+    /// <summary>
+    /// Writes a PDF Services stream asset to disk, creating parent directories as needed.
+    /// </summary>
     private static async Task WriteStreamAssetAsync(
         StreamAsset streamAsset,
         string outputPath,

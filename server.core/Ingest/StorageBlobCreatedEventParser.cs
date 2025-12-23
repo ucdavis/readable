@@ -4,6 +4,17 @@ namespace server.core.Ingest;
 
 public static class StorageBlobCreatedEventParser
 {
+    /// <summary>
+    /// Parses an Azure Storage "BlobCreated" CloudEvent into a <see cref="BlobIngestRequest" />.
+    /// </summary>
+    /// <remarks>
+    /// Supports two common event shapes:
+    /// <list type="bullet">
+    /// <item><description><c>data.url</c> is present (preferred).</description></item>
+    /// <item><description><c>subject</c> + <c>source</c> are present; the blob URL is reconstructed.</description></item>
+    /// </list>
+    /// When reconstructing a URL, the endpoint suffix can be overridden via <c>READABLE_BLOB_ENDPOINT_SUFFIX</c>.
+    /// </remarks>
     public static bool TryParse(string cloudEventJson, out BlobIngestRequest request, out string? error)
     {
         request = default!;
@@ -183,6 +194,9 @@ public static class StorageBlobCreatedEventParser
         return null;
     }
 
+    /// <summary>
+    /// Uri-escapes each path segment while preserving '/' separators.
+    /// </summary>
     private static string EscapeBlobPath(string blobPath)
     {
         // Uri-escape each segment but preserve path separators.
@@ -192,4 +206,3 @@ public static class StorageBlobCreatedEventParser
                 .Select(Uri.EscapeDataString));
     }
 }
-
