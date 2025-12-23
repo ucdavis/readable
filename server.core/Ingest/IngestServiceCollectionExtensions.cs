@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using server.core.Remediate;
+using server.core.Remediate.AltText;
 
 namespace server.core.Ingest;
 
@@ -32,6 +33,17 @@ public static class IngestServiceCollectionExtensions
         }
         else
         {
+            services.AddSingleton<IAltTextService>(_ =>
+            {
+                var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+                if (string.IsNullOrWhiteSpace(apiKey))
+                {
+                    return new SampleAltTextService();
+                }
+
+                var model = Environment.GetEnvironmentVariable("OPENAI_ALT_TEXT_MODEL") ?? "gpt-4o-mini";
+                return new OpenAIAltTextService(apiKey, model);
+            });
             services.AddSingleton<IPdfRemediationProcessor, PdfRemediationProcessor>();
         }
 

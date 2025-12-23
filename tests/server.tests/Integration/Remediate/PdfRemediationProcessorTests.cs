@@ -1,6 +1,7 @@
 using FluentAssertions;
 using iText.Kernel.Pdf;
 using server.core.Remediate;
+using server.core.Remediate.AltText;
 
 namespace server.tests.Integration.Remediate;
 
@@ -21,13 +22,13 @@ public sealed class PdfRemediationProcessorTests
             inputFigures.Any(f => !HasNonEmptyAlt(f)).Should().BeTrue("fixture should have figures missing alt text");
         }
 
-        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(runRoot);
+            var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(runRoot);
 
-        try
-        {
-            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
-            var sut = new PdfRemediationProcessor();
+            try
+            {
+                var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+                var sut = new PdfRemediationProcessor(new FakeAltTextService());
 
             var result = await sut.ProcessAsync(
                 fileId: "fixture",
@@ -43,6 +44,7 @@ public sealed class PdfRemediationProcessorTests
             var outputFigures = ListStructElementsByRole(outputPdf, PdfName.Figure);
             outputFigures.Count.Should().BeGreaterThan(0);
             outputFigures.Should().OnlyContain(f => HasNonEmptyAlt(f));
+            outputFigures.Any(f => GetAlt(f) == "fake image alt text").Should().BeTrue();
         }
         finally
         {
@@ -51,6 +53,27 @@ public sealed class PdfRemediationProcessorTests
                 Directory.Delete(runRoot, recursive: true);
             }
         }
+    }
+
+    private sealed class FakeAltTextService : IAltTextService
+    {
+        public Task<string> GetAltTextForImageAsync(ImageAltTextRequest request, CancellationToken cancellationToken)
+        {
+            _ = request;
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult("fake image alt text");
+        }
+
+        public Task<string> GetAltTextForLinkAsync(LinkAltTextRequest request, CancellationToken cancellationToken)
+        {
+            _ = request;
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult("fake link alt text");
+        }
+
+        public string GetFallbackAltTextForImage() => "fake image alt text";
+
+        public string GetFallbackAltTextForLink() => "fake link alt text";
     }
 
     private static string FindRepoRoot()
@@ -71,9 +94,11 @@ public sealed class PdfRemediationProcessorTests
 
     private static bool HasNonEmptyAlt(PdfDictionary structElem)
     {
-        var alt = structElem.GetAsString(PdfName.Alt)?.ToUnicodeString();
+        var alt = GetAlt(structElem);
         return !string.IsNullOrWhiteSpace(alt);
     }
+
+    private static string? GetAlt(PdfDictionary structElem) => structElem.GetAsString(PdfName.Alt)?.ToUnicodeString();
 
     private static List<PdfDictionary> ListStructElementsByRole(PdfDocument pdf, PdfName role)
     {
@@ -138,4 +163,3 @@ public sealed class PdfRemediationProcessorTests
         return obj;
     }
 }
-

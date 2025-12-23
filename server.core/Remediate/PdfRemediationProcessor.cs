@@ -8,6 +8,7 @@ using iText.Kernel.Pdf.Canvas.Parser.Data;
 using iText.Kernel.Pdf.Canvas.Parser.Listener;
 using iText.Kernel.Pdf.Xobject;
 using IOPath = System.IO.Path;
+using server.core.Remediate.AltText;
 
 namespace server.core.Remediate;
 
@@ -42,8 +43,14 @@ public sealed class NoopPdfRemediationProcessor : IPdfRemediationProcessor
 public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 {
     private const int ContextMaxCharsPerSide = 800;
+    private readonly IAltTextService _altTextService;
 
-    public Task<PdfRemediationResult> ProcessAsync(
+    public PdfRemediationProcessor(IAltTextService altTextService)
+    {
+        _altTextService = altTextService ?? throw new ArgumentNullException(nameof(altTextService));
+    }
+
+    public async Task<PdfRemediationResult> ProcessAsync(
         string fileId,
         string inputPdfPath,
         string outputPdfPath,
@@ -59,13 +66,13 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             // TODO: requires tagging step before remediation - for now just copy input to output
             // Maybe throw here instead to avoid confusion?
             File.Copy(inputPdfPath, outputPdfPath, overwrite: true);
-            return Task.FromResult(new PdfRemediationResult(outputPdfPath));
+            return new PdfRemediationResult(outputPdfPath);
         }
 
         using var pdf = new PdfDocument(new PdfReader(inputPdfPath), new PdfWriter(outputPdfPath));
         if (!pdf.IsTagged())
         {
-            return Task.FromResult(new PdfRemediationResult(outputPdfPath));
+            return new PdfRemediationResult(outputPdfPath);
         }
 
         var pageObjNumToPageNumber = PdfStructTreeIndex.BuildPageObjectNumberToPageNumberMap(pdf);
@@ -88,7 +95,10 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     continue;
                 }
 
-                var altText = GetAltTextForImage(occ.Image, occ.ContextBefore, occ.ContextAfter);
+                var (bytes, mimeType) = ExtractImageBytes(occ.Image);
+                var altText = await _altTextService.GetAltTextForImageAsync(
+                    new ImageAltTextRequest(bytes, mimeType, occ.ContextBefore, occ.ContextAfter),
+                    cancellationToken);
                 SetAlt(figure, altText);
             }
 
@@ -107,7 +117,10 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     continue;
                 }
 
-                var altText = GetAltTextForLink(occ.LinkAnnotation, occ.LinkText, occ.ContextBefore, occ.ContextAfter);
+                var target = TryGetLinkTarget(occ.LinkAnnotation);
+                var altText = await _altTextService.GetAltTextForLinkAsync(
+                    new LinkAltTextRequest(target, occ.LinkText, occ.ContextBefore, occ.ContextAfter),
+                    cancellationToken);
                 SetAlt(link, altText);
             }
         }
@@ -118,7 +131,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         {
             if (!HasNonEmptyAlt(figure))
             {
-                SetAlt(figure, "sample image alt text");
+                SetAlt(figure, _altTextService.GetFallbackAltTextForImage());
             }
         }
 
@@ -126,11 +139,11 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         {
             if (!HasNonEmptyAlt(link))
             {
-                SetAlt(link, "sample link alt text");
+                SetAlt(link, _altTextService.GetFallbackAltTextForLink());
             }
         }
 
-        return Task.FromResult(new PdfRemediationResult(outputPdfPath));
+        return new PdfRemediationResult(outputPdfPath);
     }
 
     private static bool IsTaggedPdf(string pdfPath)
@@ -139,25 +152,103 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         return pdf.IsTagged();
     }
 
-    private static string GetAltTextForImage(PdfImageXObject image, string contextBefore, string contextAfter)
+    private static (byte[] Bytes, string MimeType) ExtractImageBytes(PdfImageXObject image)
     {
-        _ = image;
-        _ = contextBefore;
-        _ = contextAfter;
-        return "sample image alt text";
+        byte[] bytes;
+        try
+        {
+            bytes = image.GetImageBytes(true);
+        }
+        catch
+        {
+            bytes = image.GetImageBytes(false);
+        }
+
+        return (bytes, GuessImageMimeType(bytes) ?? "application/octet-stream");
     }
 
-    private static string GetAltTextForLink(
-        PdfLinkAnnotation annotation,
-        string linkText,
-        string contextBefore,
-        string contextAfter)
+    private static string? GuessImageMimeType(byte[] bytes)
     {
-        _ = annotation;
-        _ = linkText;
-        _ = contextBefore;
-        _ = contextAfter;
-        return "sample link alt text";
+        if (LooksLikePng(bytes))
+        {
+            return "image/png";
+        }
+
+        if (LooksLikeJpeg(bytes))
+        {
+            return "image/jpeg";
+        }
+
+        if (LooksLikeJpeg2000(bytes))
+        {
+            return "image/jp2";
+        }
+
+        return null;
+    }
+
+    private static bool LooksLikePng(byte[] bytes) =>
+        bytes.Length >= 8
+        && bytes[0] == 0x89
+        && bytes[1] == 0x50
+        && bytes[2] == 0x4E
+        && bytes[3] == 0x47
+        && bytes[4] == 0x0D
+        && bytes[5] == 0x0A
+        && bytes[6] == 0x1A
+        && bytes[7] == 0x0A;
+
+    private static bool LooksLikeJpeg(byte[] bytes) =>
+        bytes.Length >= 3
+        && bytes[0] == 0xFF
+        && bytes[1] == 0xD8
+        && bytes[2] == 0xFF;
+
+    private static bool LooksLikeJpeg2000(byte[] bytes) =>
+        bytes.Length >= 12
+        && bytes[0] == 0x00
+        && bytes[1] == 0x00
+        && bytes[2] == 0x00
+        && bytes[3] == 0x0C
+        && bytes[4] == 0x6A
+        && bytes[5] == 0x50
+        && bytes[6] == 0x20
+        && bytes[7] == 0x20
+        && bytes[8] == 0x0D
+        && bytes[9] == 0x0A
+        && bytes[10] == 0x87
+        && bytes[11] == 0x0A;
+
+    private static string? TryGetLinkTarget(PdfLinkAnnotation linkAnnotation)
+    {
+        var action = linkAnnotation.GetAction();
+        if (action is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var uri = action.GetAsString(PdfName.URI)?.ToUnicodeString();
+            if (!string.IsNullOrWhiteSpace(uri))
+            {
+                return uri;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        try
+        {
+            var dest = action.Get(PdfName.D);
+            return dest?.ToString();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static PdfDictionary? ResolveStructElem(
