@@ -47,7 +47,7 @@ public static class IngestServiceCollectionExtensions
 
         if (options.UsePdfRemediationProcessor)
         {
-            services.AddSingleton<IAltTextService>(sp =>
+            services.AddSingleton<OpenAiRemediationConfig>(sp =>
             {
                 var configuration = sp.GetRequiredService<IConfiguration>();
                 var apiKey = GetOpenAiApiKey(configuration);
@@ -57,31 +57,29 @@ public static class IngestServiceCollectionExtensions
                         "PDF remediation is enabled but no OpenAI API key is configured. Set OPENAI_API_KEY.");
                 }
 
-                var model =
+                var altTextModel =
                     configuration["OPENAI_ALT_TEXT_MODEL"]
                     ?? configuration["OpenAI:AltTextModel"]
                     ?? configuration["OpenAI__AltTextModel"]
-                    ?? "gpt-4o-mini";
+                    ?? "gpt-5-mini";
 
-                return new OpenAIAltTextService(apiKey, model);
-            });
-            services.AddSingleton<IPdfTitleService>(sp =>
-            {
-                var configuration = sp.GetRequiredService<IConfiguration>();
-                var apiKey = GetOpenAiApiKey(configuration);
-                if (string.IsNullOrWhiteSpace(apiKey))
-                {
-                    throw new InvalidOperationException(
-                        "PDF remediation is enabled but no OpenAI API key is configured. Set OPENAI_API_KEY.");
-                }
-
-                var model =
+                var pdfTitleModel =
                     configuration["OPENAI_PDF_TITLE_MODEL"]
                     ?? configuration["OpenAI:PdfTitleModel"]
                     ?? configuration["OpenAI__PdfTitleModel"]
-                    ?? "gpt-4o-mini";
+                    ?? "gpt-5-mini";
 
-                return new OpenAIPdfTitleService(apiKey, model);
+                return new OpenAiRemediationConfig(apiKey, altTextModel, pdfTitleModel);
+            });
+            services.AddSingleton<IAltTextService>(sp =>
+            {
+                var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
+                return new OpenAIAltTextService(cfg.ApiKey, cfg.AltTextModel);
+            });
+            services.AddSingleton<IPdfTitleService>(sp =>
+            {
+                var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
+                return new OpenAIPdfTitleService(cfg.ApiKey, cfg.PdfTitleModel);
             });
             services.AddSingleton<IPdfRemediationProcessor, PdfRemediationProcessor>();
         }
@@ -121,4 +119,6 @@ public static class IngestServiceCollectionExtensions
             ?? configuration["OpenAI:ApiKey"]
             ?? configuration["OpenAI__ApiKey"];
     }
+
+    private sealed record OpenAiRemediationConfig(string ApiKey, string AltTextModel, string PdfTitleModel);
 }
