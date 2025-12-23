@@ -9,8 +9,10 @@ namespace server.core.Ingest;
 
 public interface IPdfProcessor
 {
-    Task ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken);
+    Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken);
 }
+
+public sealed record PdfProcessResult(string OutputPdfPath);
 
 public sealed record PdfChunk(int Index, int FromPage, int ToPage, string Path)
 {
@@ -51,7 +53,7 @@ public sealed class PdfProcessor : IPdfProcessor
     /// This method writes intermediate artifacts to a per-file working directory under <c>/tmp</c> (or a configured
     /// root), and expects <see cref="IAdobePdfServices" /> to produce tagged PDFs for each chunk.
     /// </remarks>
-    public async Task ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
+    public async Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
     {
         var safeFileId = SanitizeForFileName(fileId);
         var workDir = GetWorkDir(safeFileId, _options.WorkDirRoot);
@@ -116,8 +118,10 @@ public sealed class PdfProcessor : IPdfProcessor
 
         _logger.LogInformation("Remediated PDF written to {path}", finalPdfPath);
 
-        // TODO: Generate a final a11y report on the remediated PDF (PDFAccessibilityCheckerJob) and persist JSON to DB.
-        // TODO: Merge/tagging reports, upload to `processed/`, and update DB status + artifact URIs.
+        // 6. TODO: Generate a final a11y report on the remediated PDF (PDFAccessibilityCheckerJob) and persist JSON to DB.
+        // 7. TODO: upload final to `processed/`, and update DB status + artifact URIs.
+
+        return new PdfProcessResult(finalPdfPath);
     }
 
     /// <summary>
@@ -216,8 +220,19 @@ public sealed class PdfProcessor : IPdfProcessor
 
 public sealed class NoopPdfProcessor : IPdfProcessor
 {
-    public Task ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
+    public async Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
     {
+        var safeFileId = Sanitize(fileId);
+        var tmpRoot = Directory.Exists("/tmp") ? "/tmp" : Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        var workDir = Path.Combine(tmpRoot, "readable-ingest", safeFileId);
+        Directory.CreateDirectory(workDir);
+
+        var outputPath = Path.Combine(workDir, $"{safeFileId}.noop.pdf");
+        await using (var output = File.Create(outputPath))
+        {
+            await pdfStream.CopyToAsync(output, cancellationToken);
+        }
+
         // TODO: Implement PDF ingest processing pipeline:
         // TODO: 1) Split the incoming PDF stream into chunks of <= 200 pages each.
         // TODO:    - Write each chunk to a temp file under `/tmp` (e.g. `/tmp/{fileId}.partNNN.pdf`).
@@ -242,6 +257,23 @@ public sealed class NoopPdfProcessor : IPdfProcessor
         // TODO: 9) Cleanup:
         // TODO:    - Delete temp files under `/tmp` (best-effort) on success/failure.
 
-        return Task.CompletedTask;
+        return new PdfProcessResult(outputPath);
+    }
+
+    private static string Sanitize(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "file";
+        }
+
+        var invalid = Path.GetInvalidFileNameChars();
+        var sb = new StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            sb.Append(Array.IndexOf(invalid, ch) >= 0 ? '_' : ch);
+        }
+
+        return sb.ToString().Trim();
     }
 }

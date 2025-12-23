@@ -26,6 +26,7 @@ public static class IngestServiceCollectionExtensions
             o.WorkDirRoot = options.PdfWorkDirRoot;
         });
         services.AddSingleton<IBlobStreamOpener, AzureBlobStreamOpener>();
+        services.AddSingleton<IBlobStorage, AzureBlobStorage>();
 
         if (options.UseNoopAdobePdfServices)
         {
