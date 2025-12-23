@@ -206,3 +206,63 @@ public class ExampleController : ApiControllerBase
 ```
 
 When generating code, ensure it follows these patterns and integrates well with the existing technology stack.
+
+---
+
+## Backend: PDF Ingest + Remediation Notes (Project-Specific)
+
+### Where the PDF pipeline lives
+
+- PDF ingest is wired up in `server.core/Ingest/IngestServiceCollectionExtensions.cs` (DI registration for ingest + remediation services).
+- The remediation implementation is `server.core/Remediate/PdfRemediationProcessor.cs` (runs inside ingest).
+- Alt-text service implementations live in `server.core/Remediate/AltText/`:
+  - `IAltTextService` + request models
+  - `OpenAIAltTextService` (chat-based generation)
+  - `SampleAltTextService` (local fallback when no API key)
+- PDF-title service implementations live in `server.core/Remediate/Title/`:
+  - `IPdfTitleService` + `PdfTitleRequest`
+  - `OpenAIPdfTitleService` (chat-based title generation)
+  - `SamplePdfTitleService` (local fallback when no API key)
+
+### Remediation behaviors (current design)
+
+- The remediation processor always opens the input PDF and writes an output PDF (it does not “copy through” early just because the PDF is untagged).
+- Title remediation runs regardless of tagging:
+  - Extracts text page-by-page from page 1 onward until reaching at least `TitleContextMinWords` (currently `100`) or scanning `TitleContextMaxPages` (currently `5`).
+  - If there isn’t enough text:
+    - If the PDF already has a title, keep it.
+    - If the title is missing/blank, set a placeholder (currently `"Untitled PDF document"`).
+  - If there is enough text, it calls `IPdfTitleService.GenerateTitleAsync()` and writes the returned title into PDF metadata (`DocumentInfo.Title`).
+- Alt text remediation runs only for tagged PDFs:
+  - Iterates pages, matches content-stream occurrences to tag-tree elements (role `Figure` and `Link`) using MCID/object refs.
+  - Calls `IAltTextService` for images/links missing `Alt`.
+  - Includes a fallback “safety net” pass that sets `Alt` on any remaining `Figure`/`Link` tag-tree nodes.
+
+### Environment variables for AI-backed remediation
+
+- `OPENAI_API_KEY`: enables OpenAI-backed services; otherwise “Sample*” services are used.
+- `OPENAI_ALT_TEXT_MODEL`: model for `OpenAIAltTextService` (default `gpt-4o-mini`).
+- `OPENAI_PDF_TITLE_MODEL`: model for `OpenAIPdfTitleService` (default `gpt-4o-mini`).
+
+### Adding a new remediation step
+
+- Prefer adding steps inside `PdfRemediationProcessor.ProcessAsync()` so it’s obvious what runs, and in what order.
+- If the step might be needed even for untagged PDFs (metadata changes, etc.), do it before the `if (!pdf.IsTagged()) return ...` short-circuit.
+- For anything that calls external services, keep the service behind a small interface (like `IAltTextService` / `IPdfTitleService`) and register it in `IngestServiceCollectionExtensions`.
+
+## Server Testing Notes (Project-Specific)
+
+### Where tests live and how they’re written
+
+- Server tests are in `tests/server.tests/` using xUnit + FluentAssertions.
+- Remediation tests are integration-style and live under `tests/server.tests/Integration/Remediate/`.
+- Existing PDF fixtures live in `tests/server.tests/Fixtures/pdfs/` (useful when you need repeatable tagged/structured PDFs).
+- Test style:
+  - Create an isolated temp directory per test run under `Path.GetTempPath()` and delete it in a `finally` block.
+  - Prefer tiny fake/capturing services over hitting OpenAI (tests should remain offline/deterministic).
+  - When you need a custom PDF for a test, it’s OK to generate one on the fly with iText (e.g., using `iText.Layout.Document` and `Paragraph`).
+
+### Running tests in sandboxed environments
+
+- `dotnet test` may require extra permissions in some sandboxed environments due to MSBuild using IPC/named pipes.
+  - If you see “Permission denied” from MSBuild/NamedPipeServerStream, rerun tests with the necessary elevated permissions in your environment.
