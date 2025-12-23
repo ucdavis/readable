@@ -9,8 +9,10 @@ namespace server.core.Ingest;
 
 public interface IPdfProcessor
 {
-    Task ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken);
+    Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken);
 }
+
+public sealed record PdfProcessResult(string OutputPdfPath);
 
 public sealed record PdfChunk(int Index, int FromPage, int ToPage, string Path)
 {
@@ -51,7 +53,7 @@ public sealed class PdfProcessor : IPdfProcessor
     /// This method writes intermediate artifacts to a per-file working directory under <c>/tmp</c> (or a configured
     /// root), and expects <see cref="IAdobePdfServices" /> to produce tagged PDFs for each chunk.
     /// </remarks>
-    public async Task ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
+    public async Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
     {
         var safeFileId = SanitizeForFileName(fileId);
         var workDir = GetWorkDir(safeFileId, _options.WorkDirRoot);
@@ -64,60 +66,102 @@ public sealed class PdfProcessor : IPdfProcessor
             await pdfStream.CopyToAsync(sourceFile, cancellationToken);
         }
 
-        // 1) Split the incoming PDF stream into chunks of <= 200 pages each.
-        //    - Write each chunk to a temp file under `/tmp` (e.g. `/tmp/{fileId}.partNNN.pdf`).
-        //    - Keep an ordered list of the chunk file paths (and any per-chunk metadata).
-
-        var chunks = SplitIntoChunks(sourcePath, workDir, safeFileId, _options.MaxPagesPerChunk, cancellationToken);
-
-        _logger.LogInformation(
-            "Split {fileId} into {chunkCount} chunk(s) in {workDir}",
-            fileId,
-            chunks.Count,
-            workDir);
-
-        // 2. TODO (maybe) - get an a10y report for the 'before' step
-
-        // 3. Autotag each chunk via Adobe PDF Services.
-        var taggedChunkPaths = new List<string>(chunks.Count);
-        foreach (var chunk in chunks)
+        string taggedPdfPath;
+        if (_options.UseAdobePdfServices)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            var outputTaggedPath = Path.Combine(workDir, $"{safeFileId}.tagged.pdf");
+            var totalPages = ReadPageCount(sourcePath);
 
-            var taggedPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.tagged.pdf");
-            var reportPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.autotag-report.xlsx");
+            if (totalPages <= _options.MaxPagesPerChunk)
+            {
+                // Common case: avoid split/merge overhead when the PDF fits in a single chunk.
+                var reportPath = Path.Combine(workDir, $"{safeFileId}.autotag-report.xlsx");
+                await _adobePdfServices.AutotagPdfAsync(
+                    inputPdfPath: sourcePath,
+                    outputTaggedPdfPath: outputTaggedPath,
+                    outputTaggingReportPath: reportPath,
+                    cancellationToken: cancellationToken);
 
-            await _adobePdfServices.AutotagPdfAsync(
-                inputPdfPath: chunk.Path,
-                outputTaggedPdfPath: taggedPath,
-                outputTaggingReportPath: reportPath,
-                cancellationToken: cancellationToken);
+                taggedPdfPath = outputTaggedPath;
+            }
+            else
+            {
+                // 1) Split the incoming PDF stream into chunks of <= MaxPagesPerChunk pages.
+                //    - Write each chunk to a temp file under the work directory.
+                //    - Keep an ordered list of the chunk file paths.
+                var chunks = SplitIntoChunks(sourcePath, workDir, safeFileId, _options.MaxPagesPerChunk, cancellationToken);
 
-            taggedChunkPaths.Add(taggedPath);
+                _logger.LogInformation(
+                    "Split {fileId} into {chunkCount} chunk(s) in {workDir}",
+                    fileId,
+                    chunks.Count,
+                    workDir);
+
+                // 2. TODO (maybe) - get an a10y report for the 'before' step
+
+                // 3. Autotag each chunk via Adobe PDF Services.
+                var taggedChunkPaths = new List<string>(chunks.Count);
+                foreach (var chunk in chunks)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var taggedPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.tagged.pdf");
+                    var reportPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.autotag-report.xlsx");
+
+                    await _adobePdfServices.AutotagPdfAsync(
+                        inputPdfPath: chunk.Path,
+                        outputTaggedPdfPath: taggedPath,
+                        outputTaggingReportPath: reportPath,
+                        cancellationToken: cancellationToken);
+
+                    taggedChunkPaths.Add(taggedPath);
+                }
+
+                // 4. Merge all tagged chunk PDFs back into a single tagged PDF.
+                MergePdfsInOrder(taggedChunkPaths, outputTaggedPath, cancellationToken);
+                _logger.LogInformation("Merged tagged PDF written to {path}", outputTaggedPath);
+
+                taggedPdfPath = outputTaggedPath;
+            }
+        }
+        else
+        {
+            // When Adobe autotagging is disabled, avoid splitting/merging with iText.
+            taggedPdfPath = sourcePath;
         }
 
-        // 4. Merge all tagged chunk PDFs back into a single tagged PDF.
-        var mergedTaggedPath = Path.Combine(workDir, $"{safeFileId}.tagged.pdf");
-        MergePdfsInOrder(taggedChunkPaths, mergedTaggedPath, cancellationToken);
+        string finalPdfPath;
+        if (_options.UsePdfRemediationProcessor)
+        {
+            // 5. Post-process the tagged PDF:
+            //    - Walk the PDF structure by page to find images and links; add/repair alt text where missing.
+            //    - Infer/set a document title.
+            //    - Optional: build/insert a TOC.
+            var remediatedPdfPath = Path.Combine(workDir, $"{safeFileId}.remediated.pdf");
+            var remediation = await _pdfRemediationProcessor.ProcessAsync(
+                fileId,
+                taggedPdfPath,
+                remediatedPdfPath,
+                cancellationToken);
+            finalPdfPath = remediation.OutputPdfPath;
 
-        _logger.LogInformation("Merged tagged PDF written to {path}", mergedTaggedPath);
+            _logger.LogInformation("Remediated PDF written to {path}", finalPdfPath);
+        }
+        else
+        {
+            finalPdfPath = taggedPdfPath;
+        }
 
-        // 5. Post-process the merged tagged PDF:
-        //    - Walk the PDF structure by page to find images and links; add/repair alt text where missing.
-        //    - Infer/set a document title.
-        //    - Optional: build/insert a TOC.
-        var remediatedPdfPath = Path.Combine(workDir, $"{safeFileId}.remediated.pdf");
-        var remediation = await _pdfRemediationProcessor.ProcessAsync(
-            fileId,
-            mergedTaggedPath,
-            remediatedPdfPath,
-            cancellationToken);
-        var finalPdfPath = remediation.OutputPdfPath;
+        // 6. TODO: Generate a final a11y report on the remediated PDF (PDFAccessibilityCheckerJob) and persist JSON to DB.
+        // 7. update DB status + artifact URIs.
 
-        _logger.LogInformation("Remediated PDF written to {path}", finalPdfPath);
+        return new PdfProcessResult(finalPdfPath);
+    }
 
-        // TODO: Generate a final a11y report on the remediated PDF (PDFAccessibilityCheckerJob) and persist JSON to DB.
-        // TODO: Merge/tagging reports, upload to `processed/`, and update DB status + artifact URIs.
+    private static int ReadPageCount(string pdfPath)
+    {
+        using var pdf = new PdfDocument(new PdfReader(pdfPath));
+        return pdf.GetNumberOfPages();
     }
 
     /// <summary>
@@ -216,8 +260,19 @@ public sealed class PdfProcessor : IPdfProcessor
 
 public sealed class NoopPdfProcessor : IPdfProcessor
 {
-    public Task ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
+    public async Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
     {
+        var safeFileId = Sanitize(fileId);
+        var tmpRoot = Directory.Exists("/tmp") ? "/tmp" : Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        var workDir = Path.Combine(tmpRoot, "readable-ingest", safeFileId);
+        Directory.CreateDirectory(workDir);
+
+        var outputPath = Path.Combine(workDir, $"{safeFileId}.noop.pdf");
+        await using (var output = File.Create(outputPath))
+        {
+            await pdfStream.CopyToAsync(output, cancellationToken);
+        }
+
         // TODO: Implement PDF ingest processing pipeline:
         // TODO: 1) Split the incoming PDF stream into chunks of <= 200 pages each.
         // TODO:    - Write each chunk to a temp file under `/tmp` (e.g. `/tmp/{fileId}.partNNN.pdf`).
@@ -242,6 +297,23 @@ public sealed class NoopPdfProcessor : IPdfProcessor
         // TODO: 9) Cleanup:
         // TODO:    - Delete temp files under `/tmp` (best-effort) on success/failure.
 
-        return Task.CompletedTask;
+        return new PdfProcessResult(outputPath);
+    }
+
+    private static string Sanitize(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "file";
+        }
+
+        var invalid = Path.GetInvalidFileNameChars();
+        var sb = new StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            sb.Append(Array.IndexOf(invalid, ch) >= 0 ? '_' : ch);
+        }
+
+        return sb.ToString().Trim();
     }
 }

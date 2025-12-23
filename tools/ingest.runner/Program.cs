@@ -24,10 +24,11 @@ TelemetryHelper.ConfigureOpenTelemetry(builder.Services, builder.Configuration, 
 
 builder.Services.AddFileIngest(o =>
 {
-    // Default to a noop Adobe implementation unless credentials are configured.
-    o.UseNoopAdobePdfServices =
-        string.IsNullOrWhiteSpace(builder.Configuration["PDF_SERVICES_CLIENT_ID"])
-        || string.IsNullOrWhiteSpace(builder.Configuration["PDF_SERVICES_CLIENT_SECRET"]);
+    // Runner defaults:
+    // - Do not use Adobe PDF Services unless explicitly enabled.
+    // - Do not use PDF remediation unless explicitly enabled (requires OpenAI key).
+    o.UseAdobePdfServices = false;
+    o.UsePdfRemediationProcessor = false;
 });
 
 using var host = builder.Build();

@@ -1,5 +1,6 @@
 using FluentAssertions;
 using iText.Kernel.Pdf;
+using Microsoft.Extensions.Logging.Abstractions;
 using server.core.Remediate;
 using server.core.Remediate.AltText;
 
@@ -28,7 +29,7 @@ public sealed class PdfRemediationProcessorTests
             try
             {
                 var outputPdfPath = Path.Combine(runRoot, "output.pdf");
-                var sut = new PdfRemediationProcessor(new FakeAltTextService(), new FakePdfTitleService());
+                var sut = new PdfRemediationProcessor(new FakeAltTextService(), new FakePdfTitleService(), NullLogger<PdfRemediationProcessor>.Instance);
 
             var result = await sut.ProcessAsync(
                 fileId: "fixture",

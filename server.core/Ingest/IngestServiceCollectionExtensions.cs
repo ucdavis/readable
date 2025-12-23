@@ -1,4 +1,6 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using server.core.Remediate;
 using server.core.Remediate.AltText;
 using server.core.Remediate.Title;
@@ -11,9 +13,10 @@ public static class IngestServiceCollectionExtensions
     /// Registers the PDF ingest pipeline (blob read, PDF processing, autotagging, and remediation).
     /// </summary>
     /// <remarks>
-    /// When OpenAI is enabled (<c>OPENAI_API_KEY</c>), remediation uses chat-based services for title and alt text.
-    /// Without an API key, deterministic "Sample*" services are used as a local fallback. Model selection can be
-    /// overridden via <c>OPENAI_ALT_TEXT_MODEL</c> and <c>OPENAI_PDF_TITLE_MODEL</c>.
+    /// When PDF remediation is enabled, OpenAI-backed services are required for title and alt text generation.
+    /// Model selection can be overridden via <c>OPENAI_ALT_TEXT_MODEL</c> and <c>OPENAI_PDF_TITLE_MODEL</c>.
+    /// When Adobe PDF Services is enabled, credentials must be provided via environment variables
+    /// or configuration settings.
     /// </remarks>
     public static IServiceCollection AddFileIngest(this IServiceCollection services, Action<FileIngestOptions>? configure = null)
     {
@@ -22,53 +25,102 @@ public static class IngestServiceCollectionExtensions
 
         services.AddOptions<PdfProcessorOptions>().Configure(o =>
         {
+            o.UseAdobePdfServices = options.UseAdobePdfServices;
+            o.UsePdfRemediationProcessor = options.UsePdfRemediationProcessor;
             o.MaxPagesPerChunk = options.PdfMaxPagesPerChunk;
             o.WorkDirRoot = options.PdfWorkDirRoot;
         });
         services.AddSingleton<IBlobStreamOpener, AzureBlobStreamOpener>();
+        services.AddSingleton<IBlobStorage, AzureBlobStorage>();
 
-        if (options.UseNoopAdobePdfServices)
+        if (options.UseAdobePdfServices)
+        {
+            services.AddSingleton<IAdobePdfServices>(sp =>
+            {
+                var configuration = sp.GetRequiredService<IConfiguration>();
+                EnsureAdobeCredentialsConfigured(configuration);
+                return new AdobePdfServices(configuration, sp.GetRequiredService<ILogger<AdobePdfServices>>());
+            });
+        }
+        else
         {
             services.AddSingleton<IAdobePdfServices, NoopAdobePdfServices>();
         }
-        else
-        {
-            services.AddSingleton<IAdobePdfServices, AdobePdfServices>();
-        }
 
-        if (options.UseNoopPdfRemediationProcessor)
+        if (options.UsePdfRemediationProcessor)
         {
-            services.AddSingleton<IPdfRemediationProcessor, NoopPdfRemediationProcessor>();
-        }
-        else
-        {
-            services.AddSingleton<IAltTextService>(_ =>
+            services.AddSingleton<OpenAiRemediationConfig>(sp =>
             {
-                var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+                var configuration = sp.GetRequiredService<IConfiguration>();
+                var apiKey = GetOpenAiApiKey(configuration);
                 if (string.IsNullOrWhiteSpace(apiKey))
                 {
-                    return new SampleAltTextService();
+                    throw new InvalidOperationException(
+                        "PDF remediation is enabled but no OpenAI API key is configured. Set OPENAI_API_KEY.");
                 }
 
-                var model = Environment.GetEnvironmentVariable("OPENAI_ALT_TEXT_MODEL") ?? "gpt-4o-mini";
-                return new OpenAIAltTextService(apiKey, model);
+                var altTextModel =
+                    configuration["OPENAI_ALT_TEXT_MODEL"]
+                    ?? configuration["OpenAI:AltTextModel"]
+                    ?? configuration["OpenAI__AltTextModel"]
+                    ?? "gpt-5-mini";
+
+                var pdfTitleModel =
+                    configuration["OPENAI_PDF_TITLE_MODEL"]
+                    ?? configuration["OpenAI:PdfTitleModel"]
+                    ?? configuration["OpenAI__PdfTitleModel"]
+                    ?? "gpt-5-mini";
+
+                return new OpenAiRemediationConfig(apiKey, altTextModel, pdfTitleModel);
             });
-            services.AddSingleton<IPdfTitleService>(_ =>
+            services.AddSingleton<IAltTextService>(sp =>
             {
-                var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
-                if (string.IsNullOrWhiteSpace(apiKey))
-                {
-                    return new SamplePdfTitleService();
-                }
-
-                var model = Environment.GetEnvironmentVariable("OPENAI_PDF_TITLE_MODEL") ?? "gpt-4o-mini";
-                return new OpenAIPdfTitleService(apiKey, model);
+                var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
+                return new OpenAIAltTextService(cfg.ApiKey, cfg.AltTextModel);
+            });
+            services.AddSingleton<IPdfTitleService>(sp =>
+            {
+                var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
+                return new OpenAIPdfTitleService(cfg.ApiKey, cfg.PdfTitleModel);
             });
             services.AddSingleton<IPdfRemediationProcessor, PdfRemediationProcessor>();
+        }
+        else
+        {
+            services.AddSingleton<IPdfRemediationProcessor, NoopPdfRemediationProcessor>();
         }
 
         services.AddSingleton<IPdfProcessor, PdfProcessor>();
         services.AddSingleton<IFileIngestProcessor, FileIngestProcessor>();
         return services;
     }
+
+    private static void EnsureAdobeCredentialsConfigured(IConfiguration configuration)
+    {
+        var clientId =
+            configuration["PDF_SERVICES_CLIENT_ID"]
+            ?? configuration["AdobePdfServices:ClientId"]
+            ?? configuration["AdobePdfServices__ClientId"];
+
+        var clientSecret =
+            configuration["PDF_SERVICES_CLIENT_SECRET"]
+            ?? configuration["AdobePdfServices:ClientSecret"]
+            ?? configuration["AdobePdfServices__ClientSecret"];
+
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+        {
+            throw new InvalidOperationException(
+                "Adobe PDF Services is enabled but credentials are missing. Set PDF_SERVICES_CLIENT_ID and PDF_SERVICES_CLIENT_SECRET.");
+        }
+    }
+
+    private static string? GetOpenAiApiKey(IConfiguration configuration)
+    {
+        return
+            configuration["OPENAI_API_KEY"]
+            ?? configuration["OpenAI:ApiKey"]
+            ?? configuration["OpenAI__ApiKey"];
+    }
+
+    private sealed record OpenAiRemediationConfig(string ApiKey, string AltTextModel, string PdfTitleModel);
 }
