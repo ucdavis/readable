@@ -6,6 +6,21 @@ namespace server.core.Domain;
 
 public class AccessibilityReport
 {
+    public static class Stages
+    {
+        public const string Before = "Before";
+        public const string After = "After";
+
+        public static readonly string[] All =
+        [
+            Before,
+            After,
+        ];
+
+        public static string CheckConstraintSql =>
+            $"[Stage] IN ('{string.Join("','", All)}')";
+    }
+
     public long ReportId { get; set; }
 
     public Guid FileId { get; set; }
@@ -28,19 +43,17 @@ public class AccessibilityReport
     {
         modelBuilder.Entity<AccessibilityReport>(entity =>
         {
-            entity.ToTable("AccessibilityReports");
+            entity.ToTable(
+                "AccessibilityReports",
+                table =>
+                {
+                    table.HasCheckConstraint("CK_AccessibilityReports_Stage", Stages.CheckConstraintSql);
+                    table.HasCheckConstraint("CK_AccessibilityReports_ReportJson_IsJson", "ISJSON([ReportJson]) > 0");
+                });
             entity.HasKey(x => x.ReportId);
 
             entity.Property(x => x.ReportJson)
                 .IsRequired();
-
-            entity.HasCheckConstraint(
-                "CK_AccessibilityReports_Stage",
-                "[Stage] IN ('Before','After')");
-
-            entity.HasCheckConstraint(
-                "CK_AccessibilityReports_ReportJson_IsJson",
-                "ISJSON([ReportJson]) > 0");
 
             entity.HasOne(x => x.File)
                 .WithMany(x => x.AccessibilityReports)

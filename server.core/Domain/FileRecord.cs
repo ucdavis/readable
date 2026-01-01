@@ -10,6 +10,29 @@ namespace server.core.Domain;
 /// </summary>
 public class FileRecord
 {
+    public static class Statuses
+    {
+        public const string Created = "Created";
+        public const string Queued = "Queued";
+        public const string Processing = "Processing";
+        public const string Completed = "Completed";
+        public const string Failed = "Failed";
+        public const string Cancelled = "Cancelled";
+
+        public static readonly string[] All =
+        [
+            Created,
+            Queued,
+            Processing,
+            Completed,
+            Failed,
+            Cancelled,
+        ];
+
+        public static string CheckConstraintSql =>
+            $"[Status] IN ('{string.Join("','", All)}')";
+    }
+
     /// <summary>
     /// Will be used as primary id in blob storage as well.
     /// </summary>
@@ -28,7 +51,7 @@ public class FileRecord
     public long SizeBytes { get; set; }
 
     [StringLength(32)]
-    public string Status { get; set; } = string.Empty;
+    public string Status { get; set; } = Statuses.Created;
 
     public DateTimeOffset CreatedAt { get; set; }
 
@@ -44,12 +67,10 @@ public class FileRecord
     {
         modelBuilder.Entity<FileRecord>(entity =>
         {
-            entity.ToTable("Files");
+            entity.ToTable(
+                "Files",
+                table => table.HasCheckConstraint("CK_Files_Status", Statuses.CheckConstraintSql));
             entity.HasKey(x => x.FileId);
-
-            entity.HasCheckConstraint(
-                "CK_Files_Status",
-                "[Status] IN ('Created','Queued','Processing','Completed','Failed','Cancelled')");
 
             entity.Property(x => x.CreatedAt)
                 .HasDefaultValueSql("SYSUTCDATETIME()");
