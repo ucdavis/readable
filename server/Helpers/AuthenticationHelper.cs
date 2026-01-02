@@ -78,18 +78,13 @@ public static class AuthenticationHelper
     /// </summary>
     private static async Task OnTokenValidated(Microsoft.AspNetCore.Authentication.OpenIdConnect.TokenValidatedContext ctx)
     {
-        // Load up the roles on first login (can also change other user info/claims here if needed)
+        // Sync user + load roles on login (can also change other user info/claims here if needed)
         var userService = ctx.HttpContext.RequestServices.GetRequiredService<IUserService>();
-        var userId = ctx.Principal!.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var updated = await userService.UpdateUserPrincipalIfNeeded(ctx.Principal!);
 
-        if (string.IsNullOrEmpty(userId)) return;
-
-        var roles = await userService.GetRolesForUser(userId);
-
-        var identity = (ClaimsIdentity)ctx.Principal.Identity!;
-        foreach (var role in roles)
+        if (updated is not null)
         {
-            identity.AddClaim(new Claim(ClaimTypes.Role, role));
+            ctx.Principal = updated;
         }
     }
 
