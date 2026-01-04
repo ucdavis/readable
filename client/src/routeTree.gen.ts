@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as authenticatedRouteRouteImport } from './routes/(authenticated)/route'
 import { Route as authenticatedIndexRouteImport } from './routes/(authenticated)/index'
+import { Route as authenticatedUploadRouteImport } from './routes/(authenticated)/upload'
 import { Route as authenticatedStylesRouteImport } from './routes/(authenticated)/styles'
 import { Route as authenticatedMeRouteImport } from './routes/(authenticated)/me'
 import { Route as authenticatedFormRouteImport } from './routes/(authenticated)/form'
@@ -29,6 +30,11 @@ const authenticatedRouteRoute = authenticatedRouteRouteImport.update({
 const authenticatedIndexRoute = authenticatedIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => authenticatedRouteRoute,
+} as any)
+const authenticatedUploadRoute = authenticatedUploadRouteImport.update({
+  id: '/upload',
+  path: '/upload',
   getParentRoute: () => authenticatedRouteRoute,
 } as any)
 const authenticatedStylesRoute = authenticatedStylesRouteImport.update({
@@ -58,6 +64,7 @@ export interface FileRoutesByFullPath {
   '/form': typeof authenticatedFormRoute
   '/me': typeof authenticatedMeRoute
   '/styles': typeof authenticatedStylesRoute
+  '/upload': typeof authenticatedUploadRoute
   '/': typeof authenticatedIndexRoute
 }
 export interface FileRoutesByTo {
@@ -66,6 +73,7 @@ export interface FileRoutesByTo {
   '/form': typeof authenticatedFormRoute
   '/me': typeof authenticatedMeRoute
   '/styles': typeof authenticatedStylesRoute
+  '/upload': typeof authenticatedUploadRoute
   '/': typeof authenticatedIndexRoute
 }
 export interface FileRoutesById {
@@ -76,13 +84,14 @@ export interface FileRoutesById {
   '/(authenticated)/form': typeof authenticatedFormRoute
   '/(authenticated)/me': typeof authenticatedMeRoute
   '/(authenticated)/styles': typeof authenticatedStylesRoute
+  '/(authenticated)/upload': typeof authenticatedUploadRoute
   '/(authenticated)/': typeof authenticatedIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/about' | '/fetch' | '/form' | '/me' | '/styles' | '/'
+  fullPaths: '/about' | '/fetch' | '/form' | '/me' | '/styles' | '/upload' | '/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/about' | '/fetch' | '/form' | '/me' | '/styles' | '/'
+  to: '/about' | '/fetch' | '/form' | '/me' | '/styles' | '/upload' | '/'
   id:
     | '__root__'
     | '/(authenticated)'
@@ -91,6 +100,7 @@ export interface FileRouteTypes {
     | '/(authenticated)/form'
     | '/(authenticated)/me'
     | '/(authenticated)/styles'
+    | '/(authenticated)/upload'
     | '/(authenticated)/'
   fileRoutesById: FileRoutesById
 }
@@ -120,6 +130,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof authenticatedIndexRouteImport
+      parentRoute: typeof authenticatedRouteRoute
+    }
+    '/(authenticated)/upload': {
+      id: '/(authenticated)/upload'
+      path: '/upload'
+      fullPath: '/upload'
+      preLoaderRoute: typeof authenticatedUploadRouteImport
       parentRoute: typeof authenticatedRouteRoute
     }
     '/(authenticated)/styles': {
@@ -158,6 +175,7 @@ interface authenticatedRouteRouteChildren {
   authenticatedFormRoute: typeof authenticatedFormRoute
   authenticatedMeRoute: typeof authenticatedMeRoute
   authenticatedStylesRoute: typeof authenticatedStylesRoute
+  authenticatedUploadRoute: typeof authenticatedUploadRoute
   authenticatedIndexRoute: typeof authenticatedIndexRoute
 }
 
@@ -166,6 +184,7 @@ const authenticatedRouteRouteChildren: authenticatedRouteRouteChildren = {
   authenticatedFormRoute: authenticatedFormRoute,
   authenticatedMeRoute: authenticatedMeRoute,
   authenticatedStylesRoute: authenticatedStylesRoute,
+  authenticatedUploadRoute: authenticatedUploadRoute,
   authenticatedIndexRoute: authenticatedIndexRoute,
 }
 

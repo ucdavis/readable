@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
+using server.Helpers;
 using server.core.Data;
 using server.core.Domain;
 
@@ -10,7 +12,7 @@ public interface IUserService
     /// <summary>
     /// Ensures the authenticated user exists in the database and syncs basic profile fields (name/email).
     /// </summary>
-    Task SyncUserAsync(ClaimsPrincipal principal);
+    Task<long?> SyncUserAsync(ClaimsPrincipal principal);
 
     Task<List<string>> GetRolesForUser(ClaimsPrincipal principal);
 
@@ -28,15 +30,15 @@ public class UserService : IUserService
         _dbContext = dbContext;
     }
 
-    public async Task SyncUserAsync(ClaimsPrincipal principal)
+    public async Task<long?> SyncUserAsync(ClaimsPrincipal principal)
     {
         // all of our users must have an Entra object id
         // if we ever changes this we should update how we pull the user out of the users table from the principal
-        var entraObjectId = TryGetEntraObjectId(principal);
+        var entraObjectId = principal.GetEntraObjectId();
         if (entraObjectId is null)
         {
             _logger.LogWarning("Unable to sync user: missing Entra object id claim.");
-            return;
+            return null;
         }
 
         var email = NormalizeEmail(TryGetEmail(principal));
@@ -92,11 +94,13 @@ public class UserService : IUserService
         {
             await _dbContext.SaveChangesAsync();
         }
+
+        return user.UserId;
     }
 
     public async Task<List<string>> GetRolesForUser(ClaimsPrincipal principal)
     {
-        var entraObjectId = TryGetEntraObjectId(principal);
+        var entraObjectId = principal.GetEntraObjectId();
         if (entraObjectId is null)
         {
             _logger.LogWarning("Unable to load roles: missing Entra object id claim.");
@@ -117,11 +121,9 @@ public class UserService : IUserService
 
     public async Task<ClaimsPrincipal?> UpdateUserPrincipalIfNeeded(ClaimsPrincipal principal)
     {
-        await SyncUserAsync(principal);
+        var dbUserId = await SyncUserAsync(principal);
+        var userIdMissing = principal.GetUserId() is null && dbUserId is not null;
 
-        // Here you could check if the user's roles or other claims have changed
-        // and if so, create a new ClaimsPrincipal with updated claims.
-        // get user's roles
         // might want to cache w/ IMemoryCache to avoid DB hits on every request, but we'll skip that for simplicity
         var currentRoles = await GetRolesForUser(principal);
 
@@ -129,50 +131,41 @@ public class UserService : IUserService
         var cookieRoles = principal.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
         var currentRoleSet = new HashSet<string>(currentRoles, StringComparer.OrdinalIgnoreCase);
         var cookieRoleSet = new HashSet<string>(cookieRoles, StringComparer.OrdinalIgnoreCase);
-        var changed = !currentRoleSet.SetEquals(cookieRoleSet);
+        var rolesChanged = !currentRoleSet.SetEquals(cookieRoleSet);
+        var changed = rolesChanged || userIdMissing;
 
         if (!changed) { return null; } // no change
 
         // create new identity with updated roles
         var newId = new ClaimsIdentity(principal.Claims, authenticationType: principal.Identity?.AuthenticationType);
 
-        // remove old role claims
-        foreach (var roleClaim in newId.FindAll(ClaimTypes.Role).ToList())
+        if (userIdMissing)
         {
-            newId.RemoveClaim(roleClaim);
+            foreach (var claim in newId.FindAll(ClaimsPrincipalExtensions.AppUserIdClaimType).ToList())
+            {
+                newId.RemoveClaim(claim);
+            }
+
+            newId.AddClaim(new Claim(
+                ClaimsPrincipalExtensions.AppUserIdClaimType,
+                dbUserId!.Value.ToString(CultureInfo.InvariantCulture)));
         }
 
-        // add new role claims
-        foreach (var role in currentRoles)
+        if (rolesChanged)
         {
-            newId.AddClaim(new Claim(ClaimTypes.Role, role));
+            foreach (var roleClaim in newId.FindAll(ClaimTypes.Role).ToList())
+            {
+                newId.RemoveClaim(roleClaim);
+            }
+
+            foreach (var role in currentRoles)
+            {
+                newId.AddClaim(new Claim(ClaimTypes.Role, role));
+            }
         }
 
         // create new principal and return it
         return new ClaimsPrincipal(newId);
-    }
-
-    private static Guid? TryGetEntraObjectId(ClaimsPrincipal principal)
-    {
-        // Prefer Entra object id (OID). Fall back to NameIdentifier only if it parses as a GUID.
-        // Azure AD can emit the OID claim as either "oid" or its long URI depending on inbound claim mapping.
-        var claimTypes = new[]
-        {
-            "http://schemas.microsoft.com/identity/claims/objectidentifier",
-            "oid",
-            ClaimTypes.NameIdentifier,
-        };
-
-        foreach (var claimType in claimTypes)
-        {
-            var value = principal.FindFirst(claimType)?.Value;
-            if (Guid.TryParse(value, out var guid))
-            {
-                return guid;
-            }
-        }
-
-        return null;
     }
 
     private static string? TryGetEmail(ClaimsPrincipal principal)
