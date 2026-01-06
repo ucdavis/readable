@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
+using server.Helpers;
 
 namespace Server.Controllers;
 
@@ -8,7 +9,7 @@ public class UserController : ApiControllerBase
     [HttpGet("me")]
     public IActionResult Me()
     {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var userId = User.GetUserId();
         var userName = User.FindFirst("name")?.Value;
         var userEmail = User.FindFirst("preferred_username")?.Value;
 
