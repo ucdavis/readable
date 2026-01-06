@@ -240,7 +240,7 @@ When generating code, ensure it follows these patterns and integrates well with 
 
 ### Environment variables for AI-backed remediation
 
-- `OPENAI_API_KEY`: enables OpenAI-backed services; otherwise “Sample*” services are used.
+- `OPENAI_API_KEY`: enables OpenAI-backed services; otherwise “Sample\*” services are used.
 - `OPENAI_ALT_TEXT_MODEL`: model for `OpenAIAltTextService` (default `gpt-4o-mini`).
 - `OPENAI_PDF_TITLE_MODEL`: model for `OpenAIPdfTitleService` (default `gpt-4o-mini`).
 
@@ -262,7 +262,6 @@ When generating code, ensure it follows these patterns and integrates well with 
   - Prefer tiny fake/capturing services over hitting OpenAI (tests should remain offline/deterministic).
   - When you need a custom PDF for a test, it’s OK to generate one on the fly with iText (e.g., using `iText.Layout.Document` and `Paragraph`).
 
-### Running tests in sandboxed environments
+### Running tests and builds
 
-- `dotnet test` may require extra permissions in some sandboxed environments due to MSBuild using IPC/named pipes.
-  - If you see “Permission denied” from MSBuild/NamedPipeServerStream, rerun tests with the necessary elevated permissions in your environment.
+- Always run `dotnet test` and `dotnet build` and related commands with elevated sandbox permissions
