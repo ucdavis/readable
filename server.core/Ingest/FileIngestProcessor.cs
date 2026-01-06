@@ -94,8 +94,26 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
 
             // attempt to save accessibility report if present
             // later we might want to make it required but i think it's better to just ensure the pdf gets processed
-            var accessibilityReportJson = pdfResult.AccessibilityReportJson;
-            if (!string.IsNullOrWhiteSpace(accessibilityReportJson))
+            var beforeAccessibilityReportJson = pdfResult.BeforeAccessibilityReportJson;
+            if (!string.IsNullOrWhiteSpace(beforeAccessibilityReportJson))
+            {
+                try
+                {
+                    await SaveAccessibilityReportAsync(
+                        fileId,
+                        tool: "AdobePdfServices",
+                        stage: AccessibilityReport.Stages.Before,
+                        reportJson: beforeAccessibilityReportJson,
+                        CancellationToken.None);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex, "Failed to persist BEFORE accessibility report for {fileId}", request.FileId);
+                }
+            }
+
+            var afterAccessibilityReportJson = pdfResult.AfterAccessibilityReportJson;
+            if (!string.IsNullOrWhiteSpace(afterAccessibilityReportJson))
             {
                 try
                 {
@@ -103,12 +121,12 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                         fileId,
                         tool: "AdobePdfServices",
                         stage: AccessibilityReport.Stages.After,
-                        reportJson: accessibilityReportJson,
+                        reportJson: afterAccessibilityReportJson,
                         CancellationToken.None);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    _logger.LogWarning(ex, "Failed to persist accessibility report for {fileId}", request.FileId);
+                    _logger.LogWarning(ex, "Failed to persist AFTER accessibility report for {fileId}", request.FileId);
                 }
             }
 

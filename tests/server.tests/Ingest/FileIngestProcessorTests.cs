@@ -88,12 +88,19 @@ public class FileIngestProcessorTests
         var file = await verify.Files.SingleAsync(x => x.FileId == fileId);
         file.Status.Should().Be(FileRecord.Statuses.Completed);
 
-        var report = await verify.AccessibilityReports.SingleOrDefaultAsync(
+        var beforeReport = await verify.AccessibilityReports.SingleOrDefaultAsync(
+            x => x.FileId == fileId
+                && x.Stage == AccessibilityReport.Stages.Before
+                && x.Tool == "AdobePdfServices");
+        beforeReport.Should().NotBeNull();
+        beforeReport!.ReportJson.Should().Be(pdf.BeforeAccessibilityReportJson);
+
+        var afterReport = await verify.AccessibilityReports.SingleOrDefaultAsync(
             x => x.FileId == fileId
                 && x.Stage == AccessibilityReport.Stages.After
                 && x.Tool == "AdobePdfServices");
-        report.Should().NotBeNull();
-        report!.ReportJson.Should().Be(pdf.AccessibilityReportJson);
+        afterReport.Should().NotBeNull();
+        afterReport!.ReportJson.Should().Be(pdf.AfterAccessibilityReportJson);
 
         var attempts = await verify.FileProcessingAttempts
             .Where(x => x.FileId == fileId)
@@ -256,7 +263,8 @@ public class FileIngestProcessorTests
 
         public int Calls { get; private set; }
         public string? SeenFileId { get; private set; }
-        public string AccessibilityReportJson { get; } = "{\"kind\":\"test\",\"issues\":[]}";
+        public string BeforeAccessibilityReportJson { get; } = "{\"kind\":\"test\",\"stage\":\"before\",\"issues\":[]}";
+        public string AfterAccessibilityReportJson { get; } = "{\"kind\":\"test\",\"stage\":\"after\",\"issues\":[]}";
         private readonly string _outputPath = Path.Combine(Path.GetTempPath(), $"readable-test-{Guid.NewGuid():N}.pdf");
 
         public FakePdfProcessor(IDbContextFactory<AppDbContext> dbContextFactory, Guid fileId)
@@ -289,7 +297,10 @@ public class FileIngestProcessorTests
                 await output.WriteAsync("%PDF-1.7\n%final"u8.ToArray(), cancellationToken);
             }
 
-            return new PdfProcessResult(_outputPath, AccessibilityReportJson: AccessibilityReportJson);
+            return new PdfProcessResult(
+                _outputPath,
+                BeforeAccessibilityReportJson: BeforeAccessibilityReportJson,
+                AfterAccessibilityReportJson: AfterAccessibilityReportJson);
         }
 
         public void Cleanup()
