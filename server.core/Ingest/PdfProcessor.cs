@@ -14,8 +14,10 @@ public interface IPdfProcessor
 
 public sealed record PdfProcessResult(
     string OutputPdfPath,
-    string? AccessibilityReportJson = null,
-    string? AccessibilityReportPath = null);
+    string? BeforeAccessibilityReportJson = null,
+    string? BeforeAccessibilityReportPath = null,
+    string? AfterAccessibilityReportJson = null,
+    string? AfterAccessibilityReportPath = null);
 
 public sealed record PdfChunk(int Index, int FromPage, int ToPage, string Path)
 {
@@ -69,6 +71,30 @@ public sealed class PdfProcessor : IPdfProcessor
             await pdfStream.CopyToAsync(sourceFile, cancellationToken);
         }
 
+        // Best-effort: generate a "before" accessibility report on the original uploaded PDF.
+        AdobeAccessibilityCheckOutput? beforeAccessibilityReport = null;
+        try
+        {
+            var beforeAccessibilityPdfPath = Path.Combine(workDir, $"{safeFileId}.before.a11y.pdf");
+            var beforeAccessibilityReportPath = Path.Combine(workDir, $"{safeFileId}.before.a11y-report.json");
+
+            beforeAccessibilityReport = await _adobePdfServices.RunAccessibilityCheckerAsync(
+                inputPdfPath: sourcePath,
+                outputPdfPath: beforeAccessibilityPdfPath,
+                outputReportPath: beforeAccessibilityReportPath,
+                pageStart: null,
+                pageEnd: null,
+                cancellationToken: cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to generate BEFORE accessibility report for {fileId}", fileId);
+        }
+
         string taggedPdfPath;
         if (_options.UseAdobePdfServices)
         {
@@ -99,8 +125,6 @@ public sealed class PdfProcessor : IPdfProcessor
                     fileId,
                     chunks.Count,
                     workDir);
-
-                // 2. TODO (maybe) - get an a10y report for the 'before' step
 
                 // 3. Autotag each chunk via Adobe PDF Services.
                 var taggedChunkPaths = new List<string>(chunks.Count);
@@ -181,6 +205,8 @@ public sealed class PdfProcessor : IPdfProcessor
 
         return new PdfProcessResult(
             finalPdfPath,
+            beforeAccessibilityReport?.ReportJson,
+            beforeAccessibilityReport?.ReportPath,
             accessibilityReport?.ReportJson,
             accessibilityReport?.ReportPath);
     }
