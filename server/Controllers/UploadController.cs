@@ -14,6 +14,9 @@ public class UploadController : ApiControllerBase
     private readonly AppDbContext _dbContext;
     private readonly IUploadSasService _uploadSasService;
 
+    // Let the SAS url be valid for 30 min to give ample time to upload.
+    private static readonly TimeSpan SasTimeToLive = TimeSpan.FromMinutes(30);
+
     public UploadController(AppDbContext dbContext, IUploadSasService uploadSasService)
     {
         _dbContext = dbContext;
@@ -69,11 +72,7 @@ public class UploadController : ApiControllerBase
         UploadSasResult sas;
         try
         {
-            // let the SAS url be valid for 30 min to give ample time to upload
-            var sasExpirationMinutes = TimeSpan.FromMinutes(30);
-            sas = _uploadSasService.CreateIncomingPdfUploadSas(
-                fileId: fileRecord.FileId,
-                timeToLive: sasExpirationMinutes);
+            sas = CreateSasForUpload(fileRecord.FileId);
         }
 
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -84,15 +83,7 @@ public class UploadController : ApiControllerBase
 
         await tx.CommitAsync(cancellationToken);
 
-        return Ok(new CreateUploadSasResponse
-        {
-            FileId = fileRecord.FileId,
-            UploadUrl = sas.UploadUri.ToString(),
-            BlobUrl = sas.BlobUri.ToString(),
-            ContainerName = sas.ContainerName,
-            BlobName = sas.BlobName,
-            ExpiresAt = sas.ExpiresAt,
-        });
+        return Ok(ToCreateUploadSasResponse(fileRecord.FileId, sas));
     }
 
     /// <summary>
@@ -127,11 +118,7 @@ public class UploadController : ApiControllerBase
         UploadSasResult sas;
         try
         {
-            // let the SAS url be valid for 30 min to give ample time to upload
-            var sasExpirationMinutes = TimeSpan.FromMinutes(30);
-            sas = _uploadSasService.CreateIncomingPdfUploadSas(
-                fileId: fileRecord.FileId,
-                timeToLive: sasExpirationMinutes);
+            sas = CreateSasForUpload(fileRecord.FileId);
         }
 
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -139,16 +126,24 @@ public class UploadController : ApiControllerBase
             return Problem(ex.Message, statusCode: StatusCodes.Status500InternalServerError);
         }
 
-        return Ok(new CreateUploadSasResponse
+        return Ok(ToCreateUploadSasResponse(fileRecord.FileId, sas));
+    }
+
+    private UploadSasResult CreateSasForUpload(Guid fileId)
+    {
+        return _uploadSasService.CreateIncomingPdfUploadSas(fileId, SasTimeToLive);
+    }
+
+    private static CreateUploadSasResponse ToCreateUploadSasResponse(Guid fileId, UploadSasResult sas) =>
+        new()
         {
-            FileId = fileRecord.FileId,
+            FileId = fileId,
             UploadUrl = sas.UploadUri.ToString(),
             BlobUrl = sas.BlobUri.ToString(),
             ContainerName = sas.ContainerName,
             BlobName = sas.BlobName,
             ExpiresAt = sas.ExpiresAt,
-        });
-    }
+        };
 
     private static bool LooksLikePdf(string contentType, string fileName)
     {

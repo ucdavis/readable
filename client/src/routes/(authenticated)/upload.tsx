@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useRef, useState } from 'react';
 import { useMyFilesQuery } from '../../queries/files.ts';
-import { useBlobUploadMutation } from '../../queries/blobUploadMutation.ts';
+import { useBlobUploadMutation } from '../../queries/upload.ts';
 import { isAbortError, type UploadProgress } from '../../upload/blobUpload.ts';
 
 export const Route = createFileRoute('/(authenticated)/upload')({
