@@ -95,6 +95,61 @@ public class UploadController : ApiControllerBase
         });
     }
 
+    /// <summary>
+    /// Refreshes the SAS URL for an existing PDF upload record.
+    /// </summary>
+    [HttpPost("{fileId:guid}/sas")]
+    public async Task<ActionResult<CreateUploadSasResponse>> RefreshSas(
+        [FromRoute] Guid fileId,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var fileRecord = await _dbContext.Files
+            .SingleOrDefaultAsync(
+                x => x.FileId == fileId && x.OwnerUserId == userId.Value,
+                cancellationToken);
+
+        if (fileRecord is null)
+        {
+            return NotFound();
+        }
+
+        if (!string.Equals(fileRecord.Status, FileRecord.Statuses.Created, StringComparison.Ordinal))
+        {
+            return Conflict("SAS URL can only be refreshed while the file is in Created status.");
+        }
+
+        UploadSasResult sas;
+        try
+        {
+            // let the SAS url be valid for 30 min to give ample time to upload
+            var sasExpirationMinutes = TimeSpan.FromMinutes(30);
+            sas = _uploadSasService.CreateIncomingPdfUploadSas(
+                fileId: fileRecord.FileId,
+                timeToLive: sasExpirationMinutes);
+        }
+
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            return Problem(ex.Message, statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        return Ok(new CreateUploadSasResponse
+        {
+            FileId = fileRecord.FileId,
+            UploadUrl = sas.UploadUri.ToString(),
+            BlobUrl = sas.BlobUri.ToString(),
+            ContainerName = sas.ContainerName,
+            BlobName = sas.BlobName,
+            ExpiresAt = sas.ExpiresAt,
+        });
+    }
+
     private static bool LooksLikePdf(string contentType, string fileName)
     {
         if (contentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
