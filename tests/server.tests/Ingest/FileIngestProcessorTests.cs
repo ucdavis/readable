@@ -88,6 +88,13 @@ public class FileIngestProcessorTests
         var file = await verify.Files.SingleAsync(x => x.FileId == fileId);
         file.Status.Should().Be(FileRecord.Statuses.Completed);
 
+        var report = await verify.AccessibilityReports.SingleOrDefaultAsync(
+            x => x.FileId == fileId
+                && x.Stage == AccessibilityReport.Stages.After
+                && x.Tool == "AdobePdfServices");
+        report.Should().NotBeNull();
+        report!.ReportJson.Should().Be(pdf.AccessibilityReportJson);
+
         var attempts = await verify.FileProcessingAttempts
             .Where(x => x.FileId == fileId)
             .OrderBy(x => x.AttemptNumber)
@@ -249,6 +256,7 @@ public class FileIngestProcessorTests
 
         public int Calls { get; private set; }
         public string? SeenFileId { get; private set; }
+        public string AccessibilityReportJson { get; } = "{\"kind\":\"test\",\"issues\":[]}";
         private readonly string _outputPath = Path.Combine(Path.GetTempPath(), $"readable-test-{Guid.NewGuid():N}.pdf");
 
         public FakePdfProcessor(IDbContextFactory<AppDbContext> dbContextFactory, Guid fileId)
@@ -281,7 +289,7 @@ public class FileIngestProcessorTests
                 await output.WriteAsync("%PDF-1.7\n%final"u8.ToArray(), cancellationToken);
             }
 
-            return new PdfProcessResult(_outputPath);
+            return new PdfProcessResult(_outputPath, AccessibilityReportJson: AccessibilityReportJson);
         }
 
         public void Cleanup()
