@@ -1,6 +1,9 @@
 using System.Diagnostics;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using server.core.Data;
+using server.core.Domain;
 using server.core.Telemetry;
 
 namespace server.core.Ingest;
@@ -12,6 +15,7 @@ public interface IFileIngestProcessor
 
 public sealed class FileIngestProcessor : IFileIngestProcessor
 {
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly IBlobStreamOpener _blobStreamOpener;
     private readonly IPdfProcessor _pdfProcessor;
     private readonly IBlobStorage _blobStorage;
@@ -19,12 +23,14 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
     private readonly ILogger<FileIngestProcessor> _logger;
 
     public FileIngestProcessor(
+        IDbContextFactory<AppDbContext> dbContextFactory,
         IBlobStreamOpener blobStreamOpener,
         IPdfProcessor pdfProcessor,
         IBlobStorage blobStorage,
         IConfiguration configuration,
         ILogger<FileIngestProcessor> logger)
     {
+        _dbContextFactory = dbContextFactory;
         _blobStreamOpener = blobStreamOpener;
         _pdfProcessor = pdfProcessor;
         _blobStorage = blobStorage;
@@ -51,28 +57,72 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             request.FileId,
             request.BlobUri);
 
-        await using var stream = await _blobStreamOpener.OpenReadAsync(request.BlobUri, cancellationToken);
-        var pdfResult = await _pdfProcessor.ProcessAsync(request.FileId, stream, cancellationToken);
+        if (!Guid.TryParse(request.FileId, out var fileId))
+        {
+            _logger.LogError("Invalid file id '{fileId}' for ingest; expected a GUID.", request.FileId);
+            throw new InvalidOperationException($"Invalid file id '{request.FileId}' for ingest; expected a GUID.");
+        }
 
-        var processedContainerName =
-            _configuration["Storage:ProcessedContainer"]
-            ?? _configuration["Storage__ProcessedContainer"]
-            ?? "processed";
+        // record the processing attempt in the database
+        var attemptId = await StartProcessingAttemptAsync(fileId, cancellationToken);
 
-        var processedBlobUri = BuildSiblingContainerUri(
-            request.BlobUri,
-            processedContainerName,
-            request.BlobName);
+        // start the actual processing
+        try
+        {
+            await using var stream = await _blobStreamOpener.OpenReadAsync(request.BlobUri, cancellationToken);
+            var pdfResult = await _pdfProcessor.ProcessAsync(request.FileId, stream, cancellationToken);
 
-        await UploadFinalPdfAsync(
-            fileId: request.FileId,
-            localPdfPath: pdfResult.OutputPdfPath,
-            destinationBlobUri: processedBlobUri,
-            cancellationToken: cancellationToken);
+            // pdf processing done, move the resulting PDF to the processed container and clean up
+            var processedContainerName =
+                _configuration["Storage:ProcessedContainer"]
+                ?? _configuration["Storage__ProcessedContainer"]
+                ?? "processed";
 
-        await DeleteIncomingBlobAsync(request, cancellationToken);
+            var processedBlobUri = BuildSiblingContainerUri(
+                request.BlobUri,
+                processedContainerName,
+                request.BlobName);
 
-        _logger.LogInformation("Completed ingest for {fileId}", request.FileId);
+            await UploadFinalPdfAsync(
+                fileId: request.FileId,
+                localPdfPath: pdfResult.OutputPdfPath,
+                destinationBlobUri: processedBlobUri,
+                cancellationToken: cancellationToken);
+
+            await DeleteIncomingBlobAsync(request, cancellationToken);
+
+            await CompleteProcessingAttemptAsync(
+                fileId,
+                attemptId,
+                outcome: FileProcessingAttempt.Outcomes.Succeeded,
+                error: null,
+                request,
+                CancellationToken.None);
+
+            _logger.LogInformation("Completed ingest for {fileId}", request.FileId);
+        }
+        catch (OperationCanceledException oce)
+        {
+            await CompleteProcessingAttemptAsync(
+                fileId,
+                attemptId,
+                outcome: FileProcessingAttempt.Outcomes.Cancelled,
+                error: oce,
+                request,
+                CancellationToken.None);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            await CompleteProcessingAttemptAsync(
+                fileId,
+                attemptId,
+                outcome: FileProcessingAttempt.Outcomes.Failed,
+                error: ex,
+                request,
+                CancellationToken.None);
+            throw;
+        }
     }
 
     private async Task UploadFinalPdfAsync(
@@ -129,5 +179,119 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         };
 
         return builder.Uri;
+    }
+
+    private async Task<long> StartProcessingAttemptAsync(Guid fileId, CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var file = await dbContext.Files.SingleOrDefaultAsync(x => x.FileId == fileId, cancellationToken);
+        if (file is null)
+        {
+            _logger.LogError("No file record found for ingest fileId={fileId}", fileId);
+            throw new InvalidOperationException($"No file record found for ingest fileId={fileId}");
+        }
+
+        file.Status = FileRecord.Statuses.Processing;
+        file.StatusUpdatedAt = now;
+
+        var lastAttemptNumber = await dbContext.FileProcessingAttempts
+            .Where(x => x.FileId == fileId)
+            .MaxAsync(x => (int?)x.AttemptNumber, cancellationToken)
+            ?? 0;
+
+        var attempt = new FileProcessingAttempt
+        {
+            FileId = fileId,
+            AttemptNumber = lastAttemptNumber + 1,
+            Trigger = FileProcessingAttempt.Triggers.Upload,
+            StartedAt = now,
+            Outcome = null,
+        };
+
+        dbContext.FileProcessingAttempts.Add(attempt);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return attempt.AttemptId;
+    }
+
+    private async Task CompleteProcessingAttemptAsync(
+        Guid fileId,
+        long attemptId,
+        string outcome,
+        Exception? error,
+        BlobIngestRequest request,
+        CancellationToken cancellationToken)
+    {
+        var finishedAt = DateTimeOffset.UtcNow;
+
+        try
+        {
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            var attempt = await dbContext.FileProcessingAttempts
+                .Include(x => x.File)
+                .SingleOrDefaultAsync(x => x.AttemptId == attemptId && x.FileId == fileId, cancellationToken);
+
+            if (attempt is null)
+            {
+                _logger.LogWarning(
+                    "Unable to finalize ingest attempt; attemptId={attemptId} fileId={fileId} not found.",
+                    attemptId,
+                    fileId);
+                return;
+            }
+
+            attempt.Outcome = outcome;
+            attempt.FinishedAt = finishedAt;
+
+            if (error is not null)
+            {
+                attempt.ErrorCode = error.GetType().Name;
+                attempt.ErrorMessage = Truncate(error.Message, 2048);
+                attempt.ErrorDetails =
+                    $"BlobUri: {request.BlobUri}\nContainer: {request.ContainerName}\nBlobName: {request.BlobName}\n\n{error}";
+            }
+            else
+            {
+                attempt.ErrorCode = null;
+                attempt.ErrorMessage = null;
+                attempt.ErrorDetails = null;
+            }
+
+            attempt.File.Status = outcome switch
+            {
+                FileProcessingAttempt.Outcomes.Succeeded => FileRecord.Statuses.Completed,
+                FileProcessingAttempt.Outcomes.Cancelled => FileRecord.Statuses.Cancelled,
+                _ => FileRecord.Statuses.Failed,
+            };
+            attempt.File.StatusUpdatedAt = finishedAt;
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to finalize ingest attempt; attemptId={attemptId} fileId={fileId} outcome={outcome}",
+                attemptId,
+                fileId,
+                outcome);
+        }
+    }
+
+    private static string? Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return value;
+        }
+
+        if (value.Length <= maxLength)
+        {
+            return value;
+        }
+
+        return value[..maxLength];
     }
 }
