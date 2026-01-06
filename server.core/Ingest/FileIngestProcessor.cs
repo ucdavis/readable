@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -91,6 +92,26 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
 
             await DeleteIncomingBlobAsync(request, cancellationToken);
 
+            // attempt to save accessibility report if present
+            // later we might want to make it required but i think it's better to just ensure the pdf gets processed
+            var accessibilityReportJson = pdfResult.AccessibilityReportJson;
+            if (!string.IsNullOrWhiteSpace(accessibilityReportJson))
+            {
+                try
+                {
+                    await SaveAccessibilityReportAsync(
+                        fileId,
+                        tool: "AdobePdfServices",
+                        stage: AccessibilityReport.Stages.After,
+                        reportJson: accessibilityReportJson,
+                        CancellationToken.None);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex, "Failed to persist accessibility report for {fileId}", request.FileId);
+                }
+            }
+
             await CompleteProcessingAttemptAsync(
                 fileId,
                 attemptId,
@@ -122,6 +143,75 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 request,
                 CancellationToken.None);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Saves the accessibility report JSON to the database.
+    /// We also have the option to store it as a file/blob in the future if needed (using `accessibilityReport?.ReportPath`).
+    /// </summary>
+    private async Task SaveAccessibilityReportAsync(
+        Guid fileId,
+        string tool,
+        string stage,
+        string reportJson,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(reportJson))
+        {
+            return;
+        }
+
+        if (!IsValidJson(reportJson))
+        {
+            _logger.LogWarning(
+                "Skipping accessibility report persistence; invalid JSON for fileId={fileId} stage={stage} tool={tool}",
+                fileId,
+                stage,
+                tool);
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var existing = await dbContext.AccessibilityReports
+            .SingleOrDefaultAsync(
+                x => x.FileId == fileId && x.Stage == stage && x.Tool == tool,
+                cancellationToken);
+
+        if (existing is null)
+        {
+            dbContext.AccessibilityReports.Add(new AccessibilityReport
+            {
+                FileId = fileId,
+                Stage = stage,
+                Tool = tool,
+                GeneratedAt = now,
+                IssueCount = null,
+                ReportJson = reportJson,
+            });
+        }
+        else
+        {
+            existing.GeneratedAt = now;
+            existing.IssueCount = null;
+            existing.ReportJson = reportJson;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static bool IsValidJson(string json)
+    {
+        try
+        {
+            using var _ = JsonDocument.Parse(json);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 

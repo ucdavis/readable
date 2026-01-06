@@ -12,7 +12,10 @@ public interface IPdfProcessor
     Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken);
 }
 
-public sealed record PdfProcessResult(string OutputPdfPath);
+public sealed record PdfProcessResult(
+    string OutputPdfPath,
+    string? AccessibilityReportJson = null,
+    string? AccessibilityReportPath = null);
 
 public sealed record PdfChunk(int Index, int FromPage, int ToPage, string Path)
 {
@@ -152,10 +155,34 @@ public sealed class PdfProcessor : IPdfProcessor
             finalPdfPath = taggedPdfPath;
         }
 
-        // 6. TODO: Generate a final a11y report on the remediated PDF (PDFAccessibilityCheckerJob) and persist JSON to DB.
-        // 7. update DB status + artifact URIs.
+        // 6. Generate a new accessibility (a11y) report for the final PDF.
+        AdobeAccessibilityCheckOutput? accessibilityReport = null;
+        try
+        {
+            var accessibilityPdfPath = Path.Combine(workDir, $"{safeFileId}.a11y.pdf");
+            var accessibilityReportPath = Path.Combine(workDir, $"{safeFileId}.a11y-report.json");
 
-        return new PdfProcessResult(finalPdfPath);
+            accessibilityReport = await _adobePdfServices.RunAccessibilityCheckerAsync(
+                inputPdfPath: finalPdfPath,
+                outputPdfPath: accessibilityPdfPath,
+                outputReportPath: accessibilityReportPath,
+                pageStart: null,
+                pageEnd: null,
+                cancellationToken: cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to generate accessibility report for {fileId}", fileId);
+        }
+
+        return new PdfProcessResult(
+            finalPdfPath,
+            accessibilityReport?.ReportJson,
+            accessibilityReport?.ReportPath);
     }
 
     private static int ReadPageCount(string pdfPath)
