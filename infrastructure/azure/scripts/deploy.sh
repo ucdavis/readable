@@ -17,6 +17,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 BICEP_FILE="$SCRIPT_DIR/../main.bicep"
 
 CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-'[]'}
+DEPLOYMENT_NAME=${DEPLOYMENT_NAME:-''}
 DEPLOY_EVENTGRID_SUBSCRIPTION=${DEPLOY_EVENTGRID_SUBSCRIPTION:-true}
 EVENTGRID_SUBSCRIPTION_WAIT_SECONDS=${EVENTGRID_SUBSCRIPTION_WAIT_SECONDS:-60}
 EVENTGRID_SUBSCRIPTION_RETRY_WAIT_SECONDS=${EVENTGRID_SUBSCRIPTION_RETRY_WAIT_SECONDS:-30}
@@ -67,8 +68,14 @@ az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
 
 echo "Deploying base resources in $RESOURCE_GROUP..."
 
+deployment_name_args=()
+if [[ -n "$DEPLOYMENT_NAME" ]]; then
+  deployment_name_args=(--name "$DEPLOYMENT_NAME")
+fi
+
 az deployment group create \
   --resource-group "$RESOURCE_GROUP" \
+  "${deployment_name_args[@]}" \
   --template-file "$BICEP_FILE" \
   --parameters appName="$APP_NAME" env="$ENVIRONMENT" \
   --parameters corsAllowedOrigins="$CORS_ALLOWED_ORIGINS" \
@@ -91,6 +98,7 @@ while (( attempt <= max_attempts )); do
   echo "Deploying Event Grid subscription (attempt $attempt/$max_attempts)..."
   if az deployment group create \
     --resource-group "$RESOURCE_GROUP" \
+    "${deployment_name_args[@]}" \
     --template-file "$BICEP_FILE" \
     --parameters appName="$APP_NAME" env="$ENVIRONMENT" \
     --parameters corsAllowedOrigins="$CORS_ALLOWED_ORIGINS" \

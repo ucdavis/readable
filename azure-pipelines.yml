@@ -1,0 +1,216 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  BuildConfiguration: Release
+  NodeVersion: 22.x
+
+  # Set to 'true' to have the pipeline deploy/update infra via Bicep before deploying code.
+  # You can also override this per environment via variable groups.
+  deployInfra: "false"
+
+stages:
+  - stage: Build_Test
+    displayName: Build & Test
+    jobs:
+      - job: build_test
+        displayName: Build & Test
+        steps:
+          - task: UseDotNet@2
+            displayName: Use .NET SDK (8.x)
+            inputs:
+              packageType: sdk
+              version: 8.x
+
+          - task: NodeTool@0
+            displayName: Use Node.js $(NodeVersion)
+            inputs:
+              versionSpec: $(NodeVersion)
+
+          - script: dotnet restore app.sln
+            displayName: dotnet restore
+
+          - script: dotnet build app.sln -c $(BuildConfiguration) --no-restore
+            displayName: dotnet build
+
+          - script: dotnet test app.sln -c $(BuildConfiguration) --no-build --logger trx --results-directory $(Agent.TempDirectory)/TestResults
+            displayName: dotnet test
+
+          - task: PublishTestResults@2
+            displayName: Publish .NET test results
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: VSTest
+              testResultsFiles: "$(Agent.TempDirectory)/TestResults/*.trx"
+              failTaskOnFailedTests: true
+
+          - script: |
+              set -euo pipefail
+              cd client
+              npm ci
+              npm test -- --run
+            displayName: client tests (vitest)
+
+          # Build deployable artifacts (web + function) for later stages.
+          - script: |
+              set -euo pipefail
+
+              # Build SPA
+              cd client
+              npm run build
+              cd ..
+
+              # Copy SPA into server static root
+              mkdir -p server/wwwroot
+              rm -rf server/wwwroot/*
+              cp -R client/dist/* server/wwwroot/
+
+              # Publish web app
+              dotnet publish server/server.csproj -c $(BuildConfiguration) -o "$(Build.ArtifactStagingDirectory)/publish/web"
+
+              # Publish function app
+              dotnet publish workers/function.ingest/function_ingest.csproj -c $(BuildConfiguration) -o "$(Build.ArtifactStagingDirectory)/publish/function"
+            displayName: Build deploy packages
+
+          - script: mkdir -p "$(Build.ArtifactStagingDirectory)/packages"
+            displayName: Prepare package directory
+
+          - task: ArchiveFiles@2
+            displayName: Archive web app package
+            inputs:
+              rootFolderOrFile: "$(Build.ArtifactStagingDirectory)/publish/web"
+              includeRootFolder: false
+              archiveType: zip
+              archiveFile: "$(Build.ArtifactStagingDirectory)/packages/webapp.zip"
+              replaceExistingArchive: true
+
+          - task: ArchiveFiles@2
+            displayName: Archive function app package
+            inputs:
+              rootFolderOrFile: "$(Build.ArtifactStagingDirectory)/publish/function"
+              includeRootFolder: false
+              archiveType: zip
+              archiveFile: "$(Build.ArtifactStagingDirectory)/packages/functionapp.zip"
+              replaceExistingArchive: true
+
+          - publish: "$(Build.ArtifactStagingDirectory)/packages"
+            displayName: Publish deploy packages artifact
+            artifact: packages
+
+  - stage: Deploy_Test
+    displayName: Deploy (test)
+    dependsOn: Build_Test
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
+    variables:
+      # Create this variable group in Azure DevOps with environment-specific values:
+      # - azureServiceConnection (service connection name)
+      # - RESOURCE_GROUP, LOCATION, APP_NAME, ENVIRONMENT, DEPLOYMENT_NAME
+      # - SQL_ADMIN_LOGIN, SQL_ADMIN_PASSWORD (secret)
+      # - (optional) CORS_ALLOWED_ORIGINS, DEPLOY_EVENTGRID_SUBSCRIPTION, EVENTGRID_* tuning vars
+      - group: readable-test
+    jobs:
+      - deployment: deploy_test
+        displayName: Deploy to test
+        environment: readable-test
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: packages
+
+                - task: AzureCLI@2
+                  displayName: (optional) Deploy infra (Bicep)
+                  condition: and(succeeded(), eq(variables['deployInfra'], 'true'))
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -euo pipefail
+                      env \
+                        RESOURCE_GROUP="$(RESOURCE_GROUP)" \
+                        LOCATION="$(LOCATION)" \
+                        APP_NAME="$(APP_NAME)" \
+                        ENVIRONMENT="$(ENVIRONMENT)" \
+                        DEPLOYMENT_NAME="$(DEPLOYMENT_NAME)" \
+                        SQL_ADMIN_LOGIN="$(SQL_ADMIN_LOGIN)" \
+                        SQL_ADMIN_PASSWORD="$(SQL_ADMIN_PASSWORD)" \
+                        bash infrastructure/azure/scripts/deploy.sh
+
+                - task: AzureCLI@2
+                  name: resolveNames
+                  displayName: Resolve app names from infra outputs
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -euo pipefail
+
+                      webAppName=$(az deployment group show \
+                        --resource-group "$(RESOURCE_GROUP)" \
+                        --name "$(DEPLOYMENT_NAME)" \
+                        --query "properties.outputs.webAppName.value" -o tsv)
+
+                      functionAppName=$(az deployment group show \
+                        --resource-group "$(RESOURCE_GROUP)" \
+                        --name "$(DEPLOYMENT_NAME)" \
+                        --query "properties.outputs.functionAppName.value" -o tsv)
+
+                      echo "Resolved web app: $webAppName"
+                      echo "Resolved function app: $functionAppName"
+
+                      echo "##vso[task.setvariable variable=webAppName]$webAppName"
+                      echo "##vso[task.setvariable variable=functionAppName]$functionAppName"
+
+                - task: AzureWebApp@1
+                  displayName: Deploy web app
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    appType: webAppLinux
+                    appName: $(webAppName)
+                    package: $(Pipeline.Workspace)/packages/webapp.zip
+
+                - task: AzureFunctionApp@2
+                  displayName: Deploy function app
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    appType: functionAppLinux
+                    appName: $(functionAppName)
+                    package: $(Pipeline.Workspace)/packages/functionapp.zip
+                    isFlexConsumption: true
+
+  # TODO: Deploy_Prod is just a placeholder for now
+  - stage: Deploy_Prod
+    displayName: Deploy (prod)
+    dependsOn: Deploy_Test
+    condition: and(succeeded('Deploy_Test'), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
+    variables:
+      # Create this variable group in Azure DevOps with prod values.
+      - group: readable-prod
+    jobs:
+      - job: approval_and_placeholder
+        displayName: Manual approval + placeholder
+        pool: server
+        steps:
+          - task: ManualValidation@0
+            displayName: Approve prod deployment
+            inputs:
+              instructions: "Approve to proceed with production deployment."
+              onTimeout: reject
+              timeoutInMinutes: 1440
+
+          - script: |
+              echo "TODO: deploy prod (placeholder)"
+            displayName: Placeholder prod deploy step
