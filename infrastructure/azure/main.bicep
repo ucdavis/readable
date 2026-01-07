@@ -173,7 +173,8 @@ module sql 'modules/sql.bicep' = {
   }
 }
 
-var sqlServerFqdn = '${sqlServerName}.${environment().suffixes.sqlServerHostname}'
+var sqlServerHostnameSuffix = environment().suffixes.sqlServerHostname
+var sqlServerFqdn = '${sqlServerName}${startsWith(sqlServerHostnameSuffix, '.') ? '' : '.'}${sqlServerHostnameSuffix}'
 var sqlConnectionString = 'Server=tcp:${sqlServerFqdn},1433;Initial Catalog=${sqlDatabaseName};Persist Security Info=False;User ID=${sqlAdminLogin};Password=${sqlAdminPassword};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
 
 module compute 'modules/compute.bicep' = {

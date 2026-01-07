@@ -23,6 +23,7 @@ EVENTGRID_SUBSCRIPTION_RETRY_WAIT_SECONDS=${EVENTGRID_SUBSCRIPTION_RETRY_WAIT_SE
 EVENTGRID_SUBSCRIPTION_MAX_ATTEMPTS=${EVENTGRID_SUBSCRIPTION_MAX_ATTEMPTS:-5}
 
 required_vars=(
+  DEPLOYMENT_NAME
   RESOURCE_GROUP
   LOCATION
   APP_NAME
@@ -67,8 +68,11 @@ az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
 
 echo "Deploying base resources in $RESOURCE_GROUP..."
 
+deployment_name_args=(--name "$DEPLOYMENT_NAME")
+
 az deployment group create \
   --resource-group "$RESOURCE_GROUP" \
+  "${deployment_name_args[@]}" \
   --template-file "$BICEP_FILE" \
   --parameters appName="$APP_NAME" env="$ENVIRONMENT" \
   --parameters corsAllowedOrigins="$CORS_ALLOWED_ORIGINS" \
@@ -91,6 +95,7 @@ while (( attempt <= max_attempts )); do
   echo "Deploying Event Grid subscription (attempt $attempt/$max_attempts)..."
   if az deployment group create \
     --resource-group "$RESOURCE_GROUP" \
+    "${deployment_name_args[@]}" \
     --template-file "$BICEP_FILE" \
     --parameters appName="$APP_NAME" env="$ENVIRONMENT" \
     --parameters corsAllowedOrigins="$CORS_ALLOWED_ORIGINS" \
