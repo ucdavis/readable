@@ -23,6 +23,9 @@ param skuName string = 'S0'
 @description('SQL database SKU tier.')
 param skuTier string = 'Standard'
 
+@description('Whether to allow Azure services/resources to access this SQL server (creates firewall rule 0.0.0.0).')
+param allowAzureServices bool = true
+
 resource sqlServer 'Microsoft.Sql/servers@2023-08-01' = {
   name: name
   location: location
@@ -32,6 +35,17 @@ resource sqlServer 'Microsoft.Sql/servers@2023-08-01' = {
     administratorLoginPassword: adminPassword
     publicNetworkAccess: 'Enabled'
     minimalTlsVersion: '1.2'
+  }
+}
+
+// Enables the Azure SQL setting "Allow Azure services and resources to access this server".
+// This is represented as a special firewall rule where start/end IP are 0.0.0.0.
+resource allowAzureServicesFirewallRule 'Microsoft.Sql/servers/firewallRules@2023-08-01' = if (allowAzureServices) {
+  name: 'AllowAzureServices'
+  parent: sqlServer
+  properties: {
+    startIpAddress: '0.0.0.0'
+    endIpAddress: '0.0.0.0'
   }
 }
 
