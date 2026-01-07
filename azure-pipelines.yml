@@ -200,17 +200,13 @@ stages:
       # Create this variable group in Azure DevOps with prod values.
       - group: readable-prod
     jobs:
-      - job: approval_and_placeholder
-        displayName: Manual approval + placeholder
-        pool: server
-        steps:
-          - task: ManualValidation@0
-            displayName: Approve prod deployment
-            inputs:
-              instructions: "Approve to proceed with production deployment."
-              onTimeout: reject
-              timeoutInMinutes: 1440
-
-          - script: |
-              echo "TODO: deploy prod (placeholder)"
-            displayName: Placeholder prod deploy step
+      - deployment: deploy_prod
+        displayName: Deploy to prod (placeholder)
+        environment: readable-prod
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: |
+                    echo "TODO: deploy prod (placeholder)"
+                  displayName: Placeholder prod deploy step
