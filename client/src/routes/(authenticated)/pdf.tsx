@@ -1,18 +1,142 @@
 import { createFileRoute } from '@tanstack/react-router';
 import {
-  type ChangeEvent,
+  type ChangeEventHandler,
   type DragEventHandler,
+  useRef,
   useState,
 } from 'react';
 import { useMyFilesQuery } from '@/queries/files.ts';
+import { useBlobUploadMutation } from '@/queries/upload.ts';
+import { isAbortError, type UploadProgress } from '@/upload/blobUpload.ts';
 
 export const Route = createFileRoute('/(authenticated)/pdf')({
   component: RouteComponent,
 });
 
+type UploadRow = {
+  error?: string;
+  fileName: string;
+  percent: number;
+  sizeBytes: number;
+  state: 'uploading' | 'success' | 'error' | 'cancelled';
+  uploadId: string;
+};
+
 function RouteComponent() {
   const [isDragging, setIsDragging] = useState(false);
   const filesQuery = useMyFilesQuery();
+  const blobUpload = useBlobUploadMutation();
+
+  const [uploads, setUploads] = useState<UploadRow[]>([]);
+  const abortRef = useRef<Record<string, AbortController>>({});
+  const fileListRefreshTimeoutRef = useRef<number | null>(null);
+
+  const upsertUpload = (
+    partial: Partial<UploadRow> & Pick<UploadRow, 'uploadId'>
+  ) => {
+    setUploads((prev) => {
+      const index = prev.findIndex((u) => u.uploadId === partial.uploadId);
+      if (index < 0) {
+        return prev;
+      }
+      const next = [...prev];
+      next[index] = { ...next[index], ...partial };
+      return next;
+    });
+  };
+
+  const scheduleFilesRefresh = () => {
+    if (fileListRefreshTimeoutRef.current !== null) {
+      return;
+    }
+    fileListRefreshTimeoutRef.current = window.setTimeout(() => {
+      fileListRefreshTimeoutRef.current = null;
+      void filesQuery.refetch();
+    }, 250);
+  };
+
+  const startUpload = async (file: File) => {
+    if (!looksLikePdf(file)) {
+      setUploads((prev) => [
+        {
+          error: 'Only PDF uploads are supported.',
+          fileName: file.name,
+          percent: 0,
+          sizeBytes: file.size,
+          state: 'error',
+          uploadId: `${file.name}-${file.size}-${file.lastModified}`,
+        },
+        ...prev,
+      ]);
+      return;
+    }
+
+    const abortController = new AbortController();
+    let startedUploadId: string | null = null;
+    let lastPercent = -1;
+
+    try {
+      const result = await blobUpload.mutateAsync({
+        file,
+        onProgress: (p: UploadProgress) => {
+          if (startedUploadId === null) {
+            return;
+          }
+          if (p.percent === lastPercent) {
+            return;
+          }
+          lastPercent = p.percent;
+          upsertUpload({ percent: p.percent, uploadId: startedUploadId });
+        },
+        onStarted: ({ uploadId }) => {
+          startedUploadId = uploadId;
+          abortRef.current[uploadId] = abortController;
+          setUploads((prev) => [
+            {
+              fileName: file.name,
+              percent: 0,
+              sizeBytes: file.size,
+              state: 'uploading',
+              uploadId,
+            },
+            ...prev,
+          ]);
+          scheduleFilesRefresh();
+        },
+        signal: abortController.signal,
+      });
+
+      upsertUpload({
+        percent: 100,
+        state: 'success',
+        uploadId: result.uploadId,
+      });
+    } catch (error) {
+      if (startedUploadId !== null) {
+        upsertUpload({
+          error: error instanceof Error ? error.message : String(error),
+          state: isAbortError(error) ? 'cancelled' : 'error',
+          uploadId: startedUploadId,
+        });
+      } else {
+        setUploads((prev) => [
+          {
+            error: error instanceof Error ? error.message : String(error),
+            fileName: file.name,
+            percent: 0,
+            sizeBytes: file.size,
+            state: isAbortError(error) ? 'cancelled' : 'error',
+            uploadId: `${file.name}-${file.size}-${file.lastModified}`,
+          },
+          ...prev,
+        ]);
+      }
+    } finally {
+      if (startedUploadId !== null) {
+        delete abortRef.current[startedUploadId];
+      }
+    }
+  };
 
   const handleDragOver: DragEventHandler<HTMLDivElement> = (e) => {
     e.preventDefault();
@@ -30,7 +154,27 @@ function RouteComponent() {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    logSelectedFiles(Array.from(e.dataTransfer.files ?? []));
+    const files = Array.from(e.dataTransfer.files ?? []);
+    for (const file of files) {
+      void startUpload(file);
+    }
+  };
+
+  const handleFileInput: ChangeEventHandler<HTMLInputElement> = (e) => {
+    const files = Array.from(e.target.files ?? []);
+    for (const file of files) {
+      void startUpload(file);
+    }
+    e.target.value = '';
+  };
+
+  const cancelUpload = (uploadId: string) => {
+    const controller = abortRef.current[uploadId];
+    if (!controller) {
+      return;
+    }
+    controller.abort();
+    upsertUpload({ state: 'cancelled', uploadId });
   };
 
   return (
@@ -82,7 +226,101 @@ function RouteComponent() {
           <div className="mt-3 text-xs text-base-content/60">
             PDF only · Multiple files supported
           </div>
+          {blobUpload.isPending ? (
+            <div className="mt-4 flex items-center gap-3 text-sm text-base-content/70">
+              <span className="loading loading-spinner loading-sm" />
+              <span>Uploading…</span>
+            </div>
+          ) : null}
         </div>
+
+        {uploads.length > 0 ? (
+          <div className="card bg-base-100 shadow">
+            <div className="card-body">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="card-title">Uploads</h2>
+                <button
+                  className="btn btn-sm btn-outline"
+                  onClick={() => setUploads([])}
+                  type="button"
+                >
+                  Clear
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {uploads.slice(0, 5).map((upload) => (
+                  <div
+                    className="rounded-box border border-base-300 p-3"
+                    key={upload.uploadId}
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">
+                          {upload.fileName}{' '}
+                          <span className="text-base-content/60 font-normal">
+                            ({formatBytes(upload.sizeBytes)})
+                          </span>
+                        </div>
+                        <div className="text-xs text-base-content/60">
+                          UploadId: {upload.uploadId}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {upload.state === 'uploading' ? (
+                          <span className="badge badge-info">Uploading</span>
+                        ) : upload.state === 'success' ? (
+                          <span className="badge badge-success">Complete</span>
+                        ) : upload.state === 'cancelled' ? (
+                          <span className="badge badge-ghost">Cancelled</span>
+                        ) : (
+                          <span className="badge badge-error">Failed</span>
+                        )}
+                        <button
+                          className="btn btn-sm btn-outline"
+                          disabled={
+                            abortRef.current[upload.uploadId] === undefined
+                          }
+                          onClick={() => cancelUpload(upload.uploadId)}
+                          type="button"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-base-content/70">
+                          {upload.state === 'uploading'
+                            ? 'Uploading…'
+                            : 'Progress'}
+                        </span>
+                        <span className="text-base-content/70">
+                          {upload.percent}%
+                        </span>
+                      </div>
+                      <progress
+                        className="progress progress-primary w-full"
+                        max={100}
+                        value={upload.percent}
+                      />
+                      {upload.error ? (
+                        <div className="text-sm text-error">{upload.error}</div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+                {uploads.length > 5 ? (
+                  <div className="text-sm text-base-content/60">
+                    Showing 5 of {uploads.length} uploads.
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div className="card bg-base-100 shadow">
           <div className="card-body">
@@ -163,22 +401,6 @@ function looksLikePdf(file: File) {
     return true;
   }
   return file.name.toLowerCase().endsWith('.pdf');
-}
-
-function logSelectedFiles(files: File[]) {
-  const pdfs = files.filter(looksLikePdf);
-  const nonPdfs = files.filter((f) => !looksLikePdf(f));
-  // eslint-disable-next-line no-console
-  console.log('Selected PDFs:', pdfs);
-  if (nonPdfs.length > 0) {
-    // eslint-disable-next-line no-console
-    console.log('Ignored non-PDF files:', nonPdfs);
-  }
-}
-
-function handleFileInput(e: ChangeEvent<HTMLInputElement>) {
-  logSelectedFiles(Array.from(e.target.files ?? []));
-  e.target.value = '';
 }
 
 function formatDate(iso: string) {
