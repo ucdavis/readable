@@ -5,22 +5,22 @@ using server.Helpers;
 using server.Helpers.Validation;
 using server.core.Data;
 using server.core.Domain;
-using server.core.Upload;
+using server.core.Storage;
 
 namespace Server.Controllers;
 
 public class UploadController : ApiControllerBase
 {
     private readonly AppDbContext _dbContext;
-    private readonly IUploadSasService _uploadSasService;
+    private readonly IFileSasService _fileSasService;
 
     // Let the SAS url be valid for 30 min to give ample time to upload.
     private static readonly TimeSpan SasTimeToLive = TimeSpan.FromMinutes(30);
 
-    public UploadController(AppDbContext dbContext, IUploadSasService uploadSasService)
+    public UploadController(AppDbContext dbContext, IFileSasService fileSasService)
     {
         _dbContext = dbContext;
-        _uploadSasService = uploadSasService;
+        _fileSasService = fileSasService;
     }
 
     /// <summary>
@@ -131,7 +131,7 @@ public class UploadController : ApiControllerBase
 
     private UploadSasResult CreateSasForUpload(Guid fileId)
     {
-        return _uploadSasService.CreateIncomingPdfUploadSas(fileId, SasTimeToLive);
+        return _fileSasService.CreateIncomingPdfUploadSas(fileId, SasTimeToLive);
     }
 
     private static CreateUploadSasResponse ToCreateUploadSasResponse(Guid fileId, UploadSasResult sas) =>

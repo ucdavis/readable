@@ -1,6 +1,7 @@
 import type { UserFile } from '@/queries/files.ts';
 import type { UploadRow } from '@/lib/usePdfUploads.ts';
 import { formatBytes, formatDateTime } from '@/lib/format.ts';
+import { Link } from '@tanstack/react-router';
 
 export type PdfActivityCardProps = {
   activeUploadCount: number;
@@ -76,7 +77,9 @@ export function PdfActivityCard({
                     <td>
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="badge badge-ghost">{file.status}</span>
+                          <span className="badge badge-ghost">
+                            {file.status}
+                          </span>
                           {recentlyCompletedByFileId[file.fileId] ? (
                             <span className="badge badge-success badge-outline">
                               Just completed
@@ -96,9 +99,30 @@ export function PdfActivityCard({
                         {uploadsByFileId[file.fileId] ? (
                           <progress className="progress progress-primary w-full" />
                         ) : null}
+                        {file.status === 'Completed' ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link
+                              className="btn btn-xs btn-ghost"
+                              params={{ fileId: file.fileId }}
+                              to="/(authenticated)/pdf/$fileId/report"
+                            >
+                              View Report (TODO)
+                            </Link>
+                            <a
+                              className="btn btn-xs btn-outline"
+                              href={`/api/download/processed/${encodeURIComponent(file.fileId)}`}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              Download PDF
+                            </a>
+                          </div>
+                        ) : null}
                       </div>
                     </td>
-                    <td className="text-right">{formatBytes(file.sizeBytes)}</td>
+                    <td className="text-right">
+                      {formatBytes(file.sizeBytes)}
+                    </td>
                     <td>{formatDateTime(file.createdAt)}</td>
                   </tr>
                 ))
@@ -110,4 +134,3 @@ export function PdfActivityCard({
     </div>
   );
 }
-
