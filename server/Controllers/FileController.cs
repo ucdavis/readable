@@ -36,6 +36,19 @@ public class FileController : ApiControllerBase
                 Status = f.Status,
                 CreatedAt = f.CreatedAt,
                 StatusUpdatedAt = f.StatusUpdatedAt,
+                AccessibilityReports = f.AccessibilityReports
+                    .OrderByDescending(r => r.GeneratedAt)
+                    .Select(r => new AccessibilityReportListItemDto
+                    {
+                        ReportId = r.ReportId,
+                        FileId = r.FileId,
+                        Stage = r.Stage,
+                        Tool = r.Tool,
+                        GeneratedAt = r.GeneratedAt,
+                        IssueCount = r.IssueCount,
+                        // don't include JSON content for the list
+                    })
+                    .ToList(),
             })
             .ToListAsync(cancellationToken);
 
@@ -51,5 +64,16 @@ public class FileController : ApiControllerBase
         public string Status { get; init; } = string.Empty;
         public DateTimeOffset CreatedAt { get; init; }
         public DateTimeOffset StatusUpdatedAt { get; init; }
+        public List<AccessibilityReportListItemDto> AccessibilityReports { get; set; } = [];
+    }
+
+    public sealed class AccessibilityReportListItemDto
+    {
+        public long ReportId { get; init; }
+        public Guid FileId { get; init; }
+        public string Stage { get; init; } = string.Empty;
+        public string Tool { get; init; } = string.Empty;
+        public DateTimeOffset GeneratedAt { get; init; }
+        public int? IssueCount { get; init; }
     }
 }
