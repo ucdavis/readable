@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import {
   type ChangeEventHandler,
   type DragEventHandler,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -18,7 +19,7 @@ type UploadRow = {
   fileName: string;
   percent: number;
   sizeBytes: number;
-  state: 'uploading' | 'success' | 'error' | 'cancelled';
+  state: 'uploading';
   uploadId: string;
 };
 
@@ -27,23 +28,19 @@ function RouteComponent() {
   const filesQuery = useMyFilesQuery();
   const blobUpload = useBlobUploadMutation();
 
-  const [uploads, setUploads] = useState<UploadRow[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadsByFileId, setUploadsByFileId] = useState<
+    Record<string, UploadRow>
+  >({});
+  const activeUploadCount = useMemo(
+    () =>
+      Object.values(uploadsByFileId).filter((u) => u.state === 'uploading')
+        .length,
+    [uploadsByFileId]
+  );
+
   const abortRef = useRef<Record<string, AbortController>>({});
   const fileListRefreshTimeoutRef = useRef<number | null>(null);
-
-  const upsertUpload = (
-    partial: Partial<UploadRow> & Pick<UploadRow, 'uploadId'>
-  ) => {
-    setUploads((prev) => {
-      const index = prev.findIndex((u) => u.uploadId === partial.uploadId);
-      if (index < 0) {
-        return prev;
-      }
-      const next = [...prev];
-      next[index] = { ...next[index], ...partial };
-      return next;
-    });
-  };
 
   const scheduleFilesRefresh = () => {
     if (fileListRefreshTimeoutRef.current !== null) {
@@ -57,20 +54,11 @@ function RouteComponent() {
 
   const startUpload = async (file: File) => {
     if (!looksLikePdf(file)) {
-      setUploads((prev) => [
-        {
-          error: 'Only PDF uploads are supported.',
-          fileName: file.name,
-          percent: 0,
-          sizeBytes: file.size,
-          state: 'error',
-          uploadId: `${file.name}-${file.size}-${file.lastModified}`,
-        },
-        ...prev,
-      ]);
+      setUploadError('Only PDF uploads are supported.');
       return;
     }
 
+    setUploadError(null);
     const abortController = new AbortController();
     let startedUploadId: string | null = null;
     let lastPercent = -1;
@@ -86,50 +74,48 @@ function RouteComponent() {
             return;
           }
           lastPercent = p.percent;
-          upsertUpload({ percent: p.percent, uploadId: startedUploadId });
+          setUploadsByFileId((prev) => {
+            const existing = prev[startedUploadId];
+            if (!existing) {
+              return prev;
+            }
+            return {
+              ...prev,
+              [startedUploadId]: { ...existing, percent: p.percent },
+            };
+          });
         },
         onStarted: ({ uploadId }) => {
           startedUploadId = uploadId;
           abortRef.current[uploadId] = abortController;
-          setUploads((prev) => [
-            {
+          setUploadsByFileId((prev) => ({
+            ...prev,
+            [uploadId]: {
               fileName: file.name,
               percent: 0,
               sizeBytes: file.size,
               state: 'uploading',
               uploadId,
             },
-            ...prev,
-          ]);
+          }));
           scheduleFilesRefresh();
         },
         signal: abortController.signal,
       });
 
-      upsertUpload({
-        percent: 100,
-        state: 'success',
-        uploadId: result.uploadId,
+      setUploadsByFileId((prev) => {
+        const next = { ...prev };
+        delete next[result.uploadId];
+        return next;
       });
     } catch (error) {
-      if (startedUploadId !== null) {
-        upsertUpload({
-          error: error instanceof Error ? error.message : String(error),
-          state: isAbortError(error) ? 'cancelled' : 'error',
-          uploadId: startedUploadId,
+      setUploadError(error instanceof Error ? error.message : String(error));
+      if (startedUploadId !== null && isAbortError(error)) {
+        setUploadsByFileId((prev) => {
+          const next = { ...prev };
+          delete next[startedUploadId];
+          return next;
         });
-      } else {
-        setUploads((prev) => [
-          {
-            error: error instanceof Error ? error.message : String(error),
-            fileName: file.name,
-            percent: 0,
-            sizeBytes: file.size,
-            state: isAbortError(error) ? 'cancelled' : 'error',
-            uploadId: `${file.name}-${file.size}-${file.lastModified}`,
-          },
-          ...prev,
-        ]);
       }
     } finally {
       if (startedUploadId !== null) {
@@ -174,7 +160,11 @@ function RouteComponent() {
       return;
     }
     controller.abort();
-    upsertUpload({ state: 'cancelled', uploadId });
+    setUploadsByFileId((prev) => {
+      const next = { ...prev };
+      delete next[uploadId];
+      return next;
+    });
   };
 
   return (
@@ -234,99 +224,9 @@ function RouteComponent() {
           ) : null}
         </div>
 
-        {uploads.length > 0 ? (
-          <div className="card bg-base-100 shadow">
-            <div className="card-body">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="card-title">Uploads</h2>
-                <button
-                  className="btn btn-sm btn-outline"
-                  onClick={() => setUploads([])}
-                  type="button"
-                >
-                  Clear
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {uploads.slice(0, 5).map((upload) => (
-                  <div
-                    className="rounded-box border border-base-300 p-3"
-                    key={upload.uploadId}
-                  >
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">
-                          {upload.fileName}{' '}
-                          <span className="text-base-content/60 font-normal">
-                            ({formatBytes(upload.sizeBytes)})
-                          </span>
-                        </div>
-                        <div className="text-xs text-base-content/60">
-                          UploadId: {upload.uploadId}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {upload.state === 'uploading' ? (
-                          <span className="badge badge-info">Uploading</span>
-                        ) : upload.state === 'success' ? (
-                          <span className="badge badge-success">Complete</span>
-                        ) : upload.state === 'cancelled' ? (
-                          <span className="badge badge-ghost">Cancelled</span>
-                        ) : (
-                          <span className="badge badge-error">Failed</span>
-                        )}
-                        <button
-                          className="btn btn-sm btn-outline"
-                          disabled={
-                            abortRef.current[upload.uploadId] === undefined
-                          }
-                          onClick={() => cancelUpload(upload.uploadId)}
-                          type="button"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-base-content/70">
-                          {upload.state === 'uploading'
-                            ? 'Uploading…'
-                            : 'Progress'}
-                        </span>
-                        {upload.state === 'uploading' ? (
-                          <span className="text-base-content/60">In progress</span>
-                        ) : (
-                          <span className="text-base-content/70">
-                            {upload.percent}%
-                          </span>
-                        )}
-                      </div>
-                      {upload.state === 'uploading' ? (
-                        <progress className="progress progress-primary w-full" />
-                      ) : (
-                        <progress
-                          className="progress progress-primary w-full"
-                          max={100}
-                          value={upload.state === 'success' ? 100 : upload.percent}
-                        />
-                      )}
-                      {upload.error ? (
-                        <div className="text-sm text-error">{upload.error}</div>
-                      ) : null}
-                    </div>
-                  </div>
-                ))}
-                {uploads.length > 5 ? (
-                  <div className="text-sm text-base-content/60">
-                    Showing 5 of {uploads.length} uploads.
-                  </div>
-                ) : null}
-              </div>
-            </div>
+        {uploadError ? (
+          <div className="alert alert-error">
+            <span>Upload failed: {uploadError}</span>
           </div>
         ) : null}
 
@@ -334,14 +234,21 @@ function RouteComponent() {
           <div className="card-body">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="card-title">Activity</h2>
-              <button
-                className="btn btn-sm btn-outline"
-                disabled={filesQuery.isFetching}
-                onClick={() => filesQuery.refetch()}
-                type="button"
-              >
-                {filesQuery.isFetching ? 'Refreshing…' : 'Refresh'}
-              </button>
+              <div className="flex items-center gap-2">
+                {activeUploadCount > 0 ? (
+                  <span className="badge badge-info badge-outline">
+                    Uploading {activeUploadCount}
+                  </span>
+                ) : null}
+                <button
+                  className="btn btn-sm btn-outline"
+                  disabled={filesQuery.isFetching}
+                  onClick={() => filesQuery.refetch()}
+                  type="button"
+                >
+                  {filesQuery.isFetching ? 'Refreshing…' : 'Refresh'}
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -383,9 +290,28 @@ function RouteComponent() {
                       <tr key={file.fileId}>
                         <td className="font-medium">{file.originalFileName}</td>
                         <td>
-                          <span className="badge badge-ghost">
-                            {file.status}
-                          </span>
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="badge badge-ghost">
+                                {file.status}
+                              </span>
+                              {uploadsByFileId[file.fileId] ? (
+                                <button
+                                  className="btn btn-xs btn-outline"
+                                  disabled={
+                                    abortRef.current[file.fileId] === undefined
+                                  }
+                                  onClick={() => cancelUpload(file.fileId)}
+                                  type="button"
+                                >
+                                  Cancel upload
+                                </button>
+                              ) : null}
+                            </div>
+                            {uploadsByFileId[file.fileId] ? (
+                              <progress className="progress progress-primary w-full" />
+                            ) : null}
+                          </div>
                         </td>
                         <td className="text-right">
                           {formatBytes(file.sizeBytes)}
