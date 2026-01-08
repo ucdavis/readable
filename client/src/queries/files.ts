@@ -1,7 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchJson } from '../lib/api.ts';
 
+export type AccessibilityReportListItem = {
+  generatedAt: string;
+  issueCount: number | null;
+  reportId: number;
+  stage: string;
+  tool: string;
+};
+
 export type UserFile = {
+  accessibilityReports?: AccessibilityReportListItem[];
   contentType: string;
   createdAt: string;
   fileId: string;

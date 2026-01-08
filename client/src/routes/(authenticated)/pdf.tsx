@@ -1,46 +1,18 @@
 import { createFileRoute } from '@tanstack/react-router';
 import {
-  type ChangeEventHandler,
+  type ChangeEvent,
   type DragEventHandler,
   useState,
 } from 'react';
+import { useMyFilesQuery } from '@/queries/files.ts';
 
 export const Route = createFileRoute('/(authenticated)/pdf')({
   component: RouteComponent,
 });
 
-type ActivityRow = {
-  addedAt: number;
-  fileName: string;
-  id: string;
-  sizeBytes: number;
-  status: 'Queued';
-};
-
 function RouteComponent() {
   const [isDragging, setIsDragging] = useState(false);
-  const [activity, setActivity] = useState<ActivityRow[]>([]);
-  const recentActivity = activity.slice(0, 25);
-
-  const addFilesToActivity = (files: File[]) => {
-    const pdfs = files.filter(looksLikePdf);
-    const nonPdfs = files.filter((f) => !looksLikePdf(f));
-    console.log('Selected PDFs:', pdfs);
-    if (nonPdfs.length > 0) {
-      console.log('Ignored non-PDF files:', nonPdfs);
-    }
-
-    setActivity((prev) => {
-      const next: ActivityRow[] = pdfs.map((file) => ({
-        addedAt: Date.now(),
-        fileName: file.name,
-        id: `${file.name}-${file.size}-${file.lastModified}`,
-        sizeBytes: file.size,
-        status: 'Queued',
-      }));
-      return [...next, ...prev];
-    });
-  };
+  const filesQuery = useMyFilesQuery();
 
   const handleDragOver: DragEventHandler<HTMLDivElement> = (e) => {
     e.preventDefault();
@@ -58,16 +30,11 @@ function RouteComponent() {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    addFilesToActivity(Array.from(e.dataTransfer.files ?? []));
-  };
-
-  const handleFileInput: ChangeEventHandler<HTMLInputElement> = (e) => {
-    addFilesToActivity(Array.from(e.target.files ?? []));
-    e.target.value = '';
+    logSelectedFiles(Array.from(e.dataTransfer.files ?? []));
   };
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-base-100 to-base-200">
+    <div className="min-h-screen bg-gradient-to-br from-base-100 to-base-200">
       <div className="container mx-auto max-w-6xl px-4 py-8 space-y-6">
         <header className="space-y-1">
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
@@ -123,10 +90,11 @@ function RouteComponent() {
               <h2 className="card-title">Activity</h2>
               <button
                 className="btn btn-sm btn-outline"
-                onClick={() => setActivity([])}
+                disabled={filesQuery.isFetching}
+                onClick={() => filesQuery.refetch()}
                 type="button"
               >
-                Clear
+                {filesQuery.isFetching ? 'Refreshing…' : 'Refresh'}
               </button>
             </div>
 
@@ -137,29 +105,46 @@ function RouteComponent() {
                     <th>File</th>
                     <th>Status</th>
                     <th className="text-right">Size</th>
-                    <th>Added</th>
+                    <th>Created</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {recentActivity.length === 0 ? (
+                  {filesQuery.isError ? (
+                    <tr>
+                      <td colSpan={4}>
+                        <div className="alert alert-error">
+                          <span>Failed to load your files.</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filesQuery.data === undefined ? (
+                    <tr>
+                      <td className="text-base-content/70" colSpan={4}>
+                        <div className="flex items-center gap-3">
+                          <span className="loading loading-spinner loading-sm" />
+                          <span>Loading…</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filesQuery.data.length === 0 ? (
                     <tr>
                       <td className="text-base-content/60" colSpan={4}>
-                        No activity yet. Drop a PDF above to see it here.
+                        No files yet.
                       </td>
                     </tr>
                   ) : (
-                    recentActivity.map((row) => (
-                      <tr key={row.id}>
-                        <td className="font-medium">{row.fileName}</td>
+                    filesQuery.data.map((file) => (
+                      <tr key={file.fileId}>
+                        <td className="font-medium">{file.originalFileName}</td>
                         <td>
                           <span className="badge badge-ghost">
-                            {row.status}
+                            {file.status}
                           </span>
                         </td>
                         <td className="text-right">
-                          {formatBytes(row.sizeBytes)}
+                          {formatBytes(file.sizeBytes)}
                         </td>
-                        <td>{formatTime(row.addedAt)}</td>
+                        <td>{formatDate(file.createdAt)}</td>
                       </tr>
                     ))
                   )}
@@ -180,9 +165,25 @@ function looksLikePdf(file: File) {
   return file.name.toLowerCase().endsWith('.pdf');
 }
 
-function formatTime(ms: number) {
-  const d = new Date(ms);
-  return Number.isNaN(d.valueOf()) ? String(ms) : d.toLocaleString();
+function logSelectedFiles(files: File[]) {
+  const pdfs = files.filter(looksLikePdf);
+  const nonPdfs = files.filter((f) => !looksLikePdf(f));
+  // eslint-disable-next-line no-console
+  console.log('Selected PDFs:', pdfs);
+  if (nonPdfs.length > 0) {
+    // eslint-disable-next-line no-console
+    console.log('Ignored non-PDF files:', nonPdfs);
+  }
+}
+
+function handleFileInput(e: ChangeEvent<HTMLInputElement>) {
+  logSelectedFiles(Array.from(e.target.files ?? []));
+  e.target.value = '';
+}
+
+function formatDate(iso: string) {
+  const d = new Date(iso);
+  return Number.isNaN(d.valueOf()) ? iso : d.toLocaleString();
 }
 
 function formatBytes(bytes: number) {
