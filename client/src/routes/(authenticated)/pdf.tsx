@@ -297,15 +297,23 @@ function RouteComponent() {
                             ? 'Uploading…'
                             : 'Progress'}
                         </span>
-                        <span className="text-base-content/70">
-                          {upload.percent}%
-                        </span>
+                        {upload.state === 'uploading' ? (
+                          <span className="text-base-content/60">In progress</span>
+                        ) : (
+                          <span className="text-base-content/70">
+                            {upload.percent}%
+                          </span>
+                        )}
                       </div>
-                      <progress
-                        className="progress progress-primary w-full"
-                        max={100}
-                        value={upload.percent}
-                      />
+                      {upload.state === 'uploading' ? (
+                        <progress className="progress progress-primary w-full" />
+                      ) : (
+                        <progress
+                          className="progress progress-primary w-full"
+                          max={100}
+                          value={upload.state === 'success' ? 100 : upload.percent}
+                        />
+                      )}
                       {upload.error ? (
                         <div className="text-sm text-error">{upload.error}</div>
                       ) : null}
