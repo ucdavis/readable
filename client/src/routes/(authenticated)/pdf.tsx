@@ -2,17 +2,21 @@ import { createFileRoute } from '@tanstack/react-router';
 import {
   type ChangeEventHandler,
   type DragEventHandler,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
-import { useMyFilesQuery } from '@/queries/files.ts';
+import { myFilesQueryOptions } from '@/queries/files.ts';
 import { useBlobUploadMutation } from '@/queries/upload.ts';
 import { isAbortError, type UploadProgress } from '@/upload/blobUpload.ts';
+import { useQuery } from '@tanstack/react-query';
 
 export const Route = createFileRoute('/(authenticated)/pdf')({
   component: RouteComponent,
 });
+
+const IN_PROGRESS_STATUSES = new Set(['Created', 'Queued', 'Processing']);
 
 type UploadRow = {
   error?: string;
@@ -25,12 +29,20 @@ type UploadRow = {
 
 function RouteComponent() {
   const [isDragging, setIsDragging] = useState(false);
-  const filesQuery = useMyFilesQuery();
+  const [pollMs, setPollMs] = useState<number | false>(false);
+  const filesQuery = useQuery({
+    ...myFilesQueryOptions(),
+    refetchInterval: pollMs,
+    refetchIntervalInBackground: false,
+  });
   const blobUpload = useBlobUploadMutation();
 
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadsByFileId, setUploadsByFileId] = useState<
     Record<string, UploadRow>
+  >({});
+  const [recentlyCompletedByFileId, setRecentlyCompletedByFileId] = useState<
+    Record<string, number>
   >({});
   const activeUploadCount = useMemo(
     () =>
@@ -41,6 +53,105 @@ function RouteComponent() {
 
   const abortRef = useRef<Record<string, AbortController>>({});
   const fileListRefreshTimeoutRef = useRef<number | null>(null);
+  const recentlyCompletedTimersRef = useRef<Record<string, number>>({});
+  const hasSeenInitialFilesRef = useRef(false);
+  const prevStatusByFileIdRef = useRef<Record<string, string>>({});
+
+  // Keeps the Activity list feeling “live” while server-side processing is happening:
+  // - enables polling when any file is in progress
+  // - uses a small backoff when nothing changes
+  // - highlights files that *just* transitioned to Completed (this session)
+  useEffect(() => {
+    const files = filesQuery.data;
+    if (!files) {
+      return;
+    }
+
+    const hasInProgressFiles = files.some((f) =>
+      IN_PROGRESS_STATUSES.has(f.status)
+    );
+
+    const currentStatusById: Record<string, string> = {};
+    for (const f of files) {
+      currentStatusById[f.fileId] = f.status;
+    }
+
+    if (!hasSeenInitialFilesRef.current) {
+      hasSeenInitialFilesRef.current = true;
+      prevStatusByFileIdRef.current = currentStatusById;
+      setPollMs(hasInProgressFiles ? 2000 : false);
+      return;
+    }
+
+    let anyStatusChanged = false;
+    const prev = prevStatusByFileIdRef.current;
+
+    for (const f of files) {
+      const prevStatus = prev[f.fileId];
+      if (prevStatus && prevStatus !== f.status) {
+        anyStatusChanged = true;
+
+        if (prevStatus !== 'Completed' && f.status === 'Completed') {
+          const fileId = f.fileId;
+
+          setRecentlyCompletedByFileId((prevRecent) => ({
+            ...prevRecent,
+            [fileId]: Date.now(),
+          }));
+
+          const existingTimer = recentlyCompletedTimersRef.current[fileId];
+          if (existingTimer) {
+            window.clearTimeout(existingTimer);
+          }
+
+          recentlyCompletedTimersRef.current[fileId] = window.setTimeout(() => {
+            setRecentlyCompletedByFileId((prevRecent) => {
+              if (!(fileId in prevRecent)) {
+                return prevRecent;
+              }
+              const next = { ...prevRecent };
+              delete next[fileId];
+              return next;
+            });
+            delete recentlyCompletedTimersRef.current[fileId];
+          }, 30_000);
+        }
+      }
+    }
+
+    prevStatusByFileIdRef.current = currentStatusById;
+
+    if (!hasInProgressFiles) {
+      setPollMs(false);
+      return;
+    }
+
+    if (anyStatusChanged) {
+      setPollMs(2000);
+      return;
+    }
+
+    setPollMs((prevMs) => {
+      if (prevMs === false) {
+        return 2000;
+      }
+      return Math.min(prevMs + 1000, 8000);
+    });
+  }, [filesQuery.data]);
+
+  // Cleanup timers on unmount (scheduled refetch + "recently completed" timers).
+  useEffect(() => {
+    return () => {
+      if (fileListRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(fileListRefreshTimeoutRef.current);
+        fileListRefreshTimeoutRef.current = null;
+      }
+      for (const timer of Object.values(recentlyCompletedTimersRef.current)) {
+        window.clearTimeout(timer);
+      }
+      recentlyCompletedTimersRef.current = {};
+    };
+  }, []);
 
   const scheduleFilesRefresh = () => {
     if (fileListRefreshTimeoutRef.current !== null) {
@@ -67,7 +178,8 @@ function RouteComponent() {
       const result = await blobUpload.mutateAsync({
         file,
         onProgress: (p: UploadProgress) => {
-          if (startedUploadId === null) {
+          const uploadId = startedUploadId;
+          if (!uploadId) {
             return;
           }
           if (p.percent === lastPercent) {
@@ -75,13 +187,13 @@ function RouteComponent() {
           }
           lastPercent = p.percent;
           setUploadsByFileId((prev) => {
-            const existing = prev[startedUploadId];
+            const existing = prev[uploadId];
             if (!existing) {
               return prev;
             }
             return {
               ...prev,
-              [startedUploadId]: { ...existing, percent: p.percent },
+              [uploadId]: { ...existing, percent: p.percent },
             };
           });
         },
@@ -110,16 +222,18 @@ function RouteComponent() {
       });
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : String(error));
-      if (startedUploadId !== null && isAbortError(error)) {
+      const uploadId = startedUploadId;
+      if (uploadId && isAbortError(error)) {
         setUploadsByFileId((prev) => {
           const next = { ...prev };
-          delete next[startedUploadId];
+          delete next[uploadId];
           return next;
         });
       }
     } finally {
-      if (startedUploadId !== null) {
-        delete abortRef.current[startedUploadId];
+      const uploadId = startedUploadId;
+      if (uploadId) {
+        delete abortRef.current[uploadId];
       }
     }
   };
@@ -240,14 +354,6 @@ function RouteComponent() {
                     Uploading {activeUploadCount}
                   </span>
                 ) : null}
-                <button
-                  className="btn btn-sm btn-outline"
-                  disabled={filesQuery.isFetching}
-                  onClick={() => filesQuery.refetch()}
-                  type="button"
-                >
-                  {filesQuery.isFetching ? 'Refreshing…' : 'Refresh'}
-                </button>
               </div>
             </div>
 
@@ -295,6 +401,11 @@ function RouteComponent() {
                               <span className="badge badge-ghost">
                                 {file.status}
                               </span>
+                              {recentlyCompletedByFileId[file.fileId] ? (
+                                <span className="badge badge-success badge-outline">
+                                  Just completed
+                                </span>
+                              ) : null}
                               {uploadsByFileId[file.fileId] ? (
                                 <button
                                   className="btn btn-xs btn-outline"
