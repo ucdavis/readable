@@ -184,10 +184,6 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
           value: '~4'
         }
         {
-          name: 'FUNCTIONS_WORKER_RUNTIME'
-          value: 'dotnet-isolated'
-        }
-        {
           name: 'DB_CONNECTION'
           value: sqlConnectionString
         }
