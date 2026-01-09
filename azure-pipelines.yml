@@ -43,16 +43,8 @@ stages:
           - script: dotnet build app.sln -c $(BuildConfiguration) --no-restore
             displayName: dotnet build
 
-          - script: dotnet test app.sln -c $(BuildConfiguration) --no-build --logger trx --results-directory $(Agent.TempDirectory)/TestResults
-            displayName: dotnet test
-
-          - task: PublishTestResults@2
-            displayName: Publish .NET test results
-            condition: succeededOrFailed()
-            inputs:
-              testResultsFormat: VSTest
-              testResultsFiles: "$(Agent.TempDirectory)/TestResults/*.trx"
-              failTaskOnFailedTests: true
+          - script: dotnet test app.sln --configuration $(buildConfiguration) --logger trx
+            displayName: Run server tests
 
           - script: |
               set -euo pipefail
@@ -64,16 +56,6 @@ stages:
           # Build deployable artifacts (web + function) for later stages.
           - script: |
               set -euo pipefail
-
-              # Build SPA
-              cd client
-              npm run build
-              cd ..
-
-              # Copy SPA into server static root
-              mkdir -p server/wwwroot
-              rm -rf server/wwwroot/*
-              cp -R client/dist/* server/wwwroot/
 
               # Publish web app
               dotnet publish server/server.csproj -c $(BuildConfiguration) -o "$(Build.ArtifactStagingDirectory)/publish/web"
