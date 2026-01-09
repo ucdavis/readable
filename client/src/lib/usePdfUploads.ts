@@ -7,7 +7,7 @@ export type UploadRow = {
   fileName: string;
   percent: number;
   sizeBytes: number;
-  state: 'uploading';
+  state: 'uploading' | 'failed';
   uploadId: string;
 };
 
@@ -94,15 +94,46 @@ export function usePdfUploads({ onUploadStarted }: UsePdfUploadsArgs = {}) {
           return next;
         });
       } catch (error) {
-        setUploadError(error instanceof Error ? error.message : String(error));
         const uploadId = startedUploadId;
-        if (uploadId && isAbortError(error)) {
+
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        setUploadError((prev) => {
+          if (isAbortError(error)) {
+            return prev;
+          }
+          return prev ? `${prev}; ${errorMessage}` : errorMessage;
+        });
+
+        if (!uploadId) {
+          return;
+        }
+
+        if (isAbortError(error)) {
           setUploadsByFileId((prev) => {
             const next = { ...prev };
             delete next[uploadId];
             return next;
           });
+          return;
         }
+
+        setUploadsByFileId((prev) => {
+          const existing = prev[uploadId];
+          if (!existing) {
+            return prev;
+          }
+
+          const nextRow: UploadRow = {
+            ...existing,
+            error: errorMessage,
+            state: 'failed',
+          };
+
+          return {
+            ...prev,
+            [uploadId]: nextRow,
+          };
+        });
       } finally {
         const uploadId = startedUploadId;
         if (uploadId) {
