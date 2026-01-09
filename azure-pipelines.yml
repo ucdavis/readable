@@ -27,7 +27,7 @@ variables:
 
   # Set to 'true' to have the pipeline deploy/update infra via Bicep before deploying code.
   # You can also override this per environment via variable groups.
-  deployInfra: "true"
+  deployInfra: "false"
 
 stages:
   - stage: Build_Test
@@ -117,6 +117,9 @@ stages:
           runOnce:
             deploy:
               steps:
+                - checkout: self
+                  displayName: Checkout repo
+
                 - download: current
                   artifact: packages
 
@@ -129,6 +132,7 @@ stages:
                     scriptLocation: inlineScript
                     inlineScript: |
                       set -euo pipefail
+                      cd "$(Build.SourcesDirectory)"
                       env \
                         RESOURCE_GROUP="$(RESOURCE_GROUP)" \
                         LOCATION="$(LOCATION)" \
