@@ -11,6 +11,16 @@ pr:
 pool:
   vmImage: ubuntu-latest
 
+#
+# Service connection inputs (e.g., `azureSubscription:`) must resolve at compile-time so Azure DevOps can
+# authorize and inject the endpoint. Runtime variables from variable groups (e.g., `$(azureServiceConnection)`)
+# will not be expanded for these inputs.
+#
+parameters:
+  - name: azureServiceConnectionTest
+    type: string
+    default: AzureTestDeploy
+
 variables:
   BuildConfiguration: Release
   NodeVersion: 22.x
@@ -95,7 +105,6 @@ stages:
     condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
     variables:
       # Create this variable group in Azure DevOps with environment-specific values:
-      # - azureServiceConnection (service connection name)
       # - RESOURCE_GROUP, LOCATION, APP_NAME, ENVIRONMENT, DEPLOYMENT_NAME
       # - SQL_ADMIN_LOGIN, SQL_ADMIN_PASSWORD (secret)
       # - (optional) CORS_ALLOWED_ORIGINS, DEPLOY_EVENTGRID_SUBSCRIPTION, EVENTGRID_* tuning vars
@@ -115,7 +124,7 @@ stages:
                   displayName: (optional) Deploy infra (Bicep)
                   condition: and(succeeded(), eq(variables['deployInfra'], 'true'))
                   inputs:
-                    azureSubscription: AzureTestDeploy
+                    azureSubscription: ${{ parameters.azureServiceConnectionTest }}
                     scriptType: bash
                     scriptLocation: inlineScript
                     inlineScript: |
@@ -134,7 +143,7 @@ stages:
                   name: resolveNames
                   displayName: Resolve app names from infra outputs
                   inputs:
-                    azureSubscription: AzureTestDeploy
+                    azureSubscription: ${{ parameters.azureServiceConnectionTest }}
                     scriptType: bash
                     scriptLocation: inlineScript
                     inlineScript: |
@@ -159,7 +168,7 @@ stages:
                 - task: AzureWebApp@1
                   displayName: Deploy web app
                   inputs:
-                    azureSubscription: AzureTestDeploy
+                    azureSubscription: ${{ parameters.azureServiceConnectionTest }}
                     appType: webAppLinux
                     appName: $(webAppName)
                     package: $(Pipeline.Workspace)/packages/webapp.zip
@@ -167,7 +176,7 @@ stages:
                 - task: AzureFunctionApp@2
                   displayName: Deploy function app
                   inputs:
-                    azureSubscription: AzureTestDeploy
+                    azureSubscription: ${{ parameters.azureServiceConnectionTest }}
                     appType: functionAppLinux
                     appName: $(functionAppName)
                     package: $(Pipeline.Workspace)/packages/functionapp.zip
