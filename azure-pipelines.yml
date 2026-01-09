@@ -27,7 +27,7 @@ variables:
 
   # Set to 'true' to have the pipeline deploy/update infra via Bicep before deploying code.
   # You can also override this per environment via variable groups.
-  deployInfra: "false"
+  deployInfra: "true"
 
 stages:
   - stage: Build_Test

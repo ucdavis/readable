@@ -122,7 +122,8 @@ public class UserService : IUserService
     public async Task<ClaimsPrincipal?> UpdateUserPrincipalIfNeeded(ClaimsPrincipal principal)
     {
         var dbUserId = await SyncUserAsync(principal);
-        var userIdMissing = principal.GetUserId() is null && dbUserId is not null;
+        var principalUserId = principal.GetUserId();
+        var userIdNeedsUpdate = dbUserId is not null && principalUserId != dbUserId.Value;
 
         // might want to cache w/ IMemoryCache to avoid DB hits on every request, but we'll skip that for simplicity
         var currentRoles = await GetRolesForUser(principal);
@@ -132,14 +133,14 @@ public class UserService : IUserService
         var currentRoleSet = new HashSet<string>(currentRoles, StringComparer.OrdinalIgnoreCase);
         var cookieRoleSet = new HashSet<string>(cookieRoles, StringComparer.OrdinalIgnoreCase);
         var rolesChanged = !currentRoleSet.SetEquals(cookieRoleSet);
-        var changed = rolesChanged || userIdMissing;
+        var changed = rolesChanged || userIdNeedsUpdate;
 
         if (!changed) { return null; } // no change
 
         // create new identity with updated roles
         var newId = new ClaimsIdentity(principal.Claims, authenticationType: principal.Identity?.AuthenticationType);
 
-        if (userIdMissing)
+        if (userIdNeedsUpdate)
         {
             foreach (var claim in newId.FindAll(ClaimsPrincipalExtensions.AppUserIdClaimType).ToList())
             {

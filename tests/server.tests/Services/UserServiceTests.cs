@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using server.Helpers;
 using server.core.Domain;
 using Server.Services;
 using Server.Tests;
@@ -112,7 +113,7 @@ public class UserServiceTests
         ctx.UserRoles.Add(new UserRole { UserId = user.UserId, RoleId = admin.RoleId });
         await ctx.SaveChangesAsync();
 
-        var principal = CreatePrincipal(oid, roles: ["Admin"]);
+        var principal = CreatePrincipal(oid, roles: ["Admin"], appUserId: user.UserId);
 
         // Act
         var updated = await service.UpdateUserPrincipalIfNeeded(principal);
@@ -121,13 +122,52 @@ public class UserServiceTests
         updated.Should().BeNull();
     }
 
-    private static ClaimsPrincipal CreatePrincipal(Guid objectId, string? name = null, string? email = null, IEnumerable<string>? roles = null)
+    [Fact]
+    public async Task UpdateUserPrincipalIfNeeded_updates_app_user_id_when_mismatched()
+    {
+        // Arrange
+        using var ctx = TestDbContextFactory.CreateInMemory();
+        var service = new UserService(NullLogger<UserService>.Instance, ctx);
+
+        var oid = Guid.NewGuid();
+        var user = new User { EntraObjectId = oid };
+        var admin = new Role { Name = "Admin" };
+
+        ctx.Users.Add(user);
+        ctx.Roles.Add(admin);
+        await ctx.SaveChangesAsync();
+
+        ctx.UserRoles.Add(new UserRole { UserId = user.UserId, RoleId = admin.RoleId });
+        await ctx.SaveChangesAsync();
+
+        var principal = CreatePrincipal(oid, roles: ["Admin"], appUserId: user.UserId + 123);
+
+        // Act
+        var updated = await service.UpdateUserPrincipalIfNeeded(principal);
+
+        // Assert
+        updated.Should().NotBeNull();
+        updated!.GetUserId().Should().Be(user.UserId);
+        updated.FindAll(ClaimTypes.Role).Select(c => c.Value).Should().Equal(["Admin"]);
+    }
+
+    private static ClaimsPrincipal CreatePrincipal(
+        Guid objectId,
+        string? name = null,
+        string? email = null,
+        IEnumerable<string>? roles = null,
+        long? appUserId = null)
     {
         List<Claim> claims =
         [
             // Azure AD / Entra object id (OID)
             new("oid", objectId.ToString()),
         ];
+
+        if (appUserId is not null)
+        {
+            claims.Add(new Claim(ClaimsPrincipalExtensions.AppUserIdClaimType, appUserId.Value.ToString()));
+        }
 
         if (!string.IsNullOrWhiteSpace(name))
         {
@@ -148,4 +188,3 @@ public class UserServiceTests
         return new ClaimsPrincipal(identity);
     }
 }
-
