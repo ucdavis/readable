@@ -14,6 +14,7 @@ import { Route as authenticatedRouteRouteImport } from './routes/(authenticated)
 import { Route as authenticatedIndexRouteImport } from './routes/(authenticated)/index'
 import { Route as authenticatedUploadRouteImport } from './routes/(authenticated)/upload'
 import { Route as authenticatedStylesRouteImport } from './routes/(authenticated)/styles'
+import { Route as authenticatedPdfRouteImport } from './routes/(authenticated)/pdf'
 import { Route as authenticatedMeRouteImport } from './routes/(authenticated)/me'
 import { Route as authenticatedFormRouteImport } from './routes/(authenticated)/form'
 import { Route as authenticatedFetchRouteImport } from './routes/(authenticated)/fetch'
@@ -42,6 +43,11 @@ const authenticatedStylesRoute = authenticatedStylesRouteImport.update({
   path: '/styles',
   getParentRoute: () => authenticatedRouteRoute,
 } as any)
+const authenticatedPdfRoute = authenticatedPdfRouteImport.update({
+  id: '/pdf',
+  path: '/pdf',
+  getParentRoute: () => authenticatedRouteRoute,
+} as any)
 const authenticatedMeRoute = authenticatedMeRouteImport.update({
   id: '/me',
   path: '/me',
@@ -63,6 +69,7 @@ export interface FileRoutesByFullPath {
   '/fetch': typeof authenticatedFetchRoute
   '/form': typeof authenticatedFormRoute
   '/me': typeof authenticatedMeRoute
+  '/pdf': typeof authenticatedPdfRoute
   '/styles': typeof authenticatedStylesRoute
   '/upload': typeof authenticatedUploadRoute
   '/': typeof authenticatedIndexRoute
@@ -72,6 +79,7 @@ export interface FileRoutesByTo {
   '/fetch': typeof authenticatedFetchRoute
   '/form': typeof authenticatedFormRoute
   '/me': typeof authenticatedMeRoute
+  '/pdf': typeof authenticatedPdfRoute
   '/styles': typeof authenticatedStylesRoute
   '/upload': typeof authenticatedUploadRoute
   '/': typeof authenticatedIndexRoute
@@ -83,15 +91,32 @@ export interface FileRoutesById {
   '/(authenticated)/fetch': typeof authenticatedFetchRoute
   '/(authenticated)/form': typeof authenticatedFormRoute
   '/(authenticated)/me': typeof authenticatedMeRoute
+  '/(authenticated)/pdf': typeof authenticatedPdfRoute
   '/(authenticated)/styles': typeof authenticatedStylesRoute
   '/(authenticated)/upload': typeof authenticatedUploadRoute
   '/(authenticated)/': typeof authenticatedIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/about' | '/fetch' | '/form' | '/me' | '/styles' | '/upload' | '/'
+  fullPaths:
+    | '/about'
+    | '/fetch'
+    | '/form'
+    | '/me'
+    | '/pdf'
+    | '/styles'
+    | '/upload'
+    | '/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/about' | '/fetch' | '/form' | '/me' | '/styles' | '/upload' | '/'
+  to:
+    | '/about'
+    | '/fetch'
+    | '/form'
+    | '/me'
+    | '/pdf'
+    | '/styles'
+    | '/upload'
+    | '/'
   id:
     | '__root__'
     | '/(authenticated)'
@@ -99,6 +124,7 @@ export interface FileRouteTypes {
     | '/(authenticated)/fetch'
     | '/(authenticated)/form'
     | '/(authenticated)/me'
+    | '/(authenticated)/pdf'
     | '/(authenticated)/styles'
     | '/(authenticated)/upload'
     | '/(authenticated)/'
@@ -146,6 +172,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authenticatedStylesRouteImport
       parentRoute: typeof authenticatedRouteRoute
     }
+    '/(authenticated)/pdf': {
+      id: '/(authenticated)/pdf'
+      path: '/pdf'
+      fullPath: '/pdf'
+      preLoaderRoute: typeof authenticatedPdfRouteImport
+      parentRoute: typeof authenticatedRouteRoute
+    }
     '/(authenticated)/me': {
       id: '/(authenticated)/me'
       path: '/me'
@@ -174,6 +207,7 @@ interface authenticatedRouteRouteChildren {
   authenticatedFetchRoute: typeof authenticatedFetchRoute
   authenticatedFormRoute: typeof authenticatedFormRoute
   authenticatedMeRoute: typeof authenticatedMeRoute
+  authenticatedPdfRoute: typeof authenticatedPdfRoute
   authenticatedStylesRoute: typeof authenticatedStylesRoute
   authenticatedUploadRoute: typeof authenticatedUploadRoute
   authenticatedIndexRoute: typeof authenticatedIndexRoute
@@ -183,6 +217,7 @@ const authenticatedRouteRouteChildren: authenticatedRouteRouteChildren = {
   authenticatedFetchRoute: authenticatedFetchRoute,
   authenticatedFormRoute: authenticatedFormRoute,
   authenticatedMeRoute: authenticatedMeRoute,
+  authenticatedPdfRoute: authenticatedPdfRoute,
   authenticatedStylesRoute: authenticatedStylesRoute,
   authenticatedUploadRoute: authenticatedUploadRoute,
   authenticatedIndexRoute: authenticatedIndexRoute,

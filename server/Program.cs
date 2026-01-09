@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using server.core.Data;
 using server.core.Telemetry;
-using server.core.Upload;
+using server.core.Storage;
 using server.Helpers;
 using Server.Services;
 
@@ -41,7 +41,7 @@ builder.Services.AddResponseCaching();
 // add scoped services here
 builder.Services.AddScoped<IDbInitializer, DbInitializer>();
 builder.Services.AddScoped<IUserService, UserService>();
-builder.Services.AddSingleton<IUploadSasService, AzureBlobUploadSasService>();
+builder.Services.AddSingleton<IFileSasService, AzureBlobFileSasService>();
 // add auth policies here
 
 // add db context (check secrets first, then config, then default)
