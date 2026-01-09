@@ -115,7 +115,7 @@ stages:
                   displayName: (optional) Deploy infra (Bicep)
                   condition: and(succeeded(), eq(variables['deployInfra'], 'true'))
                   inputs:
-                    azureSubscription: $(azureServiceConnection)
+                    azureSubscription: AzureTestDeploy
                     scriptType: bash
                     scriptLocation: inlineScript
                     inlineScript: |
@@ -134,7 +134,7 @@ stages:
                   name: resolveNames
                   displayName: Resolve app names from infra outputs
                   inputs:
-                    azureSubscription: $(azureServiceConnection)
+                    azureSubscription: AzureTestDeploy
                     scriptType: bash
                     scriptLocation: inlineScript
                     inlineScript: |
@@ -159,7 +159,7 @@ stages:
                 - task: AzureWebApp@1
                   displayName: Deploy web app
                   inputs:
-                    azureSubscription: $(azureServiceConnection)
+                    azureSubscription: AzureTestDeploy
                     appType: webAppLinux
                     appName: $(webAppName)
                     package: $(Pipeline.Workspace)/packages/webapp.zip
@@ -167,7 +167,7 @@ stages:
                 - task: AzureFunctionApp@2
                   displayName: Deploy function app
                   inputs:
-                    azureSubscription: $(azureServiceConnection)
+                    azureSubscription: AzureTestDeploy
                     appType: functionAppLinux
                     appName: $(functionAppName)
                     package: $(Pipeline.Workspace)/packages/functionapp.zip
