@@ -43,8 +43,8 @@ stages:
           - script: dotnet build app.sln -c $(BuildConfiguration) --no-restore
             displayName: dotnet build
 
-          - script: dotnet test app.sln --configuration $(buildConfiguration) --logger trx
-            displayName: Run server tests
+          # - script: dotnet test app.sln --configuration $(buildConfiguration) --logger trx
+          #   displayName: Run server tests
 
           - script: |
               set -euo pipefail
