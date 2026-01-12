@@ -129,6 +129,50 @@ public class UploadController : ApiControllerBase
         return Ok(ToCreateUploadSasResponse(fileRecord.FileId, sas));
     }
 
+    /// <summary>
+    /// Marks an upload record as queued after the client has finished uploading the blob.
+    /// </summary>
+    [HttpPost("{fileId:guid}/uploaded")]
+    public async Task<IActionResult> MarkUploaded(
+        [FromRoute] Guid fileId,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var fileRecord = await _dbContext.Files
+            .SingleOrDefaultAsync(
+                x => x.FileId == fileId && x.OwnerUserId == userId.Value,
+                cancellationToken);
+
+        if (fileRecord is null)
+        {
+            return NotFound();
+        }
+
+        // Idempotent, and safe in the presence of the ingest worker racing this call.
+        if (string.Equals(fileRecord.Status, FileRecord.Statuses.Created, StringComparison.Ordinal))
+        {
+            var now = DateTimeOffset.UtcNow;
+            fileRecord.Status = FileRecord.Statuses.Queued;
+            fileRecord.StatusUpdatedAt = now;
+
+            try
+            {
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // If another process already advanced the status (e.g., ingest started), treat as success.
+            }
+        }
+
+        return NoContent();
+    }
+
     private UploadSasResult CreateSasForUpload(Guid fileId)
     {
         return _fileSasService.CreateIncomingPdfUploadSas(fileId, SasTimeToLive);

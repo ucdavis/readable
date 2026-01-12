@@ -47,6 +47,17 @@ export async function refreshUploadSas(
   );
 }
 
+export async function markUploadUploaded(
+  fileId: string,
+  signal?: AbortSignal
+): Promise<void> {
+  await fetchJson<void>(
+    `/api/upload/${encodeURIComponent(fileId)}/uploaded`,
+    { method: 'POST' },
+    signal
+  );
+}
+
 export type SasResponse = {
   blobUrl: string;
   sasUrl: string;
@@ -118,6 +129,13 @@ export function useBlobUploadMutation() {
         } else {
           throw error;
         }
+      }
+
+      // after upload completion, mark the file as uploaded
+      try {
+        await markUploadUploaded(sas.uploadId, signal);
+      } catch {
+        // ignore
       }
 
       return { blobUrl: sas.blobUrl, uploadId: sas.uploadId };
