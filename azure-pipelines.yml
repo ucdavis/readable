@@ -180,7 +180,7 @@ stages:
                         { "name": "OPENAI_API_KEY", "value": "$(OPENAI_API_KEY)", "slotSetting": false },
                         { "name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": "$(OTEL_EXPORTER_OTLP_ENDPOINT)", "slotSetting": false },
                         { "name": "OTEL_EXPORTER_OTLP_HEADERS", "value": "$(OTEL_EXPORTER_OTLP_HEADERS)", "slotSetting": false },
-                        { "name": "OTEL_SERVICE_NAME", "value": "$(webAppName).api", "slotSetting": false },
+                        { "name": "OTEL_SERVICE_NAME", "value": "$(APP_NAME).api", "slotSetting": false },
                         { "name": "OTEL_RESOURCE_ATTRIBUTES", "value": "service.environment=$(ENVIRONMENT),deployment.environment.name=$(ENVIRONMENT)", "slotSetting": false },
                         { "name": "PDF_SERVICES_CLIENT_ID", "value": "$(PDF_SERVICES_CLIENT_ID)", "slotSetting": false },
                         { "name": "PDF_SERVICES_CLIENT_SECRET", "value": "$(PDF_SERVICES_CLIENT_SECRET)", "slotSetting": false }
@@ -197,7 +197,7 @@ stages:
                         { "name": "OPENAI_API_KEY", "value": "$(OPENAI_API_KEY)", "slotSetting": false },
                         { "name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": "$(OTEL_EXPORTER_OTLP_ENDPOINT)", "slotSetting": false },
                         { "name": "OTEL_EXPORTER_OTLP_HEADERS", "value": "$(OTEL_EXPORTER_OTLP_HEADERS)", "slotSetting": false },
-                        { "name": "OTEL_SERVICE_NAME", "value": "$(webAppName).ingest", "slotSetting": false },
+                        { "name": "OTEL_SERVICE_NAME", "value": "$(APP_NAME).ingest", "slotSetting": false },
                         { "name": "OTEL_RESOURCE_ATTRIBUTES", "value": "service.environment=$(ENVIRONMENT),deployment.environment.name=$(ENVIRONMENT)", "slotSetting": false },
                         { "name": "PDF_SERVICES_CLIENT_ID", "value": "$(PDF_SERVICES_CLIENT_ID)", "slotSetting": false },
                         { "name": "PDF_SERVICES_CLIENT_SECRET", "value": "$(PDF_SERVICES_CLIENT_SECRET)", "slotSetting": false }
