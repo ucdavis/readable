@@ -29,7 +29,20 @@ if (string.IsNullOrWhiteSpace(conn))
 builder.Services.AddPooledDbContextFactory<AppDbContext>(o =>
     o.UseSqlServer(conn, opt => opt.MigrationsAssembly("server.core")));
 
-builder.Services.AddFileIngest();
+builder.Services.AddFileIngest(o =>
+{
+    // Default to the "real" pipeline and fail fast if required env vars are missing.
+    // Use NOOPs only when explicitly configured (e.g., tests/local smoke runs).
+    if (builder.Configuration.GetValue<bool>("Ingest:UseNoops")
+        || builder.Configuration.GetValue<bool>("INGEST_USE_NOOPS"))
+    {
+        o.UseNoops();
+        return;
+    }
+
+    o.UseAdobePdfServices = true;
+    o.UsePdfRemediationProcessor = true;
+});
 
 builder.Services.AddApplicationInsightsTelemetryWorkerService();
 builder.Services.ConfigureFunctionsApplicationInsights();
