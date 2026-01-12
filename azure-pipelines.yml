@@ -169,6 +169,38 @@ stages:
                       echo "##vso[task.setvariable variable=webAppName]$webAppName"
                       echo "##vso[task.setvariable variable=functionAppName]$functionAppName"
 
+                - task: AzureAppServiceSettings@1
+                  displayName: Set Web App runtime settings
+                  inputs:
+                    azureSubscription: ${{ parameters.azureServiceConnectionTest }}
+                    appName: $(webAppName)
+                    resourceGroupName: $(RESOURCE_GROUP)
+                    appSettings: |
+                      [
+                        { "name": "OPENAI_API_KEY", "value": "$(OPENAI_API_KEY)", "slotSetting": false },
+                        { "name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": "$(OTEL_EXPORTER_OTLP_ENDPOINT)", "slotSetting": false },
+                        { "name": "OTEL_EXPORTER_OTLP_HEADERS", "value": "$(OTEL_EXPORTER_OTLP_HEADERS)", "slotSetting": false },
+                        { "name": "OTEL_SERVICE_NAME", "value": "$(webAppName)", "slotSetting": false },
+                        { "name": "PDF_SERVICES_CLIENT_ID", "value": "$(PDF_SERVICES_CLIENT_ID)", "slotSetting": false },
+                        { "name": "PDF_SERVICES_CLIENT_SECRET", "value": "$(PDF_SERVICES_CLIENT_SECRET)", "slotSetting": false }
+                      ]
+
+                - task: AzureAppServiceSettings@1
+                  displayName: Set Function App runtime settings
+                  inputs:
+                    azureSubscription: ${{ parameters.azureServiceConnectionTest }}
+                    appName: $(functionAppName)
+                    resourceGroupName: $(RESOURCE_GROUP)
+                    appSettings: |
+                      [
+                        { "name": "OPENAI_API_KEY", "value": "$(OPENAI_API_KEY)", "slotSetting": false },
+                        { "name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": "$(OTEL_EXPORTER_OTLP_ENDPOINT)", "slotSetting": false },
+                        { "name": "OTEL_EXPORTER_OTLP_HEADERS", "value": "$(OTEL_EXPORTER_OTLP_HEADERS)", "slotSetting": false },
+                        { "name": "OTEL_SERVICE_NAME", "value": "$(functionAppName)", "slotSetting": false },
+                        { "name": "PDF_SERVICES_CLIENT_ID", "value": "$(PDF_SERVICES_CLIENT_ID)", "slotSetting": false },
+                        { "name": "PDF_SERVICES_CLIENT_SECRET", "value": "$(PDF_SERVICES_CLIENT_SECRET)", "slotSetting": false }
+                      ]
+
                 - task: AzureWebApp@1
                   displayName: Deploy web app
                   inputs:
