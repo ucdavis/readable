@@ -1,4 +1,9 @@
-import { type ChangeEventHandler, type DragEventHandler, useState } from 'react';
+import {
+  type ChangeEventHandler,
+  type DragEventHandler,
+  useState,
+} from 'react';
+import { ArrowUpTrayIcon } from '@heroicons/react/24/solid';
 
 export type PdfUploadDropzoneProps = {
   isUploading: boolean;
@@ -50,7 +55,7 @@ export function PdfUploadDropzone({
       onDrop={handleDrop}
     >
       <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-base-200 text-base-content/70">
-        <span className="text-xs font-semibold">PDF</span>
+        <ArrowUpTrayIcon className="h-6 w-6" />
       </div>
       <h3 className="text-base-content mb-2 text-lg font-semibold">
         Upload PDF Files
@@ -66,7 +71,10 @@ export function PdfUploadDropzone({
         onChange={handleFileInput}
         type="file"
       />
-      <label className="btn btn-primary inline-flex items-center gap-2" htmlFor={inputId}>
+      <label
+        className="btn btn-primary inline-flex items-center gap-2"
+        htmlFor={inputId}
+      >
         Select Files
       </label>
       <div className="mt-3 text-xs text-base-content/60">

@@ -2,6 +2,8 @@ import type { UserFile } from '@/queries/files.ts';
 import type { UploadRow } from '@/lib/usePdfUploads.ts';
 import { formatBytes, formatDateTime } from '@/lib/format.ts';
 import { Link } from '@tanstack/react-router';
+import { ArrowDownTrayIcon } from '@heroicons/react/24/solid';
+import { DocumentChartBarIcon } from '@heroicons/react/24/outline';
 
 export type PdfActivityCardProps = {
   activeUploadCount: number;
@@ -26,7 +28,6 @@ export function PdfActivityCard({
     <div className="card bg-base-100 shadow">
       <div className="card-body">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="card-title">Activity</h2>
           <div className="flex items-center gap-2">
             {activeUploadCount > 0 ? (
               <span className="badge badge-info badge-outline">
@@ -37,20 +38,20 @@ export function PdfActivityCard({
         </div>
 
         <div className="overflow-x-auto">
-          <table className="table table-zebra">
+          <table className="table">
             <thead>
               <tr>
                 <th>Status</th>
-                <th>File</th>
-                <th className="text-right">Size</th>
-                <th>Created</th>
-                <th className="text-right">Actions</th>
+                <th>Filename</th>
+                
+                <th>Report</th>
+                <th className="text-right">Action</th>
               </tr>
             </thead>
             <tbody>
               {isError ? (
                 <tr>
-                  <td colSpan={5}>
+                  <td colSpan={4}>
                     <div className="alert alert-error">
                       <span>Failed to load your files.</span>
                     </div>
@@ -58,7 +59,7 @@ export function PdfActivityCard({
                 </tr>
               ) : files === undefined ? (
                 <tr>
-                  <td className="text-base-content/70" colSpan={5}>
+                  <td className="text-base-content/70" colSpan={4}>
                     <div className="flex items-center gap-3">
                       <span className="loading loading-spinner loading-sm" />
                       <span>Loading…</span>
@@ -67,7 +68,7 @@ export function PdfActivityCard({
                 </tr>
               ) : files.length === 0 ? (
                 <tr>
-                  <td className="text-base-content/60" colSpan={5}>
+                  <td className="text-base-content/60" colSpan={4}>
                     No files yet.
                   </td>
                 </tr>
@@ -98,22 +99,24 @@ export function PdfActivityCard({
                       </td>
 
                       {/* File */}
-                      <td className="font-medium">{file.originalFileName}</td>
-
-                      {/* Size */}
-                      <td className="text-right">
-                        {formatBytes(file.sizeBytes)}
+                      <td>{file.originalFileName}
+                        <br/>
+                        <span className="text-xs text-base-content/75">{formatBytes(file.sizeBytes)} • {formatDateTime(file.createdAt)}</span>
+                        
                       </td>
 
                       {/* Created */}
-                      <td>{formatDateTime(file.createdAt)}</td>
+                      <td>
+                       <span className="text-base-content/75">
+                       Conversion score: 99%</span>
+                      </td>
 
                       {/* Actions */}
                       <td className="text-right">
                         <div className="flex flex-wrap justify-end gap-2">
                           {upload ? (
                             <button
-                              className="btn btn-xs btn-outline"
+                              className="btn btn-sm btn-outline btn-danger"
                               disabled={!canCancelUpload(file.fileId)}
                               onClick={() => onCancelUpload(file.fileId)}
                               type="button"
@@ -124,21 +127,23 @@ export function PdfActivityCard({
 
                           {file.status === 'Completed' ? (
                             <>
-                              <Link
-                                className="btn btn-xs btn-ghost"
+                             <Link
+                                className="btn btn-sm btn-outline"
                                 params={{ fileId: file.fileId }}
                                 to="/(authenticated)/pdf/$fileId/report"
                               >
+                              <DocumentChartBarIcon className="h-4 w-4" />
                                 View Report (TODO)
                               </Link>
                               <a
-                                className="btn btn-xs btn-outline"
+                                className="btn btn-sm btn-primary"
                                 href={`/api/download/processed/${encodeURIComponent(
                                   file.fileId
                                 )}`}
                                 rel="noreferrer"
                                 target="_blank"
                               >
+                                <ArrowDownTrayIcon className="h-4 w-4"/>
                                 Download PDF
                               </a>
                             </>
