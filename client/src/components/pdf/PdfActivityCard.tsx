@@ -40,16 +40,17 @@ export function PdfActivityCard({
           <table className="table table-zebra">
             <thead>
               <tr>
-                <th>File</th>
                 <th>Status</th>
+                <th>File</th>
                 <th className="text-right">Size</th>
                 <th>Created</th>
+                <th className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {isError ? (
                 <tr>
-                  <td colSpan={4}>
+                  <td colSpan={5}>
                     <div className="alert alert-error">
                       <span>Failed to load your files.</span>
                     </div>
@@ -57,7 +58,7 @@ export function PdfActivityCard({
                 </tr>
               ) : files === undefined ? (
                 <tr>
-                  <td className="text-base-content/70" colSpan={4}>
+                  <td className="text-base-content/70" colSpan={5}>
                     <div className="flex items-center gap-3">
                       <span className="loading loading-spinner loading-sm" />
                       <span>Loading…</span>
@@ -66,26 +67,51 @@ export function PdfActivityCard({
                 </tr>
               ) : files.length === 0 ? (
                 <tr>
-                  <td className="text-base-content/60" colSpan={4}>
+                  <td className="text-base-content/60" colSpan={5}>
                     No files yet.
                   </td>
                 </tr>
               ) : (
-                files.map((file) => (
-                  <tr key={file.fileId}>
-                    <td className="font-medium">{file.originalFileName}</td>
-                    <td>
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="badge badge-ghost">
-                            {file.status}
-                          </span>
-                          {recentlyCompletedByFileId[file.fileId] ? (
-                            <span className="badge badge-success badge-outline">
-                              Just completed
+                files.map((file) => {
+                  const upload = uploadsByFileId[file.fileId];
+
+                  return (
+                    <tr key={file.fileId}>
+                      {/* Status */}
+                      <td>
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="badge badge-ghost">
+                              {file.status}
                             </span>
+                            {recentlyCompletedByFileId[file.fileId] ? (
+                              <span className="badge badge-success badge-outline">
+                                Just completed
+                              </span>
+                            ) : null}
+                          </div>
+
+                          {upload ? (
+                            <progress className="progress progress-primary w-full" />
                           ) : null}
-                          {uploadsByFileId[file.fileId] ? (
+                        </div>
+                      </td>
+
+                      {/* File */}
+                      <td className="font-medium">{file.originalFileName}</td>
+
+                      {/* Size */}
+                      <td className="text-right">
+                        {formatBytes(file.sizeBytes)}
+                      </td>
+
+                      {/* Created */}
+                      <td>{formatDateTime(file.createdAt)}</td>
+
+                      {/* Actions */}
+                      <td className="text-right">
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {upload ? (
                             <button
                               className="btn btn-xs btn-outline"
                               disabled={!canCancelUpload(file.fileId)}
@@ -95,37 +121,33 @@ export function PdfActivityCard({
                               Cancel upload
                             </button>
                           ) : null}
+
+                          {file.status === 'Completed' ? (
+                            <>
+                              <Link
+                                className="btn btn-xs btn-ghost"
+                                params={{ fileId: file.fileId }}
+                                to="/(authenticated)/pdf/$fileId/report"
+                              >
+                                View Report (TODO)
+                              </Link>
+                              <a
+                                className="btn btn-xs btn-outline"
+                                href={`/api/download/processed/${encodeURIComponent(
+                                  file.fileId
+                                )}`}
+                                rel="noreferrer"
+                                target="_blank"
+                              >
+                                Download PDF
+                              </a>
+                            </>
+                          ) : null}
                         </div>
-                        {uploadsByFileId[file.fileId] ? (
-                          <progress className="progress progress-primary w-full" />
-                        ) : null}
-                        {file.status === 'Completed' ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Link
-                              className="btn btn-xs btn-ghost"
-                              params={{ fileId: file.fileId }}
-                              to="/(authenticated)/pdf/$fileId/report"
-                            >
-                              View Report (TODO)
-                            </Link>
-                            <a
-                              className="btn btn-xs btn-outline"
-                              href={`/api/download/processed/${encodeURIComponent(file.fileId)}`}
-                              rel="noreferrer"
-                              target="_blank"
-                            >
-                              Download PDF
-                            </a>
-                          </div>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="text-right">
-                      {formatBytes(file.sizeBytes)}
-                    </td>
-                    <td>{formatDateTime(file.createdAt)}</td>
-                  </tr>
-                ))
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
