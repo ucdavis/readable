@@ -1,9 +1,9 @@
 export const BlueCircleSvg = () => (
   <svg
     aria-hidden="true"
-    height={486}
-    viewBox="0 0 508 486"
-    width={508}
+    height={479}
+    viewBox="0 0 504 479"
+    width={504}
     xmlns="http://www.w3.org/2000/svg"
   >
     <title>blue_circles</title>
@@ -14,26 +14,21 @@ export const BlueCircleSvg = () => (
       stroke="none"
       strokeWidth="1"
     >
-      <g id="footer" transform="translate(-1319, 53)">
+      <g id="footer" transform="translate(-1323, 46)">
         <g
           id="blue_circles"
           transform="translate(1582.5, 206.9887) rotate(150) translate(-1582.5, -206.9887)translate(1386, 59.4887)"
         >
           <path
+            d="M252,276 C238.192424,276 227,287.192424 227,301 C227,314.807576 238.192424,326 252,326 C265.807576,326 277,314.807576 277,301 C277,287.192424 265.807576,276 252,276"
+            fill="#002855"
+            id="blue_float"
+          ></path>
+          <path
             d="M306,16 C292.997,16 280.664,18.857 269.585,23.971 C301.93,47.202 323,85.138 323,128 C323,150.49 317.192,171.621 307.006,189.987 C354.591,189.447 393,150.712 393,103 C393,54.951 354.049,16 306,16"
             fill="#007A98"
             id="Fill-20"
           ></path>
-          <g
-            fill="#002855"
-            id="blue-float-wrap"
-            transform="translate(219.0648, 267.7199)"
-          >
-            <path
-              d="M33,0 C14.774,0 0,14.774 0,33 C0,51.226 14.774,66 33,66 C51.226,66 66,51.226 66,33 C66,14.774 51.226,0 33,0"
-              id="blue_float"
-            ></path>
-          </g>
           <path
             d="M69.124,104.69 C67.733,112.25 67,120.039 67,128 C67,155.438 56.3833008,192.166504 90.335,201.694 C126.690918,196.245117 111,175.955 111,158.5 C111,132.55 93.188,110.765 69.124,104.69 Z"
             fill="#0F386C"
