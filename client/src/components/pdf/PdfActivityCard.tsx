@@ -116,7 +116,7 @@ export function PdfActivityCard({
                         <div className="flex flex-wrap justify-end gap-2">
                           {upload ? (
                             <button
-                              className="btn btn-sm btn-outline btn-danger"
+                              className="btn btn-sm btn-outline btn-error"
                               disabled={!canCancelUpload(file.fileId)}
                               onClick={() => onCancelUpload(file.fileId)}
                               type="button"
