@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@azure/storage-blob": "^12.29.1",
+    "@heroicons/react": "^2.2.0",
     "@tanstack/react-form": "^1.27.5",
     "@tanstack/react-query": "^5.90.12",
     "@tanstack/react-query-devtools": "^5.91.1",

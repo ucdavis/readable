@@ -2,6 +2,8 @@ import type { UserFile } from '@/queries/files.ts';
 import type { UploadRow } from '@/lib/usePdfUploads.ts';
 import { formatBytes, formatDateTime } from '@/lib/format.ts';
 import { Link } from '@tanstack/react-router';
+import { ArrowDownTrayIcon } from '@heroicons/react/24/solid';
+import { DocumentChartBarIcon } from '@heroicons/react/24/outline';
 
 export type PdfActivityCardProps = {
   activeUploadCount: number;
@@ -26,7 +28,6 @@ export function PdfActivityCard({
     <div className="card bg-base-100 shadow">
       <div className="card-body">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="card-title">Activity</h2>
           <div className="flex items-center gap-2">
             {activeUploadCount > 0 ? (
               <span className="badge badge-info badge-outline">
@@ -37,13 +38,14 @@ export function PdfActivityCard({
         </div>
 
         <div className="overflow-x-auto">
-          <table className="table table-zebra">
+          <table className="table">
             <thead>
               <tr>
-                <th>File</th>
                 <th>Status</th>
-                <th className="text-right">Size</th>
-                <th>Created</th>
+                <th>Filename</th>
+                
+                <th>Report</th>
+                <th className="text-right">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -71,23 +73,50 @@ export function PdfActivityCard({
                   </td>
                 </tr>
               ) : (
-                files.map((file) => (
-                  <tr key={file.fileId}>
-                    <td className="font-medium">{file.originalFileName}</td>
-                    <td>
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="badge badge-ghost">
-                            {file.status}
-                          </span>
-                          {recentlyCompletedByFileId[file.fileId] ? (
-                            <span className="badge badge-success badge-outline">
-                              Just completed
+                files.map((file) => {
+                  const upload = uploadsByFileId[file.fileId];
+
+                  return (
+                    <tr key={file.fileId}>
+                      {/* Status */}
+                      <td>
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="badge badge-ghost">
+                              {file.status}
                             </span>
+                            {recentlyCompletedByFileId[file.fileId] ? (
+                              <span className="badge badge-success badge-outline">
+                                Just completed
+                              </span>
+                            ) : null}
+                          </div>
+
+                          {upload ? (
+                            <progress className="progress progress-primary w-full" />
                           ) : null}
-                          {uploadsByFileId[file.fileId] ? (
+                        </div>
+                      </td>
+
+                      {/* File */}
+                      <td>{file.originalFileName}
+                        <br/>
+                        <span className="text-xs text-base-content/75">{formatBytes(file.sizeBytes)} • {formatDateTime(file.createdAt)}</span>
+                        
+                      </td>
+
+                      {/* Created */}
+                      <td>
+                       <span className="text-base-content/75">
+                       Conversion score: 99%</span>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="text-right">
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {upload ? (
                             <button
-                              className="btn btn-xs btn-outline"
+                              className="btn btn-sm btn-outline btn-error"
                               disabled={!canCancelUpload(file.fileId)}
                               onClick={() => onCancelUpload(file.fileId)}
                               type="button"
@@ -95,37 +124,35 @@ export function PdfActivityCard({
                               Cancel upload
                             </button>
                           ) : null}
+
+                          {file.status === 'Completed' ? (
+                            <>
+                             <Link
+                                className="btn btn-sm btn-outline"
+                                params={{ fileId: file.fileId }}
+                                to="/(authenticated)/pdf/$fileId/report"
+                              >
+                              <DocumentChartBarIcon className="h-4 w-4" />
+                                View Report (TODO)
+                              </Link>
+                              <a
+                                className="btn btn-sm btn-primary"
+                                href={`/api/download/processed/${encodeURIComponent(
+                                  file.fileId
+                                )}`}
+                                rel="noreferrer"
+                                target="_blank"
+                              >
+                                <ArrowDownTrayIcon className="h-4 w-4"/>
+                                Download PDF
+                              </a>
+                            </>
+                          ) : null}
                         </div>
-                        {uploadsByFileId[file.fileId] ? (
-                          <progress className="progress progress-primary w-full" />
-                        ) : null}
-                        {file.status === 'Completed' ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Link
-                              className="btn btn-xs btn-ghost"
-                              params={{ fileId: file.fileId }}
-                              to="/(authenticated)/pdf/$fileId/report"
-                            >
-                              View Report (TODO)
-                            </Link>
-                            <a
-                              className="btn btn-xs btn-outline"
-                              href={`/api/download/processed/${encodeURIComponent(file.fileId)}`}
-                              rel="noreferrer"
-                              target="_blank"
-                            >
-                              Download PDF
-                            </a>
-                          </div>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="text-right">
-                      {formatBytes(file.sizeBytes)}
-                    </td>
-                    <td>{formatDateTime(file.createdAt)}</td>
-                  </tr>
-                ))
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

@@ -53,39 +53,37 @@ function RouteComponent() {
   );
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-base-100 to-base-200">
-      <div className="container mx-auto max-w-6xl px-4 py-8 space-y-6">
-        <header className="space-y-1">
-          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
-            PDF Accessibility Tool
-          </h1>
-          <p className="text-base-content/70">
-            Drop PDFs to queue remediation (upload wiring coming next).
-          </p>
-        </header>
+    <div className="container">
+      <header className="space-y-1 my-5">
+        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
+          Readable
+        </h1>
+        <p className="text-base-content/70">
+          PDF Accessibility Conversion Tool
+        </p>
+      </header>
 
-        {/* Upload Dropzone */}
-        <PdfUploadDropzone
-          isUploading={blobUpload.isPending}
-          onFilesSelected={handleFilesSelected}
-        />
+      {/* Upload Dropzone */}
+      <PdfUploadDropzone
+        isUploading={blobUpload.isPending}
+        onFilesSelected={handleFilesSelected}
+      />
 
-        {uploadError ? (
-          <div className="alert alert-error">
-            <span>Upload failed: {uploadError}</span>
-          </div>
-        ) : null}
+      {uploadError ? (
+        <div className="alert alert-error">
+          <span>Upload failed: {uploadError}</span>
+        </div>
+      ) : null}
 
-        <PdfActivityCard
-          activeUploadCount={activeUploadCount}
-          canCancelUpload={canCancelUpload}
-          files={filesQuery.data}
-          isError={filesQuery.isError}
-          onCancelUpload={cancelUpload}
-          recentlyCompletedByFileId={recentlyCompletedByFileId}
-          uploadsByFileId={uploadsByFileId}
-        />
-      </div>
+      <PdfActivityCard
+        activeUploadCount={activeUploadCount}
+        canCancelUpload={canCancelUpload}
+        files={filesQuery.data}
+        isError={filesQuery.isError}
+        onCancelUpload={cancelUpload}
+        recentlyCompletedByFileId={recentlyCompletedByFileId}
+        uploadsByFileId={uploadsByFileId}
+      />
     </div>
   );
 }
