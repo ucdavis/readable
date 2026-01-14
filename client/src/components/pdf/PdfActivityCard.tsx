@@ -127,10 +127,10 @@ export function PdfActivityCard({
 
                           {file.status === 'Completed' ? (
                             <>
-                             <Link
+                              <Link
                                 className="btn btn-sm btn-outline"
                                 params={{ fileId: file.fileId }}
-                                to="/(authenticated)/pdf/$fileId/report"
+                                to="/reports/$fileId"
                               >
                               <DocumentChartBarIcon className="h-4 w-4" />
                                 View Report (TODO)
