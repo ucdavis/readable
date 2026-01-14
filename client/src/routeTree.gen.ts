@@ -18,6 +18,7 @@ import { Route as authenticatedPdfRouteImport } from './routes/(authenticated)/p
 import { Route as authenticatedMeRouteImport } from './routes/(authenticated)/me'
 import { Route as authenticatedFormRouteImport } from './routes/(authenticated)/form'
 import { Route as authenticatedFetchRouteImport } from './routes/(authenticated)/fetch'
+import { Route as authenticatedReportsFileIdIndexRouteImport } from './routes/(authenticated)/reports/$fileId/index'
 
 const AboutRoute = AboutRouteImport.update({
   id: '/about',
@@ -63,6 +64,12 @@ const authenticatedFetchRoute = authenticatedFetchRouteImport.update({
   path: '/fetch',
   getParentRoute: () => authenticatedRouteRoute,
 } as any)
+const authenticatedReportsFileIdIndexRoute =
+  authenticatedReportsFileIdIndexRouteImport.update({
+    id: '/reports/$fileId/',
+    path: '/reports/$fileId/',
+    getParentRoute: () => authenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
@@ -73,6 +80,7 @@ export interface FileRoutesByFullPath {
   '/styles': typeof authenticatedStylesRoute
   '/upload': typeof authenticatedUploadRoute
   '/': typeof authenticatedIndexRoute
+  '/reports/$fileId': typeof authenticatedReportsFileIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/about': typeof AboutRoute
@@ -83,6 +91,7 @@ export interface FileRoutesByTo {
   '/styles': typeof authenticatedStylesRoute
   '/upload': typeof authenticatedUploadRoute
   '/': typeof authenticatedIndexRoute
+  '/reports/$fileId': typeof authenticatedReportsFileIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -95,6 +104,7 @@ export interface FileRoutesById {
   '/(authenticated)/styles': typeof authenticatedStylesRoute
   '/(authenticated)/upload': typeof authenticatedUploadRoute
   '/(authenticated)/': typeof authenticatedIndexRoute
+  '/(authenticated)/reports/$fileId/': typeof authenticatedReportsFileIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -107,6 +117,7 @@ export interface FileRouteTypes {
     | '/styles'
     | '/upload'
     | '/'
+    | '/reports/$fileId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/about'
@@ -117,6 +128,7 @@ export interface FileRouteTypes {
     | '/styles'
     | '/upload'
     | '/'
+    | '/reports/$fileId'
   id:
     | '__root__'
     | '/(authenticated)'
@@ -128,6 +140,7 @@ export interface FileRouteTypes {
     | '/(authenticated)/styles'
     | '/(authenticated)/upload'
     | '/(authenticated)/'
+    | '/(authenticated)/reports/$fileId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -200,6 +213,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authenticatedFetchRouteImport
       parentRoute: typeof authenticatedRouteRoute
     }
+    '/(authenticated)/reports/$fileId/': {
+      id: '/(authenticated)/reports/$fileId/'
+      path: '/reports/$fileId'
+      fullPath: '/reports/$fileId'
+      preLoaderRoute: typeof authenticatedReportsFileIdIndexRouteImport
+      parentRoute: typeof authenticatedRouteRoute
+    }
   }
 }
 
@@ -211,6 +231,7 @@ interface authenticatedRouteRouteChildren {
   authenticatedStylesRoute: typeof authenticatedStylesRoute
   authenticatedUploadRoute: typeof authenticatedUploadRoute
   authenticatedIndexRoute: typeof authenticatedIndexRoute
+  authenticatedReportsFileIdIndexRoute: typeof authenticatedReportsFileIdIndexRoute
 }
 
 const authenticatedRouteRouteChildren: authenticatedRouteRouteChildren = {
@@ -221,6 +242,7 @@ const authenticatedRouteRouteChildren: authenticatedRouteRouteChildren = {
   authenticatedStylesRoute: authenticatedStylesRoute,
   authenticatedUploadRoute: authenticatedUploadRoute,
   authenticatedIndexRoute: authenticatedIndexRoute,
+  authenticatedReportsFileIdIndexRoute: authenticatedReportsFileIdIndexRoute,
 }
 
 const authenticatedRouteRouteWithChildren =
