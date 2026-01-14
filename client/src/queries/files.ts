@@ -9,6 +9,21 @@ export type AccessibilityReportListItem = {
   tool: string;
 };
 
+export type AccessibilityReportRuleItem = {
+  Description?: string;
+  Rule: string;
+  Status: string;
+};
+
+export type AccessibilityReportJson = {
+  'Detailed Report'?: Record<string, AccessibilityReportRuleItem[]>;
+  Summary?: Record<string, number | string>;
+};
+
+export type AccessibilityReportDetails = AccessibilityReportListItem & {
+  reportJson: AccessibilityReportJson;
+};
+
 export type UserFile = {
   accessibilityReports?: AccessibilityReportListItem[];
   contentType: string;
@@ -18,6 +33,10 @@ export type UserFile = {
   sizeBytes: number;
   status: string;
   statusUpdatedAt: string;
+};
+
+export type UserFileDetails = Omit<UserFile, 'accessibilityReports'> & {
+  accessibilityReports: AccessibilityReportDetails[];
 };
 
 export const myFilesQueryOptions = () => ({
@@ -30,4 +49,18 @@ export const myFilesQueryOptions = () => ({
 
 export const useMyFilesQuery = () => {
   return useQuery(myFilesQueryOptions());
+};
+
+export const myFileQueryOptions = (fileId: string) => ({
+  queryFn: async (): Promise<UserFileDetails> => {
+    return await fetchJson<UserFileDetails>(
+      `/api/file/${encodeURIComponent(fileId)}`
+    );
+  },
+  queryKey: ['files', 'byId', fileId] as const,
+  staleTime: 30_000,
+});
+
+export const useMyFileQuery = (fileId: string) => {
+  return useQuery(myFileQueryOptions(fileId));
 };
