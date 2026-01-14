@@ -75,6 +75,20 @@ export function PdfActivityCard({
               ) : (
                 files.map((file) => {
                   const upload = uploadsByFileId[file.fileId];
+                  const reports = file.accessibilityReports ?? [];
+                  const beforeReport = reports.find(
+                    (r) => r.stage.toLowerCase() === 'before'
+                  );
+                  const afterReport = reports.find(
+                    (r) => r.stage.toLowerCase() === 'after'
+                  );
+                  const beforeIssues = beforeReport?.issueCount;
+                  const afterIssues = afterReport?.issueCount;
+                  const fixedIssues =
+                    typeof beforeIssues === 'number' &&
+                    typeof afterIssues === 'number'
+                      ? beforeIssues - afterIssues
+                      : null;
 
                   return (
                     <tr key={file.fileId}>
@@ -105,10 +119,47 @@ export function PdfActivityCard({
                         
                       </td>
 
-                      {/* Created */}
+                      {/* Report */}
                       <td>
-                       <span className="text-base-content/75">
-                       Conversion score: 99%</span>
+                        {file.status !== 'Completed' ? (
+                          <span className="text-base-content/60">—</span>
+                        ) : !afterReport ? (
+                          <span className="text-base-content/60">
+                            No report yet
+                          </span>
+                        ) : afterIssues === null ? (
+                          <div className="text-xs text-base-content/60">
+                            Report ready • After: {formatDateTime(afterReport.generatedAt)}
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {afterIssues === 0 ? (
+                                <span className="badge badge-success badge-sm">
+                                  All checks passed
+                                </span>
+                              ) : (
+                                <span className="badge badge-error badge-sm">
+                                  {afterIssues} failing
+                                </span>
+                              )}
+                              {typeof fixedIssues === 'number' &&
+                              fixedIssues > 0 ? (
+                                <span className="badge badge-success badge-outline badge-sm">
+                                  Fixed {fixedIssues}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="text-xs text-base-content/60">
+                              {typeof beforeIssues === 'number' ? (
+                                <>Issues: {beforeIssues} → {afterIssues}</>
+                              ) : (
+                                <>Issues remaining: {afterIssues}</>
+                              )}{' '}
+                              • After: {formatDateTime(afterReport.generatedAt)}
+                            </div>
+                          </div>
+                        )}
                       </td>
 
                       {/* Actions */}
