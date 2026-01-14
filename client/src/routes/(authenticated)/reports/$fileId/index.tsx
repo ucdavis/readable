@@ -41,7 +41,7 @@ function getSummaryCounts(reportJson: AccessibilityReportJson | undefined) {
   const failed = num('Failed') + num('Failed manually');
   const needsManual = num('Needs manual check');
   const skipped = num('Skipped');
-  const total = Object.values(summary).reduce(
+  const total = Object.values(summary).reduce<number>(
     (acc, v) => acc + (typeof v === 'number' ? v : 0),
     0
   );
