@@ -12,12 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as authenticatedRouteRouteImport } from './routes/(authenticated)/route'
 import { Route as authenticatedIndexRouteImport } from './routes/(authenticated)/index'
-import { Route as authenticatedUploadRouteImport } from './routes/(authenticated)/upload'
-import { Route as authenticatedStylesRouteImport } from './routes/(authenticated)/styles'
-import { Route as authenticatedPdfRouteImport } from './routes/(authenticated)/pdf'
-import { Route as authenticatedMeRouteImport } from './routes/(authenticated)/me'
-import { Route as authenticatedFormRouteImport } from './routes/(authenticated)/form'
-import { Route as authenticatedFetchRouteImport } from './routes/(authenticated)/fetch'
+import { Route as authenticatedReportsFileIdIndexRouteImport } from './routes/(authenticated)/reports/$fileId/index'
 
 const AboutRoute = AboutRouteImport.update({
   id: '/about',
@@ -33,101 +28,41 @@ const authenticatedIndexRoute = authenticatedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => authenticatedRouteRoute,
 } as any)
-const authenticatedUploadRoute = authenticatedUploadRouteImport.update({
-  id: '/upload',
-  path: '/upload',
-  getParentRoute: () => authenticatedRouteRoute,
-} as any)
-const authenticatedStylesRoute = authenticatedStylesRouteImport.update({
-  id: '/styles',
-  path: '/styles',
-  getParentRoute: () => authenticatedRouteRoute,
-} as any)
-const authenticatedPdfRoute = authenticatedPdfRouteImport.update({
-  id: '/pdf',
-  path: '/pdf',
-  getParentRoute: () => authenticatedRouteRoute,
-} as any)
-const authenticatedMeRoute = authenticatedMeRouteImport.update({
-  id: '/me',
-  path: '/me',
-  getParentRoute: () => authenticatedRouteRoute,
-} as any)
-const authenticatedFormRoute = authenticatedFormRouteImport.update({
-  id: '/form',
-  path: '/form',
-  getParentRoute: () => authenticatedRouteRoute,
-} as any)
-const authenticatedFetchRoute = authenticatedFetchRouteImport.update({
-  id: '/fetch',
-  path: '/fetch',
-  getParentRoute: () => authenticatedRouteRoute,
-} as any)
+const authenticatedReportsFileIdIndexRoute =
+  authenticatedReportsFileIdIndexRouteImport.update({
+    id: '/reports/$fileId/',
+    path: '/reports/$fileId/',
+    getParentRoute: () => authenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
-  '/fetch': typeof authenticatedFetchRoute
-  '/form': typeof authenticatedFormRoute
-  '/me': typeof authenticatedMeRoute
-  '/pdf': typeof authenticatedPdfRoute
-  '/styles': typeof authenticatedStylesRoute
-  '/upload': typeof authenticatedUploadRoute
   '/': typeof authenticatedIndexRoute
+  '/reports/$fileId': typeof authenticatedReportsFileIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/about': typeof AboutRoute
-  '/fetch': typeof authenticatedFetchRoute
-  '/form': typeof authenticatedFormRoute
-  '/me': typeof authenticatedMeRoute
-  '/pdf': typeof authenticatedPdfRoute
-  '/styles': typeof authenticatedStylesRoute
-  '/upload': typeof authenticatedUploadRoute
   '/': typeof authenticatedIndexRoute
+  '/reports/$fileId': typeof authenticatedReportsFileIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/(authenticated)': typeof authenticatedRouteRouteWithChildren
   '/about': typeof AboutRoute
-  '/(authenticated)/fetch': typeof authenticatedFetchRoute
-  '/(authenticated)/form': typeof authenticatedFormRoute
-  '/(authenticated)/me': typeof authenticatedMeRoute
-  '/(authenticated)/pdf': typeof authenticatedPdfRoute
-  '/(authenticated)/styles': typeof authenticatedStylesRoute
-  '/(authenticated)/upload': typeof authenticatedUploadRoute
   '/(authenticated)/': typeof authenticatedIndexRoute
+  '/(authenticated)/reports/$fileId/': typeof authenticatedReportsFileIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/about'
-    | '/fetch'
-    | '/form'
-    | '/me'
-    | '/pdf'
-    | '/styles'
-    | '/upload'
-    | '/'
+  fullPaths: '/about' | '/' | '/reports/$fileId'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/about'
-    | '/fetch'
-    | '/form'
-    | '/me'
-    | '/pdf'
-    | '/styles'
-    | '/upload'
-    | '/'
+  to: '/about' | '/' | '/reports/$fileId'
   id:
     | '__root__'
     | '/(authenticated)'
     | '/about'
-    | '/(authenticated)/fetch'
-    | '/(authenticated)/form'
-    | '/(authenticated)/me'
-    | '/(authenticated)/pdf'
-    | '/(authenticated)/styles'
-    | '/(authenticated)/upload'
     | '/(authenticated)/'
+    | '/(authenticated)/reports/$fileId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -158,69 +93,24 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authenticatedIndexRouteImport
       parentRoute: typeof authenticatedRouteRoute
     }
-    '/(authenticated)/upload': {
-      id: '/(authenticated)/upload'
-      path: '/upload'
-      fullPath: '/upload'
-      preLoaderRoute: typeof authenticatedUploadRouteImport
-      parentRoute: typeof authenticatedRouteRoute
-    }
-    '/(authenticated)/styles': {
-      id: '/(authenticated)/styles'
-      path: '/styles'
-      fullPath: '/styles'
-      preLoaderRoute: typeof authenticatedStylesRouteImport
-      parentRoute: typeof authenticatedRouteRoute
-    }
-    '/(authenticated)/pdf': {
-      id: '/(authenticated)/pdf'
-      path: '/pdf'
-      fullPath: '/pdf'
-      preLoaderRoute: typeof authenticatedPdfRouteImport
-      parentRoute: typeof authenticatedRouteRoute
-    }
-    '/(authenticated)/me': {
-      id: '/(authenticated)/me'
-      path: '/me'
-      fullPath: '/me'
-      preLoaderRoute: typeof authenticatedMeRouteImport
-      parentRoute: typeof authenticatedRouteRoute
-    }
-    '/(authenticated)/form': {
-      id: '/(authenticated)/form'
-      path: '/form'
-      fullPath: '/form'
-      preLoaderRoute: typeof authenticatedFormRouteImport
-      parentRoute: typeof authenticatedRouteRoute
-    }
-    '/(authenticated)/fetch': {
-      id: '/(authenticated)/fetch'
-      path: '/fetch'
-      fullPath: '/fetch'
-      preLoaderRoute: typeof authenticatedFetchRouteImport
+    '/(authenticated)/reports/$fileId/': {
+      id: '/(authenticated)/reports/$fileId/'
+      path: '/reports/$fileId'
+      fullPath: '/reports/$fileId'
+      preLoaderRoute: typeof authenticatedReportsFileIdIndexRouteImport
       parentRoute: typeof authenticatedRouteRoute
     }
   }
 }
 
 interface authenticatedRouteRouteChildren {
-  authenticatedFetchRoute: typeof authenticatedFetchRoute
-  authenticatedFormRoute: typeof authenticatedFormRoute
-  authenticatedMeRoute: typeof authenticatedMeRoute
-  authenticatedPdfRoute: typeof authenticatedPdfRoute
-  authenticatedStylesRoute: typeof authenticatedStylesRoute
-  authenticatedUploadRoute: typeof authenticatedUploadRoute
   authenticatedIndexRoute: typeof authenticatedIndexRoute
+  authenticatedReportsFileIdIndexRoute: typeof authenticatedReportsFileIdIndexRoute
 }
 
 const authenticatedRouteRouteChildren: authenticatedRouteRouteChildren = {
-  authenticatedFetchRoute: authenticatedFetchRoute,
-  authenticatedFormRoute: authenticatedFormRoute,
-  authenticatedMeRoute: authenticatedMeRoute,
-  authenticatedPdfRoute: authenticatedPdfRoute,
-  authenticatedStylesRoute: authenticatedStylesRoute,
-  authenticatedUploadRoute: authenticatedUploadRoute,
   authenticatedIndexRoute: authenticatedIndexRoute,
+  authenticatedReportsFileIdIndexRoute: authenticatedReportsFileIdIndexRoute,
 }
 
 const authenticatedRouteRouteWithChildren =
