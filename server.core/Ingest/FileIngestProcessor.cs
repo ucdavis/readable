@@ -180,7 +180,13 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             return;
         }
 
-        if (!IsValidJson(reportJson))
+        int? issueCount;
+        try
+        {
+            using var doc = JsonDocument.Parse(reportJson);
+            issueCount = TryComputeIssueCount(doc.RootElement);
+        }
+        catch (JsonException)
         {
             _logger.LogWarning(
                 "Skipping accessibility report persistence; invalid JSON for fileId={fileId} stage={stage} tool={tool}",
@@ -206,31 +212,57 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 Stage = stage,
                 Tool = tool,
                 GeneratedAt = now,
-                IssueCount = null,
+                IssueCount = issueCount,
                 ReportJson = reportJson,
             });
         }
         else
         {
             existing.GeneratedAt = now;
-            existing.IssueCount = null;
+            existing.IssueCount = issueCount;
             existing.ReportJson = reportJson;
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    private static bool IsValidJson(string json)
+    private static int? TryComputeIssueCount(JsonElement root)
     {
-        try
+        if (root.ValueKind != JsonValueKind.Object)
         {
-            using var _ = JsonDocument.Parse(json);
-            return true;
+            return null;
         }
-        catch (JsonException)
+
+        if (!root.TryGetProperty("Summary", out var summary) ||
+            summary.ValueKind != JsonValueKind.Object)
         {
-            return false;
+            return null;
         }
+
+        var failed = GetInt(summary, "Failed") + GetInt(summary, "Failed manually");
+        return failed;
+    }
+
+    private static int GetInt(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) ||
+            value.ValueKind != JsonValueKind.Number)
+        {
+            return 0;
+        }
+
+        if (value.TryGetInt32(out var v32))
+        {
+            return v32;
+        }
+
+        if (value.TryGetInt64(out var v64) &&
+            v64 is >= int.MinValue and <= int.MaxValue)
+        {
+            return (int)v64;
+        }
+
+        return 0;
     }
 
     private async Task UploadFinalPdfAsync(
