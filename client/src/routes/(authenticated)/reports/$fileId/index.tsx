@@ -4,6 +4,7 @@ import {
   type AccessibilityReportDetails,
   type AccessibilityReportJson,
 } from '@/queries/files.ts';
+import { ArrowDownTrayIcon } from '@heroicons/react/24/solid';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMemo } from 'react';
@@ -329,6 +330,30 @@ function RouteComponent() {
           ) : null
         ) : null}
       </header>
+
+      <div className="flex flex-wrap items-center gap-2 mb-5">
+        {isCompleted ? (
+          <a
+            className="btn btn-primary"
+            href={`/api/download/processed/${encodeURIComponent(file.fileId)}`}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <ArrowDownTrayIcon className="h-4 w-4" />
+            Download PDF
+          </a>
+        ) : (
+          <button
+            className="btn btn-primary"
+            disabled
+            title="File is not completed yet."
+            type="button"
+          >
+            <ArrowDownTrayIcon className="h-4 w-4" />
+            Download PDF
+          </button>
+        )}
+      </div>
 
       {beforeReport && afterReport && beforeCounts && afterCounts ? (
         <section className="space-y-4">
