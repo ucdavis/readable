@@ -351,7 +351,7 @@ function RouteComponent() {
 
       {beforeReport && afterReport && beforeCounts && afterCounts ? (
         <section className="space-y-4">
-          <div className="stats stats-vertical lg:stats-horizontal shadow bg-base-100 w-full border-b-4 border-primary">
+          <div className="stats stats-vertical lg:stats-horizontal bg-base-100 w-full border-b-4 border-primary">
             <div className="stat">
               <div className="uppercase text-xs">Before</div>
               <div className="text-xl">
@@ -367,6 +367,15 @@ function RouteComponent() {
             </div>
 
             <div className="stat">
+              <div className="uppercase text-xs">Changed</div>
+              <div className="text-xl">
+                {afterCounts.passed - beforeCounts.passed >= 0 ? '+' : ''}
+                {afterCounts.passed - beforeCounts.passed}
+              </div>
+              <div className="text-sm text-base-content/80">passed checks</div>
+            </div>
+
+            <div className="stat bg-[#EAEDF1]">
               <div className="uppercase text-xs">After</div>
               <div className="text-xl">
                 {afterCounts.passed}/{afterCounts.total}
@@ -378,15 +387,6 @@ function RouteComponent() {
               <div className="text-sm text-base-content/80">
                 Generated {formatDateTime(afterReport.generatedAt)}
               </div>
-            </div>
-
-            <div className="stat">
-              <div className="uppercase text-xs">Improvement</div>
-              <div className="text-xl">
-                {afterCounts.passed - beforeCounts.passed >= 0 ? '+' : ''}
-                {afterCounts.passed - beforeCounts.passed}
-              </div>
-              <div className="text-sm text-base-content/80">passed checks</div>
             </div>
           </div>
 
@@ -483,7 +483,7 @@ function RouteComponent() {
             </div>
           </div>
 
-          <div className="card bg-base-100 shadow">
+          <div className="card bg-base-100">
             <div className="card-body">
               <h2 className="card-title">Before vs After breakdown</h2>
 

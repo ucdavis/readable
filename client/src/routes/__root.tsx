@@ -12,7 +12,7 @@ const RootLayout = () => (
   <div className="min-h-screen bg-base-200 flex flex-col">
     <main className="flex-1">
       <header className="container">
-        <div className="p-2 flex justify-between items-center">
+        <div className="py-2 flex justify-between items-center">
           <Link
             className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-md"
             to="/"

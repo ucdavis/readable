@@ -70,7 +70,7 @@ function RouteComponent() {
           </a>
           .
         </p>
-        <Link className="btn btn-outline btn-sm mt-3" to="/FAQ">
+        <Link className="btn btn-outline btn-sm mt-3" to="/FAQs">
           More Info
         </Link>
       </div>
