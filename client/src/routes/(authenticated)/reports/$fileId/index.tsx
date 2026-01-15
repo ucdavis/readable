@@ -400,7 +400,7 @@ function RouteComponent() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="table table-sm">
+                <table className="table">
                   <thead>
                     <tr>
                       <th>Category</th>
@@ -411,11 +411,11 @@ function RouteComponent() {
                   <tbody>
                     {afterFailed.map((r, idx) => (
                       <tr key={`${r.category}||${r.rule}||${idx}`}>
-                        <td className="text-base-content/80">{r.category}</td>
+                        <td className="text-base-content">{r.category}</td>
                         <td>
                           <div className="font-medium">{r.rule}</div>
                           {r.description ? (
-                            <div className="text-xs text-base-content/60">
+                            <div className="text-xs text-base-content/80">
                               {r.description}
                             </div>
                           ) : null}
@@ -445,7 +445,7 @@ function RouteComponent() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="table table-sm">
+                  <table className="table">
                     <thead>
                       <tr>
                         <th>Category</th>
@@ -512,7 +512,7 @@ function RouteComponent() {
                     </div>
                     <div className="collapse-content">
                       <div className="overflow-x-auto">
-                        <table className="table table-sm">
+                        <table className="table">
                           <thead>
                             <tr>
                               <th>Rule</th>
@@ -526,7 +526,7 @@ function RouteComponent() {
                                 <td>
                                   <div className="font-medium">{r.rule}</div>
                                   {r.description ? (
-                                    <div className="text-xs text-base-content/60">
+                                    <div className="text-xs text-base-content/80">
                                       {r.description}
                                     </div>
                                   ) : null}
@@ -541,7 +541,7 @@ function RouteComponent() {
                                       {r.beforeStatus}
                                     </span>
                                   ) : (
-                                    <span className="text-base-content/50">
+                                    <span className="text-base-content/80">
                                       —
                                     </span>
                                   )}
