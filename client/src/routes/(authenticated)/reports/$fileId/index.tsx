@@ -281,7 +281,7 @@ function RouteComponent() {
               Accessibility report for <span>{file.originalFileName}</span>
             </h1>
               <div className="mt-2 text-base-content/70">
-                 <span className="badge badge-info">{file.status}</span> •
+                 <span className="badge badge-soft badge-primary">{file.status}</span> •
                 Updated {formatDateTime(file.statusUpdatedAt)} 
               </div>
 
@@ -402,7 +402,7 @@ function RouteComponent() {
               <h2 className="card-title mb-3">Still failing (After)</h2>
                 {afterFailed.length === 0 ? (
                   <div className="alert alert-success">
-                    <span>No failed checks found in the After report.</span>
+                    <span className="text-lg">No failed checks found in the After report.</span>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -448,7 +448,7 @@ function RouteComponent() {
                 <h2 className="card-title mb-3 mt-6">Needs manual check (After)</h2>
                 {afterNeedsManual.length === 0 ? (
                   <div className="alert alert-success">
-                    <span>
+                    <span className="text-lg">
                       No “Needs manual check” items found in the After report.
                     </span>
                   </div>
