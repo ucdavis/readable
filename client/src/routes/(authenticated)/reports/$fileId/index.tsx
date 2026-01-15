@@ -4,7 +4,7 @@ import {
   type AccessibilityReportDetails,
   type AccessibilityReportJson,
 } from '@/queries/files.ts';
-import { ArrowDownTrayIcon } from '@heroicons/react/24/solid';
+import { ArrowDownTrayIcon, ArrowLeftIcon } from '@heroicons/react/24/solid';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMemo } from 'react';
@@ -270,26 +270,47 @@ function RouteComponent() {
 
   return (
     <div className="container">
-      <header className="space-y-3 my-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Accessibility report
-            </h1>
-            <div className="text-base-content/70">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="badge badge-ghost">{file.status}</span>
-                <span className="text-sm">{file.originalFileName}</span>
-              </div>
-              <div className="text-xs mt-1">
-                Updated {formatDateTime(file.statusUpdatedAt)}
-              </div>
-            </div>
-          </div>
-
-          <Link className="btn btn-ghost btn-sm" to="/">
-            Back
+      <header className="my-5 mb-8">
+        <div className="flex items-end justify-between">
+          <div>
+            <Link className="btn btn-ghost" to="/">
+          <ArrowLeftIcon className="w-5 h-5"/>
+            Back to Dashboard
           </Link>
+            <h1 className="text-3xl font-extrabold">
+              Accessibility report for <span>{file.originalFileName}</span>
+            </h1>
+              <div className="mt-2 text-base-content/70">
+                 <span className="badge badge-info">{file.status}</span> •
+                Updated {formatDateTime(file.statusUpdatedAt)} 
+              </div>
+
+          </div>
+          <div><div className="flex flex-wrap items-center gap-2 mb-5">
+        {isCompleted ? (
+          <a
+            className="btn btn-lg btn-primary"
+            href={`/api/download/processed/${encodeURIComponent(file.fileId)}`}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <ArrowDownTrayIcon className="h-4 w-4" />
+            Download PDF
+          </a>
+        ) : (
+          <button
+            className="btn btn-lg btn-primary"
+            disabled
+            title="File is not completed yet."
+            type="button"
+          >
+            <ArrowDownTrayIcon className="h-4 w-4" />
+            Download PDF
+          </button>
+        )}
+      </div></div>
+          
+          
         </div>
 
         {!isCompleted ? (
@@ -331,75 +352,54 @@ function RouteComponent() {
         ) : null}
       </header>
 
-      <div className="flex flex-wrap items-center gap-2 mb-5">
-        {isCompleted ? (
-          <a
-            className="btn btn-primary"
-            href={`/api/download/processed/${encodeURIComponent(file.fileId)}`}
-            rel="noreferrer"
-            target="_blank"
-          >
-            <ArrowDownTrayIcon className="h-4 w-4" />
-            Download PDF
-          </a>
-        ) : (
-          <button
-            className="btn btn-primary"
-            disabled
-            title="File is not completed yet."
-            type="button"
-          >
-            <ArrowDownTrayIcon className="h-4 w-4" />
-            Download PDF
-          </button>
-        )}
-      </div>
+      
 
       {beforeReport && afterReport && beforeCounts && afterCounts ? (
         <section className="space-y-4">
-          <div className="stats stats-vertical lg:stats-horizontal shadow bg-base-100 w-full">
+          <div className="stats stats-vertical lg:stats-horizontal shadow bg-base-100 w-full border-b-4 border-primary">
             <div className="stat">
-              <div className="stat-title">Before</div>
+              <div className="uppercase text-xs">Before</div>
               <div className="stat-value text-xl">
                 {beforeCounts.passed}/{beforeCounts.total}
               </div>
-              <div className="stat-desc">
+              <div className="text-sm text-base-content/80">
                 {beforeCounts.failed} failed • {beforeCounts.needsManual} needs
                 manual
               </div>
-              <div className="stat-desc">
+              <div className="text-sm text-base-content/80">
                 Generated {formatDateTime(beforeReport.generatedAt)}
               </div>
             </div>
 
             <div className="stat">
-              <div className="stat-title">After</div>
-              <div className="stat-value text-xl">
+              <div className="uppercase text-xs">After</div>
+              <div className="text-xl">
                 {afterCounts.passed}/{afterCounts.total}
               </div>
-              <div className="stat-desc">
+              <div className="text-sm text-base-content/80">
                 {afterCounts.failed} failed • {afterCounts.needsManual} needs
                 manual
               </div>
-              <div className="stat-desc">
+              <div className="text-sm text-base-content/80">
                 Generated {formatDateTime(afterReport.generatedAt)}
               </div>
             </div>
 
             <div className="stat">
-              <div className="stat-title">Improvement</div>
-              <div className="stat-value text-xl">
+              <div className="uppercase text-xs">Improvement</div>
+              <div className="text-xl">
                 {afterCounts.passed - beforeCounts.passed >= 0 ? '+' : ''}
                 {afterCounts.passed - beforeCounts.passed}
               </div>
-              <div className="stat-desc">passed checks</div>
+              <div className="text-sm text-base-content/80">passed checks</div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="card bg-base-100 shadow">
-              <div className="card-body">
-                <h2 className="card-title">Still failing (After)</h2>
+         
+         
+
+            <div className="card bg-base-100 p-4 border-b-4 border-secondary">
+              <h2 className="card-title mb-3">Still failing (After)</h2>
                 {afterFailed.length === 0 ? (
                   <div className="alert alert-success">
                     <span>No failed checks found in the After report.</span>
@@ -430,7 +430,7 @@ function RouteComponent() {
                             </td>
                             <td>
                               <span
-                                className={`badge badge-sm ${statusBadgeClass(
+                                className={`badge badge-soft badge-sm ${statusBadgeClass(
                                   r.status
                                 )}`}
                               >
@@ -443,12 +443,9 @@ function RouteComponent() {
                     </table>
                   </div>
                 )}
-              </div>
-            </div>
-
-            <div className="card bg-base-100 shadow">
-              <div className="card-body">
-                <h2 className="card-title">Needs manual check (After)</h2>
+              <div>
+                
+                <h2 className="card-title mb-3 mt-6">Needs manual check (After)</h2>
                 {afterNeedsManual.length === 0 ? (
                   <div className="alert alert-success">
                     <span>
@@ -468,20 +465,20 @@ function RouteComponent() {
                       <tbody>
                         {afterNeedsManual.map((r, idx) => (
                           <tr key={`${r.category}||${r.rule}||${idx}`}>
-                            <td className="text-base-content/80">
+                            <td className="text-base-content">
                               {r.category}
                             </td>
                             <td>
                               <div className="font-medium">{r.rule}</div>
                               {r.description ? (
-                                <div className="text-xs text-base-content/60">
+                                <div className="text-xs text-base-content/80">
                                   {r.description}
                                 </div>
                               ) : null}
                             </td>
                             <td>
                               <span
-                                className={`badge badge-sm ${statusBadgeClass(
+                                className={`badge badge-soft badge-sm ${statusBadgeClass(
                                   r.status
                                 )}`}
                               >
@@ -496,7 +493,7 @@ function RouteComponent() {
                 )}
               </div>
             </div>
-          </div>
+          
 
           <div className="card bg-base-100 shadow">
             <div className="card-body">
@@ -511,16 +508,16 @@ function RouteComponent() {
                     <div className="collapse-title font-medium flex flex-wrap items-center gap-2">
                       <span>{c.category}</span>
                       {c.afterFailedCount > 0 ? (
-                        <span className="badge badge-error badge-sm">
+                        <span className="badge badge-soft badge-error badge-sm">
                           {c.afterFailedCount} failed
                         </span>
                       ) : (
-                        <span className="badge badge-success badge-sm">
+                        <span className="badge badge-soft badge-success badge-sm">
                           all passed
                         </span>
                       )}
                       {c.afterNeedsManualCount > 0 ? (
-                        <span className="badge badge-warning badge-sm">
+                        <span className="badge badge-soft badge-warning badge-sm">
                           {c.afterNeedsManualCount} manual
                         </span>
                       ) : null}
@@ -549,7 +546,7 @@ function RouteComponent() {
                                 <td>
                                   {r.beforeStatus ? (
                                     <span
-                                      className={`badge badge-sm ${statusBadgeClass(
+                                      className={`badge badge-soft badge-sm ${statusBadgeClass(
                                         r.beforeStatus
                                       )}`}
                                     >
@@ -564,7 +561,7 @@ function RouteComponent() {
                                 <td>
                                   {r.afterStatus ? (
                                     <span
-                                      className={`badge badge-sm ${statusBadgeClass(
+                                      className={`badge badge-soft badge-sm ${statusBadgeClass(
                                         r.afterStatus
                                       )}`}
                                     >

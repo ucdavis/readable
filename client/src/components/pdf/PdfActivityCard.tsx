@@ -96,7 +96,7 @@ export function PdfActivityCard({
                       <td>
                         <div className="space-y-2">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="badge badge-ghost">
+                            <span className="badge badge-primary badge-soft">
                               {file.status}
                             </span>
                             {recentlyCompletedByFileId[file.fileId] ? (
@@ -146,7 +146,7 @@ export function PdfActivityCard({
                               {typeof fixedIssues === 'number' &&
                               fixedIssues > 0 ? (
                                 <span className="badge badge-success badge-outline badge-sm">
-                                  Fixed {fixedIssues}
+                                  Fixed {fixedIssues} Issues
                                 </span>
                               ) : null}
                             </div>

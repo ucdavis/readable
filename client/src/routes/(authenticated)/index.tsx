@@ -54,8 +54,8 @@ function RouteComponent() {
 
   return (
     <div className="container">
-      <header className="space-y-1 my-5">
-        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
+      <header className="my-5">
+        <h1 className="text-3xl font-extrabold">
           Readable
         </h1>
         <p className="text-base-content/70">PDF Accessibility Conversion Tool</p>
