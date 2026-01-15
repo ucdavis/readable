@@ -359,7 +359,7 @@ function RouteComponent() {
           <div className="stats stats-vertical lg:stats-horizontal shadow bg-base-100 w-full border-b-4 border-primary">
             <div className="stat">
               <div className="uppercase text-xs">Before</div>
-              <div className="stat-value text-xl">
+              <div className="text-xl">
                 {beforeCounts.passed}/{beforeCounts.total}
               </div>
               <div className="text-sm text-base-content/80">
