@@ -13,9 +13,9 @@
   --color-primary-color: #022851;
   --color-secondary-color: #ffbf00;
   --color-accent-color: var(--color-ucd-sunflower);
-  --color-error-color: var(--color-ucd-strawberry);
+  --color-error-color: var(--color-ucd-doubledecker);
   --color-info-color: var(--color-ucd-arboretum);
-  --color-success-color: var(--color-ucd-sage);
+  --color-success-color: var(--color-ucd-quad);
   --color-warning-color: var(--color-ucd-poppy);
 }
 
@@ -33,9 +33,8 @@
   --color-error: var(--color-error-color);
   --color-info: var(--color-info-color);
   --color-success: var(--color-success-color);
+  --color-success-content: var(--color-light-font);
   --color-warning: var(--color-warning-color);
-}
-@layer base {
 }
 
 .container {

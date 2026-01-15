@@ -486,90 +486,89 @@ function RouteComponent() {
           <div className="card bg-base-100 shadow">
             <div className="card-body">
               <h2 className="card-title">Before vs After breakdown</h2>
-              <div className="space-y-3">
-                {compareByCategory.map((c) => (
-                  <div
-                    className="collapse collapse-arrow bg-base-200"
-                    key={c.category}
-                  >
-                    <input defaultChecked={false} type="checkbox" />
-                    <div className="collapse-title font-medium flex flex-wrap items-center gap-2">
-                      <span>{c.category}</span>
-                      {c.afterFailedCount > 0 ? (
-                        <span className="badge badge-soft badge-error badge-sm">
-                          {c.afterFailedCount} failed
-                        </span>
-                      ) : (
-                        <span className="badge badge-soft badge-success badge-sm">
-                          all passed
-                        </span>
-                      )}
-                      {c.afterNeedsManualCount > 0 ? (
-                        <span className="badge badge-soft badge-warning badge-sm">
-                          {c.afterNeedsManualCount} manual
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="collapse-content">
-                      <div className="overflow-x-auto">
-                        <table className="table">
-                          <thead>
-                            <tr>
-                              <th>Rule</th>
-                              <th>Before</th>
-                              <th>After</th>
+
+              {compareByCategory.map((c) => (
+                <div
+                  className="collapse collapse-arrow rounded-none mt-6 border-b border-main-border"
+                  key={c.category}
+                >
+                  <input defaultChecked={false} type="checkbox" />
+                  <div className="collapse-title flex flex-wrap items-center gap-2">
+                    <span className="text-base">{c.category}</span>
+                    {c.afterFailedCount > 0 ? (
+                      <span className="badge badge-soft badge-error badge-sm">
+                        {c.afterFailedCount} failed
+                      </span>
+                    ) : (
+                      <span className="badge badge-soft badge-success badge-sm">
+                        all passed
+                      </span>
+                    )}
+                    {c.afterNeedsManualCount > 0 ? (
+                      <span className="badge badge-soft badge-warning badge-sm">
+                        {c.afterNeedsManualCount} manual
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="collapse-content">
+                    <div className="overflow-x-auto">
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th>Rule</th>
+                            <th>Before</th>
+                            <th>After</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {c.rows.map((r) => (
+                            <tr key={`${r.category}||${r.rule}`}>
+                              <td>
+                                <div className="font-medium">{r.rule}</div>
+                                {r.description ? (
+                                  <div className="text-xs text-base-content/80">
+                                    {r.description}
+                                  </div>
+                                ) : null}
+                              </td>
+                              <td>
+                                {r.beforeStatus ? (
+                                  <span
+                                    className={`badge badge-soft badge-sm ${statusBadgeClass(
+                                      r.beforeStatus
+                                    )}`}
+                                  >
+                                    {r.beforeStatus}
+                                  </span>
+                                ) : (
+                                  <span className="text-base-content/80">
+                                    —
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                {r.afterStatus ? (
+                                  <span
+                                    className={`badge badge-soft badge-sm ${statusBadgeClass(
+                                      r.afterStatus
+                                    )}`}
+                                  >
+                                    {r.afterStatus}
+                                  </span>
+                                ) : (
+                                  <span className="text-base-content/80">
+                                    —
+                                  </span>
+                                )}
+                              </td>
                             </tr>
-                          </thead>
-                          <tbody>
-                            {c.rows.map((r) => (
-                              <tr key={`${r.category}||${r.rule}`}>
-                                <td>
-                                  <div className="font-medium">{r.rule}</div>
-                                  {r.description ? (
-                                    <div className="text-xs text-base-content/80">
-                                      {r.description}
-                                    </div>
-                                  ) : null}
-                                </td>
-                                <td>
-                                  {r.beforeStatus ? (
-                                    <span
-                                      className={`badge badge-soft badge-sm ${statusBadgeClass(
-                                        r.beforeStatus
-                                      )}`}
-                                    >
-                                      {r.beforeStatus}
-                                    </span>
-                                  ) : (
-                                    <span className="text-base-content/80">
-                                      —
-                                    </span>
-                                  )}
-                                </td>
-                                <td>
-                                  {r.afterStatus ? (
-                                    <span
-                                      className={`badge badge-soft badge-sm ${statusBadgeClass(
-                                        r.afterStatus
-                                      )}`}
-                                    >
-                                      {r.afterStatus}
-                                    </span>
-                                  ) : (
-                                    <span className="text-base-content/50">
-                                      —
-                                    </span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
           </div>
         </section>
