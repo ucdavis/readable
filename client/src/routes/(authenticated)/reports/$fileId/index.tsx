@@ -4,9 +4,9 @@ import {
   type AccessibilityReportDetails,
   type AccessibilityReportJson,
 } from '@/queries/files.ts';
-import { ArrowDownTrayIcon, ArrowLeftIcon } from '@heroicons/react/24/solid';
+import { ArrowDownTrayIcon } from '@heroicons/react/24/solid';
 import { useQuery } from '@tanstack/react-query';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute } from '@tanstack/react-router';
 import { useMemo } from 'react';
 
 export const Route = createFileRoute('/(authenticated)/reports/$fileId/')({
@@ -270,47 +270,44 @@ function RouteComponent() {
 
   return (
     <div className="container">
-      <header className="my-5 mb-8">
+      <header className="my-8">
         <div className="flex items-end justify-between">
           <div>
-            <Link className="btn btn-ghost" to="/">
-          <ArrowLeftIcon className="w-5 h-5"/>
-            Back to Dashboard
-          </Link>
             <h1 className="text-3xl font-extrabold">
               Accessibility report for <span>{file.originalFileName}</span>
             </h1>
-              <div className="mt-2 text-base-content/70">
-                 <span className="badge badge-soft badge-primary">{file.status}</span> •
-                Updated {formatDateTime(file.statusUpdatedAt)} 
-              </div>
-
+            <div className="mt-2 text-base-content/70">
+              <span className="badge badge-soft badge-primary">
+                {file.status}
+              </span>{' '}
+              • Updated {formatDateTime(file.statusUpdatedAt)}
+            </div>
           </div>
-          <div><div className="flex flex-wrap items-center gap-2 mb-5">
-        {isCompleted ? (
-          <a
-            className="btn btn-lg btn-primary"
-            href={`/api/download/processed/${encodeURIComponent(file.fileId)}`}
-            rel="noreferrer"
-            target="_blank"
-          >
-            <ArrowDownTrayIcon className="h-4 w-4" />
-            Download PDF
-          </a>
-        ) : (
-          <button
-            className="btn btn-lg btn-primary"
-            disabled
-            title="File is not completed yet."
-            type="button"
-          >
-            <ArrowDownTrayIcon className="h-4 w-4" />
-            Download PDF
-          </button>
-        )}
-      </div></div>
-          
-          
+          <div>
+            <div className="flex flex-wrap items-center gap-2 mb-5">
+              {isCompleted ? (
+                <a
+                  className="btn btn-lg btn-primary"
+                  href={`/api/download/processed/${encodeURIComponent(file.fileId)}`}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <ArrowDownTrayIcon className="h-4 w-4" />
+                  Download PDF
+                </a>
+              ) : (
+                <button
+                  className="btn btn-lg btn-primary"
+                  disabled
+                  title="File is not completed yet."
+                  type="button"
+                >
+                  <ArrowDownTrayIcon className="h-4 w-4" />
+                  Download PDF
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
         {!isCompleted ? (
@@ -351,8 +348,6 @@ function RouteComponent() {
           ) : null
         ) : null}
       </header>
-
-      
 
       {beforeReport && afterReport && beforeCounts && afterCounts ? (
         <section className="space-y-4">
@@ -395,105 +390,98 @@ function RouteComponent() {
             </div>
           </div>
 
-         
-         
-
-            <div className="card bg-base-100 p-4 border-b-4 border-secondary">
-              <h2 className="card-title mb-3">Still failing (After)</h2>
-                {afterFailed.length === 0 ? (
-                  <div className="alert alert-success">
-                    <span className="text-lg">No failed checks found in the After report.</span>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="table table-sm">
-                      <thead>
-                        <tr>
-                          <th>Category</th>
-                          <th>Rule</th>
-                          <th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {afterFailed.map((r, idx) => (
-                          <tr key={`${r.category}||${r.rule}||${idx}`}>
-                            <td className="text-base-content/80">
-                              {r.category}
-                            </td>
-                            <td>
-                              <div className="font-medium">{r.rule}</div>
-                              {r.description ? (
-                                <div className="text-xs text-base-content/60">
-                                  {r.description}
-                                </div>
-                              ) : null}
-                            </td>
-                            <td>
-                              <span
-                                className={`badge badge-soft badge-sm ${statusBadgeClass(
-                                  r.status
-                                )}`}
-                              >
-                                {r.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              <div>
-                
-                <h2 className="card-title mb-3 mt-6">Needs manual check (After)</h2>
-                {afterNeedsManual.length === 0 ? (
-                  <div className="alert alert-success">
-                    <span className="text-lg">
-                      No “Needs manual check” items found in the After report.
-                    </span>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="table table-sm">
-                      <thead>
-                        <tr>
-                          <th>Category</th>
-                          <th>Rule</th>
-                          <th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {afterNeedsManual.map((r, idx) => (
-                          <tr key={`${r.category}||${r.rule}||${idx}`}>
-                            <td className="text-base-content">
-                              {r.category}
-                            </td>
-                            <td>
-                              <div className="font-medium">{r.rule}</div>
-                              {r.description ? (
-                                <div className="text-xs text-base-content/80">
-                                  {r.description}
-                                </div>
-                              ) : null}
-                            </td>
-                            <td>
-                              <span
-                                className={`badge badge-soft badge-sm ${statusBadgeClass(
-                                  r.status
-                                )}`}
-                              >
-                                {r.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+          <div className="card bg-base-100 p-4 border-b-4 border-secondary">
+            <h2 className="card-title mb-3">Still failing (After)</h2>
+            {afterFailed.length === 0 ? (
+              <div className="alert alert-success">
+                <span className="text-lg">
+                  No failed checks found in the After report.
+                </span>
               </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>Category</th>
+                      <th>Rule</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {afterFailed.map((r, idx) => (
+                      <tr key={`${r.category}||${r.rule}||${idx}`}>
+                        <td className="text-base-content/80">{r.category}</td>
+                        <td>
+                          <div className="font-medium">{r.rule}</div>
+                          {r.description ? (
+                            <div className="text-xs text-base-content/60">
+                              {r.description}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td>
+                          <span
+                            className={`badge badge-soft badge-sm ${statusBadgeClass(
+                              r.status
+                            )}`}
+                          >
+                            {r.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div>
+              <h2 className="card-title mb-3 mt-6">Needs manual check</h2>
+              {afterNeedsManual.length === 0 ? (
+                <div className="alert alert-success">
+                  <span className="text-lg">
+                    No “Needs manual check” items found in the After report.
+                  </span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="table table-sm">
+                    <thead>
+                      <tr>
+                        <th>Category</th>
+                        <th>Rule</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {afterNeedsManual.map((r, idx) => (
+                        <tr key={`${r.category}||${r.rule}||${idx}`}>
+                          <td className="text-base-content">{r.category}</td>
+                          <td>
+                            <div className="font-medium">{r.rule}</div>
+                            {r.description ? (
+                              <div className="text-xs text-base-content/80">
+                                {r.description}
+                              </div>
+                            ) : null}
+                          </td>
+                          <td>
+                            <span
+                              className={`badge badge-soft badge-sm ${statusBadgeClass(
+                                r.status
+                              )}`}
+                            >
+                              {r.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-          
+          </div>
 
           <div className="card bg-base-100 shadow">
             <div className="card-body">

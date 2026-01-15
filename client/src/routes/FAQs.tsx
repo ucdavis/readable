@@ -1,10 +1,10 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 
-export const Route = createFileRoute('/about')({
-  component: About,
+export const Route = createFileRoute('/FAQs')({
+  component: FAQs,
 });
 
-function About() {
+function FAQs() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/20 via-secondary/20 to-accent/20 relative overflow-hidden">
       {/* Homepage Link */}
