@@ -425,7 +425,7 @@ function RouteComponent() {
                         </td>
                         <td>
                           <span
-                            className={`badge  badge-sm ${statusBadgeClass(
+                            className={`badge badge-sm ${statusBadgeClass(
                               r.status
                             )}`}
                           >
