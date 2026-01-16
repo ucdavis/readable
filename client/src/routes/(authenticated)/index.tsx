@@ -7,6 +7,7 @@ import { myFilesQueryOptions } from '@/queries/files.ts';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect } from 'react';
+import { Link } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/(authenticated)/')({
   component: RouteComponent,
@@ -54,14 +55,25 @@ function RouteComponent() {
 
   return (
     <div className="container">
-      <header className="space-y-1 my-5">
-        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
-          Readable
-        </h1>
-        <p className="text-base-content/70">PDF Accessibility Conversion Tool</p>
-      </header>
-
-      {/* Upload Dropzone */}
+      <div className="text-center mb-4">
+        <h3 className="text-lg font-extrabold">Make Your PDFs Accessible</h3>
+        <p className="max-w-prose mx-auto">
+          Readable helps you meet modern accessibility requirements by
+          transforming standard PDFs into documents that are more compliant with{' '}
+          <a
+            className="link"
+            href="https://digitalaccessibility.ucop.edu/index.html"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            WCAG and PDF/UA guidelines
+          </a>
+          .
+        </p>
+        <Link className="btn btn-outline btn-sm mt-3" to="/FAQs">
+          More Info
+        </Link>
+      </div>
       <PdfUploadDropzone
         isUploading={blobUpload.isPending}
         onFilesSelected={handleFilesSelected}

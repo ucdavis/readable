@@ -10,17 +10,17 @@
 
   --font-proxima-bold: 'proxima-nova-b', sans-serif;
 
-  --color-primary-color: var(--color-ucd-gunrock);
-  --color-secondary-color: var(--color-ucd-goldenstate);
-  --color-accent-color: var(--color-ucd-goldenstate);
-  --color-error-color: var(--color-ucd-doubledecker);
-  --color-info-color: var(--color-ucd-arboretum);
-  --color-success-color: var(--color-ucd-sage);
-  --color-warning-color: var(--color-ucd-poppy);
+  --color-primary-color: #022851;
+  --color-secondary-color: #ffbf00;
+  --color-accent-color: var(--color-ucd-sunflower);
+  --color-error-color: var(--color-ucd-merlot);
+  --color-info-color: var(--color-ucd-bodega);
+  --color-success-color: var(--color-ucd-redwood);
+  --color-warning-color: var(--color-ucd-california);
 }
 
 @plugin "daisyui/theme" {
-  name: 'walter';
+  name: 'readable';
   --color-base-100: var(--color-light-bg-100);
   --color-base-200: var(--color-light-bg-200);
   --color-base-300: var(--color-light-bg-300);
@@ -28,15 +28,20 @@
 
   --color-primary: var(--color-primary-color);
   --color-primary-content: var(--color-light-font);
-
   --color-secondary: var(--color-secondary-color);
   --color-accent: var(--color-accent-color);
   --color-error: var(--color-error-color);
+  --color-error-content: var(--color-light-font);
   --color-info: var(--color-info-color);
+  --color-info-content: var(--color-light-font);
   --color-success: var(--color-success-color);
+  --color-success-content: var(--color-light-font);
   --color-warning: var(--color-warning-color);
+  --color-warning-content: var(--color-light-font);
 }
-@layer base {
+
+html {
+  background-color: var(--color-light-bg-200);
 }
 
 .container {
