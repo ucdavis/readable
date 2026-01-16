@@ -351,7 +351,7 @@ function RouteComponent() {
 
       {beforeReport && afterReport && beforeCounts && afterCounts ? (
         <section className="space-y-4">
-          <div className="stats stats-vertical lg:stats-horizontal bg-base-100 w-full border-b-4 border-primary">
+          <div className="stats shadow stats-vertical lg:stats-horizontal bg-base-100 w-full border-b-4 border-primary">
             <div className="stat">
               <div className="uppercase text-xs">Before</div>
               <div className="text-xl">
@@ -390,7 +390,7 @@ function RouteComponent() {
             </div>
           </div>
 
-          <div className="card bg-base-100 p-4 border-b-4 border-secondary">
+          <div className="card shadow bg-base-100 p-4 border-b-4 border-secondary">
             <h2 className="card-title mb-3">Still failing (After)</h2>
             {afterFailed.length === 0 ? (
               <div className="alert alert-success">
@@ -483,7 +483,7 @@ function RouteComponent() {
             </div>
           </div>
 
-          <div className="card bg-base-100">
+          <div className="card shadow bg-base-100">
             <div className="card-body">
               <h2 className="card-title">Before vs After breakdown</h2>
 
