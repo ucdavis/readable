@@ -9,7 +9,7 @@ import { RouterContext } from '../main.tsx';
 import Footer from '@/components/pdf/Footer.tsx';
 
 const RootLayout = () => (
-  <div className="min-h-screen flex flex-col">
+  <div className="min-h-screen bg-base-200 flex flex-col">
     <main className="flex-1">
       <header className="container mb-6">
         <div className="py-2 flex justify-between items-center">
