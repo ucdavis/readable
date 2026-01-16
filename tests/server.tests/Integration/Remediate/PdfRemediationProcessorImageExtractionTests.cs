@@ -27,7 +27,11 @@ public sealed class PdfRemediationProcessorImageExtractionTests
         {
             var outputPdfPath = Path.Combine(runRoot, "output.pdf");
             var altText = new CapturingAltTextService();
-            var sut = new PdfRemediationProcessor(altText, new FakePdfTitleService(), NullLogger<PdfRemediationProcessor>.Instance);
+            var sut = new PdfRemediationProcessor(
+                altText,
+                new NoopPdfBookmarkService(),
+                new FakePdfTitleService(),
+                NullLogger<PdfRemediationProcessor>.Instance);
 
             await sut.ProcessAsync(
                 fileId: "fixture",

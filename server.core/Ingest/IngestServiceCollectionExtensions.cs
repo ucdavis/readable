@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using server.core.Remediate;
 using server.core.Remediate.AltText;
+using server.core.Remediate.Bookmarks;
 using server.core.Remediate.Title;
 
 namespace server.core.Ingest;
@@ -83,6 +84,7 @@ public static class IngestServiceCollectionExtensions
                 var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
                 return new OpenAIPdfTitleService(cfg.ApiKey, cfg.PdfTitleModel);
             });
+            services.AddSingleton<IPdfBookmarkService, PdfBookmarkService>();
             services.AddSingleton<IPdfRemediationProcessor, PdfRemediationProcessor>();
         }
         else
