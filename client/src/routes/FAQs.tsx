@@ -63,7 +63,7 @@ function FAQs() {
 
         <section aria-labelledby="overview" className="grid gap-4 lg:grid-cols-2">
           <div className="card shadow bg-base-100">
-            <div className="card-body">
+            <div className="card-body text-base sm:text-lg leading-relaxed">
               <h2 className="card-title" id="overview">
                 The core issue
               </h2>
@@ -78,7 +78,7 @@ function FAQs() {
           </div>
 
           <div className="card shadow bg-base-100">
-            <div className="card-body">
+            <div className="card-body text-base sm:text-lg leading-relaxed">
               <h2 className="card-title">What Readable does automatically</h2>
               <ul className="mt-2 space-y-3">
                 <li className="flex gap-3">
@@ -116,7 +116,7 @@ function FAQs() {
                 </li>
               </ul>
 
-              <div className="mt-5 alert bg-base-200 border border-base-300">
+              <div className="mt-5 alert bg-base-200 border border-base-300 text-base sm:text-lg">
                 <CheckBadgeIcon aria-hidden="true" className="h-5 w-5" />
                 <span className="text-base-content/80">
                   The result is a PDF that is dramatically closer to full
@@ -145,7 +145,7 @@ function FAQs() {
           </div>
 
           <div className="mt-5 card shadow bg-base-100">
-            <div className="card-body">
+            <div className="card-body text-base sm:text-lg leading-relaxed">
               <ul className="timeline timeline-snap-icon max-md:timeline-compact timeline-vertical">
                 <li>
                   <div className="timeline-middle">
@@ -154,11 +154,13 @@ function FAQs() {
                       className="h-5 w-5 text-primary"
                     />
                   </div>
-                  <div className="timeline-start md:text-end timeline-box">
-                    <div className="text-xs font-mono text-base-content/60">
+                  <div className="timeline-start md:text-end timeline-box text-base sm:text-lg leading-relaxed">
+                    <div className="text-sm font-mono text-base-content/60">
                       Step 1
                     </div>
-                    <div className="text-lg font-black">Upload your PDF</div>
+                    <div className="text-lg sm:text-xl font-black">
+                      Upload your PDF
+                    </div>
                     <p className="mt-1 text-base-content/80">
                       Drop a file in and Readable begins inspecting pages,
                       layout, and content.
@@ -175,11 +177,11 @@ function FAQs() {
                       className="h-5 w-5 text-primary"
                     />
                   </div>
-                  <div className="timeline-end timeline-box">
-                    <div className="text-xs font-mono text-base-content/60">
+                  <div className="timeline-end timeline-box text-base sm:text-lg leading-relaxed">
+                    <div className="text-sm font-mono text-base-content/60">
                       Step 2
                     </div>
-                    <div className="text-lg font-black">
+                    <div className="text-lg sm:text-xl font-black">
                       Analyze structure + reading order
                     </div>
                     <p className="mt-1 text-base-content/80">
@@ -198,11 +200,13 @@ function FAQs() {
                       className="h-5 w-5 text-primary"
                     />
                   </div>
-                  <div className="timeline-start md:text-end timeline-box">
-                    <div className="text-xs font-mono text-base-content/60">
+                  <div className="timeline-start md:text-end timeline-box text-base sm:text-lg leading-relaxed">
+                    <div className="text-sm font-mono text-base-content/60">
                       Step 3
                     </div>
-                    <div className="text-lg font-black">Add tags + metadata</div>
+                    <div className="text-lg sm:text-xl font-black">
+                      Add tags + metadata
+                    </div>
                     <p className="mt-1 text-base-content/80">
                       Applies structure and accessibility metadata so the PDF
                       has meaningful navigation and semantics.
@@ -219,11 +223,11 @@ function FAQs() {
                       className="h-5 w-5 text-primary"
                     />
                   </div>
-                  <div className="timeline-end timeline-box">
-                    <div className="text-xs font-mono text-base-content/60">
+                  <div className="timeline-end timeline-box text-base sm:text-lg leading-relaxed">
+                    <div className="text-sm font-mono text-base-content/60">
                       Step 4
                     </div>
-                    <div className="text-lg font-black">
+                    <div className="text-lg sm:text-xl font-black">
                       Generate useful descriptions
                     </div>
                     <p className="mt-1 text-base-content/80">
@@ -242,11 +246,11 @@ function FAQs() {
                       className="h-5 w-5 text-primary"
                     />
                   </div>
-                  <div className="timeline-start md:text-end timeline-box">
-                    <div className="text-xs font-mono text-base-content/60">
+                  <div className="timeline-start md:text-end timeline-box text-base sm:text-lg leading-relaxed">
+                    <div className="text-sm font-mono text-base-content/60">
                       Step 5
                     </div>
-                    <div className="text-lg font-black">
+                    <div className="text-lg sm:text-xl font-black">
                       Deliver output + report
                     </div>
                     <p className="mt-1 text-base-content/80">
@@ -264,32 +268,42 @@ function FAQs() {
           <h2 className="text-2xl font-extrabold" id="what-you-get">
             What you get
           </h2>
-          <div className="mt-4 stats stats-vertical lg:stats-horizontal shadow bg-base-100">
+          <div className="mt-4 stats stats-vertical lg:stats-horizontal shadow bg-base-100 text-base sm:text-lg">
             <div className="stat">
-              <div className="stat-title">Structure</div>
-              <div className="stat-value text-lg">Tags + reading order</div>
-              <div className="stat-desc text-base-content/70">
+              <div className="stat-title text-sm sm:text-base">Structure</div>
+              <div className="stat-value text-xl sm:text-2xl">
+                Tags + reading order
+              </div>
+              <div className="stat-desc text-base sm:text-lg text-base-content/70">
                 Headings, lists, tables, and hierarchy
               </div>
             </div>
             <div className="stat">
-              <div className="stat-title">Descriptions</div>
-              <div className="stat-value text-lg">Alt text for images</div>
-              <div className="stat-desc text-base-content/70">
+              <div className="stat-title text-sm sm:text-base">
+                Descriptions
+              </div>
+              <div className="stat-value text-xl sm:text-2xl">
+                Alt text for images
+              </div>
+              <div className="stat-desc text-base sm:text-lg text-base-content/70">
                 Links and figures become understandable
               </div>
             </div>
             <div className="stat">
-              <div className="stat-title">Metadata</div>
-              <div className="stat-value text-lg">Better document info</div>
-              <div className="stat-desc text-base-content/70">
+              <div className="stat-title text-sm sm:text-base">Metadata</div>
+              <div className="stat-value text-xl sm:text-2xl">
+                Better document info
+              </div>
+              <div className="stat-desc text-base sm:text-lg text-base-content/70">
                 Helps navigation + discoverability
               </div>
             </div>
             <div className="stat">
-              <div className="stat-title">Report</div>
-              <div className="stat-value text-lg">What’s fixed vs manual</div>
-              <div className="stat-desc text-base-content/70">
+              <div className="stat-title text-sm sm:text-base">Report</div>
+              <div className="stat-value text-xl sm:text-2xl">
+                What’s fixed vs manual
+              </div>
+              <div className="stat-desc text-base sm:text-lg text-base-content/70">
                 Clear next steps for compliance
               </div>
             </div>
