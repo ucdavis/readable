@@ -42,6 +42,10 @@ builder.Services.AddFileIngest(o =>
 
     o.UseAdobePdfServices = true;
     o.UsePdfRemediationProcessor = true;
+    // Feature flag (default off): enable with Ingest:UsePdfBookmarks or INGEST_USE_PDF_BOOKMARKS=true.
+    o.UsePdfBookmarks =
+        builder.Configuration.GetValue<bool>("Ingest:UsePdfBookmarks")
+        || builder.Configuration.GetValue<bool>("INGEST_USE_PDF_BOOKMARKS");
 });
 
 builder.Services.AddApplicationInsightsTelemetryWorkerService();

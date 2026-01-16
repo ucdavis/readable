@@ -28,6 +28,7 @@ public static class IngestServiceCollectionExtensions
         {
             o.UseAdobePdfServices = options.UseAdobePdfServices;
             o.UsePdfRemediationProcessor = options.UsePdfRemediationProcessor;
+            o.UsePdfBookmarks = options.UsePdfBookmarks;
             o.MaxPagesPerChunk = options.PdfMaxPagesPerChunk;
             o.WorkDirRoot = options.PdfWorkDirRoot;
         });
@@ -84,7 +85,14 @@ public static class IngestServiceCollectionExtensions
                 var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
                 return new OpenAIPdfTitleService(cfg.ApiKey, cfg.PdfTitleModel);
             });
-            services.AddSingleton<IPdfBookmarkService, PdfBookmarkService>();
+            if (options.UsePdfBookmarks)
+            {
+                services.AddSingleton<IPdfBookmarkService, PdfBookmarkService>();
+            }
+            else
+            {
+                services.AddSingleton<IPdfBookmarkService, NoopPdfBookmarkService>();
+            }
             services.AddSingleton<IPdfRemediationProcessor, PdfRemediationProcessor>();
         }
         else
