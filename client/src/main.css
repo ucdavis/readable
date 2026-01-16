@@ -14,7 +14,7 @@
   --color-secondary-color: #ffbf00;
   --color-accent-color: var(--color-ucd-sunflower);
   --color-error-color: var(--color-ucd-merlot);
-  --color-info-color: var(--color-ucd-arboretum);
+  --color-info-color: var(--color-ucd-bodega);
   --color-success-color: var(--color-ucd-redwood);
   --color-warning-color: var(--color-ucd-california);
 }
@@ -31,10 +31,13 @@
   --color-secondary: var(--color-secondary-color);
   --color-accent: var(--color-accent-color);
   --color-error: var(--color-error-color);
+  --color-error-content: var(--color-light-font);
   --color-info: var(--color-info-color);
+  --color-info-content: var(--color-light-font);
   --color-success: var(--color-success-color);
   --color-success-content: var(--color-light-font);
   --color-warning: var(--color-warning-color);
+  --color-warning-content: var(--color-light-font);
 }
 
 html {

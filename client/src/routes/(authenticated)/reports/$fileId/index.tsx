@@ -401,6 +401,11 @@ function RouteComponent() {
             ) : (
               <div className="overflow-x-auto">
                 <table className="table">
+                  <colgroup>
+                    <col className="w-1/5" />
+                    <col className="w-3/5" />
+                    <col className="w-1/5" />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>Category</th>
@@ -435,52 +440,56 @@ function RouteComponent() {
                 </table>
               </div>
             )}
-            <div>
-              <h2 className="card-title mb-3 mt-6">Needs manual check</h2>
-              {afterNeedsManual.length === 0 ? (
-                <div className="alert alert-success">
-                  <span className="text-lg">
-                    No “Needs manual check” items found in the After report.
-                  </span>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Category</th>
-                        <th>Rule</th>
-                        <th>Status</th>
+
+            <h2 className="card-title mb-3 mt-6">Needs manual check</h2>
+            {afterNeedsManual.length === 0 ? (
+              <div className="alert alert-success">
+                <span className="text-lg">
+                  No “Needs manual check” items found in the After report.
+                </span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="table">
+                  <colgroup>
+                    <col className="w-1/5" />
+                    <col className="w-3/5" />
+                    <col className="w-1/5" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Category</th>
+                      <th>Rule</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {afterNeedsManual.map((r, idx) => (
+                      <tr key={`${r.category}||${r.rule}||${idx}`}>
+                        <td className="text-base-content">{r.category}</td>
+                        <td>
+                          <div className="font-medium">{r.rule}</div>
+                          {r.description ? (
+                            <div className="text-xs text-base-content/80">
+                              {r.description}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td>
+                          <span
+                            className={`badge badge-soft badge-sm ${statusBadgeClass(
+                              r.status
+                            )}`}
+                          >
+                            {r.status}
+                          </span>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {afterNeedsManual.map((r, idx) => (
-                        <tr key={`${r.category}||${r.rule}||${idx}`}>
-                          <td className="text-base-content">{r.category}</td>
-                          <td>
-                            <div className="font-medium">{r.rule}</div>
-                            {r.description ? (
-                              <div className="text-xs text-base-content/80">
-                                {r.description}
-                              </div>
-                            ) : null}
-                          </td>
-                          <td>
-                            <span
-                              className={`badge badge-soft badge-sm ${statusBadgeClass(
-                                r.status
-                              )}`}
-                            >
-                              {r.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="card shadow bg-base-100">
