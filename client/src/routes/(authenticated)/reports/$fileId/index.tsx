@@ -277,10 +277,8 @@ function RouteComponent() {
               Accessibility report for <span>{file.originalFileName}</span>
             </h1>
             <div className="mt-2 text-base-content/70">
-              <span className="badge badge-soft badge-primary">
-                {file.status}
-              </span>{' '}
-              • Updated {formatDateTime(file.statusUpdatedAt)}
+              <span className="badge badge-primary">{file.status}</span> •
+              Updated {formatDateTime(file.statusUpdatedAt)}
             </div>
           </div>
           <div>
@@ -427,7 +425,7 @@ function RouteComponent() {
                         </td>
                         <td>
                           <span
-                            className={`badge badge-soft badge-sm ${statusBadgeClass(
+                            className={`badge  badge-sm ${statusBadgeClass(
                               r.status
                             )}`}
                           >
@@ -477,7 +475,7 @@ function RouteComponent() {
                         </td>
                         <td>
                           <span
-                            className={`badge badge-soft badge-sm ${statusBadgeClass(
+                            className={`badge badge-sm ${statusBadgeClass(
                               r.status
                             )}`}
                           >
@@ -505,16 +503,16 @@ function RouteComponent() {
                   <div className="collapse-title flex flex-wrap items-center gap-2">
                     <span className="text-base">{c.category}</span>
                     {c.afterFailedCount > 0 ? (
-                      <span className="badge badge-soft badge-error badge-sm">
+                      <span className="badge badge-error badge-sm">
                         {c.afterFailedCount} failed
                       </span>
                     ) : (
-                      <span className="badge badge-soft badge-success badge-sm">
+                      <span className="badge badge-success badge-sm">
                         all passed
                       </span>
                     )}
                     {c.afterNeedsManualCount > 0 ? (
-                      <span className="badge badge-soft badge-warning badge-sm">
+                      <span className="badge badge-warning badge-sm">
                         {c.afterNeedsManualCount} manual
                       </span>
                     ) : null}
@@ -543,7 +541,7 @@ function RouteComponent() {
                               <td>
                                 {r.beforeStatus ? (
                                   <span
-                                    className={`badge badge-soft badge-sm ${statusBadgeClass(
+                                    className={`badge badge-sm ${statusBadgeClass(
                                       r.beforeStatus
                                     )}`}
                                   >
@@ -558,7 +556,7 @@ function RouteComponent() {
                               <td>
                                 {r.afterStatus ? (
                                   <span
-                                    className={`badge badge-soft badge-sm ${statusBadgeClass(
+                                    className={`badge badge-sm ${statusBadgeClass(
                                       r.afterStatus
                                     )}`}
                                   >
