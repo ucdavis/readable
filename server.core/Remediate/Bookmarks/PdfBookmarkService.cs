@@ -180,7 +180,15 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
     {
         try
         {
-            return pdf.GetCatalog().GetPdfObject().ContainsKey(PdfName.Outlines);
+            var catalog = pdf.GetCatalog().GetPdfObject();
+            var outlinesRoot = catalog.GetAsDictionary(PdfName.Outlines);
+            if (outlinesRoot is null)
+            {
+                return false;
+            }
+
+            var first = outlinesRoot.Get(PdfName.First);
+            return first is not null && first is not PdfNull;
         }
         catch
         {
