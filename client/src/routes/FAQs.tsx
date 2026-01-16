@@ -8,6 +8,7 @@ function FAQs() {
   return (
     <div className="container">
       <div className="max-w-prose">
+        <h1>FAQ placeholder</h1>
         <p>
           Most PDFs are visually readable but structurally inaccessible. They
           lack proper headings, document structure, reading order, and
