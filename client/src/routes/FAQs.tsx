@@ -268,43 +268,84 @@ function FAQs() {
           <h2 className="text-2xl font-extrabold" id="what-you-get">
             What you get
           </h2>
-          <div className="mt-4 stats stats-vertical lg:stats-horizontal shadow bg-base-100 text-base sm:text-lg">
-            <div className="stat">
-              <div className="stat-title text-sm sm:text-base">Structure</div>
-              <div className="stat-value text-xl sm:text-2xl">
-                Tags + reading order
-              </div>
-              <div className="stat-desc text-base sm:text-lg text-base-content/70">
-                Headings, lists, tables, and hierarchy
-              </div>
-            </div>
-            <div className="stat">
-              <div className="stat-title text-sm sm:text-base">
-                Descriptions
-              </div>
-              <div className="stat-value text-xl sm:text-2xl">
-                Alt text for images
-              </div>
-              <div className="stat-desc text-base sm:text-lg text-base-content/70">
-                Links and figures become understandable
-              </div>
-            </div>
-            <div className="stat">
-              <div className="stat-title text-sm sm:text-base">Metadata</div>
-              <div className="stat-value text-xl sm:text-2xl">
-                Better document info
-              </div>
-              <div className="stat-desc text-base sm:text-lg text-base-content/70">
-                Helps navigation + discoverability
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="card shadow bg-base-100">
+              <div className="card-body text-base sm:text-lg leading-relaxed">
+                <div className="flex items-start gap-3">
+                  <Bars3BottomLeftIcon
+                    aria-hidden="true"
+                    className="h-6 w-6 flex-none text-primary mt-0.5"
+                  />
+                  <div>
+                    <h3 className="font-black text-lg sm:text-xl">
+                      Tags + reading order
+                    </h3>
+                    <p className="mt-1 text-base-content/70">
+                      Headings, lists, tables, and hierarchy so assistive
+                      technology can navigate the document.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="stat">
-              <div className="stat-title text-sm sm:text-base">Report</div>
-              <div className="stat-value text-xl sm:text-2xl">
-                What’s fixed vs manual
+
+            <div className="card shadow bg-base-100">
+              <div className="card-body text-base sm:text-lg leading-relaxed">
+                <div className="flex items-start gap-3">
+                  <SparklesIcon
+                    aria-hidden="true"
+                    className="h-6 w-6 flex-none text-primary mt-0.5"
+                  />
+                  <div>
+                    <h3 className="font-black text-lg sm:text-xl">
+                      Descriptions that help
+                    </h3>
+                    <p className="mt-1 text-base-content/70">
+                      Context-aware alt text for images and links, drafted to
+                      be useful instead of generic.
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div className="stat-desc text-base sm:text-lg text-base-content/70">
-                Clear next steps for compliance
+            </div>
+
+            <div className="card shadow bg-base-100">
+              <div className="card-body text-base sm:text-lg leading-relaxed">
+                <div className="flex items-start gap-3">
+                  <CheckBadgeIcon
+                    aria-hidden="true"
+                    className="h-6 w-6 flex-none text-primary mt-0.5"
+                  />
+                  <div>
+                    <h3 className="font-black text-lg sm:text-xl">
+                      Better document metadata
+                    </h3>
+                    <p className="mt-1 text-base-content/70">
+                      Improved document info that supports navigation,
+                      discoverability, and accessibility expectations.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="card shadow bg-base-100">
+              <div className="card-body text-base sm:text-lg leading-relaxed">
+                <div className="flex items-start gap-3">
+                  <ClipboardDocumentCheckIcon
+                    aria-hidden="true"
+                    className="h-6 w-6 flex-none text-primary mt-0.5"
+                  />
+                  <div>
+                    <h3 className="font-black text-lg sm:text-xl">
+                      A clear remediation report
+                    </h3>
+                    <p className="mt-1 text-base-content/70">
+                      What was fixed automatically, what remains, and where to
+                      focus manual review for compliance.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
