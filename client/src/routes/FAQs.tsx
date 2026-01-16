@@ -61,7 +61,10 @@ function FAQs() {
           </div>
         </header>
 
-        <section aria-labelledby="overview" className="grid gap-4 lg:grid-cols-2">
+        <section
+          aria-labelledby="overview"
+          className="grid gap-4 lg:grid-cols-2"
+        >
           <div className="card shadow bg-base-100">
             <div className="card-body text-base sm:text-lg leading-relaxed">
               <h2 className="card-title" id="overview">
@@ -301,8 +304,8 @@ function FAQs() {
                       Descriptions that help
                     </h3>
                     <p className="mt-1 text-base-content/70">
-                      Context-aware alt text for images and links, drafted to
-                      be useful instead of generic.
+                      Context-aware alt text for images and links, drafted to be
+                      useful instead of generic.
                     </p>
                   </div>
                 </div>
@@ -357,7 +360,10 @@ function FAQs() {
           </h2>
 
           <div className="mt-4 space-y-3">
-            <FaqItem defaultOpen question="Why does accessibility matter for PDFs?">
+            <FaqItem
+              defaultOpen
+              question="Why does accessibility matter for PDFs?"
+            >
               <p>
                 Accessibility regulations such as WCAG, Section 508, and PDF/UA
                 require digital documents to be usable by people with
@@ -368,7 +374,9 @@ function FAQs() {
                 <li>Semantic structure (headings, sections, lists)</li>
                 <li>Logical reading order</li>
                 <li>Text alternatives for images and graphics</li>
-                <li>Meaningful descriptions for links and interactive content</li>
+                <li>
+                  Meaningful descriptions for links and interactive content
+                </li>
               </ul>
               <p className="mt-3">
                 Without these elements, screen readers can’t interpret the
@@ -378,9 +386,9 @@ function FAQs() {
 
             <FaqItem question="Does Readable guarantee full compliance?">
               <p>
-                No tool can guarantee full compliance in every case. Readable
-                is designed to get you dramatically closer, then clearly show
-                what still needs human review (especially for complex layouts,
+                No tool can guarantee full compliance in every case. Readable is
+                designed to get you dramatically closer, then clearly show what
+                still needs human review (especially for complex layouts,
                 tables, and meaning-dependent images).
               </p>
             </FaqItem>
@@ -409,13 +417,11 @@ function FAQs() {
             </FaqItem>
 
             <FaqItem question="Who is Readable for?">
-              <p>Readable is designed for teams that publish PDFs, including:</p>
-              <ul className="mt-3 list-disc space-y-2 pl-5">
-                <li>Universities and research institutions</li>
-                <li>Government and public-sector organizations</li>
-                <li>Companies publishing reports, manuals, or forms</li>
-                <li>Teams responsible for compliance and digital content</li>
-              </ul>
+              <p>
+                Readable is designed for for UC Davis by the College of
+                Agricultural and Environmental Sciences Dean&apos;s Office @ UC
+                Davis
+              </p>
             </FaqItem>
 
             <div className="card shadow bg-base-100">
