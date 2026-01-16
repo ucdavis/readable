@@ -29,7 +29,11 @@ public sealed class PdfRemediationProcessorTests
             try
             {
                 var outputPdfPath = Path.Combine(runRoot, "output.pdf");
-                var sut = new PdfRemediationProcessor(new FakeAltTextService(), new FakePdfTitleService(), NullLogger<PdfRemediationProcessor>.Instance);
+                var sut = new PdfRemediationProcessor(
+                    new FakeAltTextService(),
+                    new NoopPdfBookmarkService(),
+                    new FakePdfTitleService(),
+                    NullLogger<PdfRemediationProcessor>.Instance);
 
             var result = await sut.ProcessAsync(
                 fileId: "fixture",

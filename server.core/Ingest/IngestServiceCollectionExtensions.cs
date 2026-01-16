@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using server.core.Remediate;
 using server.core.Remediate.AltText;
+using server.core.Remediate.Bookmarks;
 using server.core.Remediate.Title;
 
 namespace server.core.Ingest;
@@ -27,6 +28,7 @@ public static class IngestServiceCollectionExtensions
         {
             o.UseAdobePdfServices = options.UseAdobePdfServices;
             o.UsePdfRemediationProcessor = options.UsePdfRemediationProcessor;
+            o.UsePdfBookmarks = options.UsePdfBookmarks;
             o.MaxPagesPerChunk = options.PdfMaxPagesPerChunk;
             o.WorkDirRoot = options.PdfWorkDirRoot;
         });
@@ -83,6 +85,14 @@ public static class IngestServiceCollectionExtensions
                 var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
                 return new OpenAIPdfTitleService(cfg.ApiKey, cfg.PdfTitleModel);
             });
+            if (options.UsePdfBookmarks)
+            {
+                services.AddSingleton<IPdfBookmarkService, PdfBookmarkService>();
+            }
+            else
+            {
+                services.AddSingleton<IPdfBookmarkService, NoopPdfBookmarkService>();
+            }
             services.AddSingleton<IPdfRemediationProcessor, PdfRemediationProcessor>();
         }
         else

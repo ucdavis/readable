@@ -35,7 +35,11 @@ public sealed class PdfRemediationProcessorTitleTests
             var outputPdfPath = Path.Combine(runRoot, "output.pdf");
 
             var titleService = new CapturingPdfTitleService { TitleToReturn = "New Generated Title" };
-            var sut = new PdfRemediationProcessor(new ThrowingAltTextService(), titleService, NullLogger<PdfRemediationProcessor>.Instance);
+            var sut = new PdfRemediationProcessor(
+                new ThrowingAltTextService(),
+                new NoopPdfBookmarkService(),
+                titleService,
+                NullLogger<PdfRemediationProcessor>.Instance);
 
             await sut.ProcessAsync(
                 fileId: "fixture",
@@ -87,7 +91,11 @@ public sealed class PdfRemediationProcessorTitleTests
             var outputPdfPath = Path.Combine(runRoot, "output.pdf");
 
             var titleService = new ThrowingPdfTitleService();
-            var sut = new PdfRemediationProcessor(new ThrowingAltTextService(), titleService, NullLogger<PdfRemediationProcessor>.Instance);
+            var sut = new PdfRemediationProcessor(
+                new ThrowingAltTextService(),
+                new NoopPdfBookmarkService(),
+                titleService,
+                NullLogger<PdfRemediationProcessor>.Instance);
 
             await sut.ProcessAsync(
                 fileId: "fixture",
@@ -131,7 +139,11 @@ public sealed class PdfRemediationProcessorTitleTests
             var outputPdfPath = Path.Combine(runRoot, "output.pdf");
 
             var titleService = new ThrowingPdfTitleService();
-            var sut = new PdfRemediationProcessor(new ThrowingAltTextService(), titleService, NullLogger<PdfRemediationProcessor>.Instance);
+            var sut = new PdfRemediationProcessor(
+                new ThrowingAltTextService(),
+                new NoopPdfBookmarkService(),
+                titleService,
+                NullLogger<PdfRemediationProcessor>.Instance);
 
             await sut.ProcessAsync(
                 fileId: "fixture",
