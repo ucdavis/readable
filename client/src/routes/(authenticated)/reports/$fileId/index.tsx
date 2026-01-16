@@ -287,7 +287,7 @@ function RouteComponent() {
                 <a
                   className="btn btn-lg btn-primary"
                   href={`/api/download/processed/${encodeURIComponent(file.fileId)}`}
-                  rel="noreferrer"
+                  rel="noreferrer noopener"
                   target="_blank"
                 >
                   <ArrowDownTrayIcon className="h-4 w-4" />
