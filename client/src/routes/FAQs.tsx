@@ -40,7 +40,7 @@ function FAQs() {
               <h1 className="mt-3 text-3xl sm:text-4xl font-extrabold tracking-tight">
                 How it works
               </h1>
-              <p className="mt-3 max-w-prose text-base sm:text-lg text-base-content/70">
+              <p className="mt-3 max-w-prose text-base sm:text-lg">
                 Most PDFs look fine—but accessibility depends on structure.
                 Readable helps you get dramatically closer to WCAG + PDF/UA
                 expectations without doing everything by hand.
