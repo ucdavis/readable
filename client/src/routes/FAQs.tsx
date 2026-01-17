@@ -37,9 +37,6 @@ function FAQs() {
         <header className="py-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <div className="badge badge-secondary badge-outline">
-                PDF Accessibility
-              </div>
               <h1 className="mt-3 text-3xl sm:text-4xl font-extrabold tracking-tight">
                 How it works
               </h1>
