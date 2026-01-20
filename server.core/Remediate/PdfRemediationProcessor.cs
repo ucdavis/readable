@@ -10,6 +10,7 @@ using iText.Kernel.Pdf.Xobject;
 using Microsoft.Extensions.Logging;
 using IOPath = System.IO.Path;
 using server.core.Remediate.AltText;
+using server.core.Remediate.Bookmarks;
 using server.core.Remediate.Title;
 
 namespace server.core.Remediate;
@@ -56,15 +57,18 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
     private const int TitleMaxChars = 200;
     private const string TitlePlaceholder = "Untitled PDF document";
     private readonly IAltTextService _altTextService;
+    private readonly IPdfBookmarkService _bookmarkService;
     private readonly IPdfTitleService _pdfTitleService;
     private readonly ILogger<PdfRemediationProcessor> _logger;
 
     public PdfRemediationProcessor(
         IAltTextService altTextService,
+        IPdfBookmarkService bookmarkService,
         IPdfTitleService pdfTitleService,
         ILogger<PdfRemediationProcessor> logger)
     {
         _altTextService = altTextService ?? throw new ArgumentNullException(nameof(altTextService));
+        _bookmarkService = bookmarkService ?? throw new ArgumentNullException(nameof(bookmarkService));
         _pdfTitleService = pdfTitleService ?? throw new ArgumentNullException(nameof(pdfTitleService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -104,6 +108,8 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 success = true;
                 return new PdfRemediationResult(outputPdfPath);
             }
+
+            await _bookmarkService.EnsureBookmarksAsync(pdf, cancellationToken);
 
             var pageObjNumToPageNumber = PdfStructTreeIndex.BuildPageObjectNumberToPageNumberMap(pdf);
             var figureIndex = PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Figure);

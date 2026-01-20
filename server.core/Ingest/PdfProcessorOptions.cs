@@ -13,6 +13,11 @@ public sealed class PdfProcessorOptions
     /// </summary>
     public bool UsePdfRemediationProcessor { get; set; }
 
+    /// <summary>
+    /// When true, the remediation processor will attempt to generate PDF bookmarks (outlines) for tagged PDFs.
+    /// </summary>
+    public bool UsePdfBookmarks { get; set; }
+
     public int MaxPagesPerChunk { get; set; } = 200;
 
     /// <summary>

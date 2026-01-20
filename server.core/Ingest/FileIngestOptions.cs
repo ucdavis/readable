@@ -4,6 +4,7 @@ public sealed class FileIngestOptions
 {
     public bool UseAdobePdfServices { get; set; }
     public bool UsePdfRemediationProcessor { get; set; }
+    public bool UsePdfBookmarks { get; set; }
 
     public int PdfMaxPagesPerChunk { get; set; } = 200;
     public string? PdfWorkDirRoot { get; set; }
@@ -12,5 +13,6 @@ public sealed class FileIngestOptions
     {
         UseAdobePdfServices = false;
         UsePdfRemediationProcessor = false;
+        UsePdfBookmarks = false;
     }
 }
