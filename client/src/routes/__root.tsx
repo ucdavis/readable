@@ -7,7 +7,6 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools';
 import { RouterContext } from '../main.tsx';
 import Footer from '@/components/pdf/Footer.tsx';
-import { AnalyticsListener } from '@/components/pdf/ActivityListener.tsx';
 
 const RootLayout = () => (
   <div className="min-h-screen bg-base-200 flex flex-col">
@@ -26,7 +25,6 @@ const RootLayout = () => (
           <Link to="/FAQs">FAQs</Link>
         </div>
       </header>
-      <AnalyticsListener />
       <Outlet />
     </main>
 
