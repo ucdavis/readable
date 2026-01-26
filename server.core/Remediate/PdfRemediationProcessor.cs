@@ -113,6 +113,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             }
 
             await _bookmarkService.EnsureBookmarksAsync(pdf, cancellationToken);
+            PdfTableSummaryRemediator.EnsureTablesHaveSummary(pdf, cancellationToken);
 
             var pageObjNumToPageNumber = PdfStructTreeIndex.BuildPageObjectNumberToPageNumberMap(pdf);
             var figureIndex = PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Figure);
