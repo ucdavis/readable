@@ -1,6 +1,8 @@
 using FluentAssertions;
 using iText.Kernel.Pdf;
+using iText.Kernel.Pdf.Navigation;
 using iText.Layout;
+using iText.Layout.Properties;
 using iText.Layout.Element;
 using Microsoft.Extensions.Logging.Abstractions;
 using server.core.Remediate.Bookmarks;
@@ -40,6 +42,10 @@ public sealed class PdfBookmarkServiceTests
 
             var outlineRoot = outputPdf.GetOutlines(updateOutlines: true);
             outlineRoot.GetAllChildren().Count.Should().BeGreaterThan(0);
+
+            var titles = ListOutlineTitles(outlineRoot).ToArray();
+            titles.Should().Contain(t => t.Contains("delayed", StringComparison.OrdinalIgnoreCase));
+            titles.Should().NotContain(t => t.Contains("dela y", StringComparison.OrdinalIgnoreCase));
         }
         finally
         {
@@ -128,6 +134,49 @@ public sealed class PdfBookmarkServiceTests
             var rootTitles = outlineRoot.GetAllChildren().Select(c => c.GetTitle()).ToArray();
             rootTitles.Should().Contain("Chapter 1");
             rootTitles.Should().Contain("Chapter 2");
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task EnsureBookmarksAsync_FallsBackToSections_WhenHeadingsAreTooSparse()
+    {
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-bookmarks-sections-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateTaggedPdfWithSparseHeadingsAndSections(inputPdfPath, pageCount: 10);
+
+            using (var inputPdf = new PdfDocument(new PdfReader(inputPdfPath)))
+            {
+                inputPdf.IsTagged().Should().BeTrue("input should be tagged");
+                HasOutlines(inputPdf).Should().BeFalse("input should not already have outlines");
+                inputPdf.GetNumberOfPages().Should().Be(10);
+            }
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+
+            using (var pdf = new PdfDocument(new PdfReader(inputPdfPath), new PdfWriter(outputPdfPath)))
+            {
+                var sut = new PdfBookmarkService(NullLogger<PdfBookmarkService>.Instance);
+                await sut.EnsureBookmarksAsync(pdf, CancellationToken.None);
+            }
+
+            using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
+            HasOutlines(outputPdf).Should().BeTrue("bookmark remediation should add outlines");
+
+            var outlineRoot = outputPdf.GetOutlines(updateOutlines: true);
+            var titles = outlineRoot.GetAllChildren().Select(c => c.GetTitle()).ToArray();
+            titles.Should().Contain("Section 1");
+            titles.Should().Contain("Section 5");
         }
         finally
         {
@@ -234,5 +283,48 @@ public sealed class PdfBookmarkServiceTests
         h1b.GetAccessibilityProperties().SetRole("H1");
         doc.Add(h1b);
         doc.Add(new Paragraph("Body text for chapter 2."));
+    }
+
+    private static void CreateTaggedPdfWithSparseHeadingsAndSections(string path, int pageCount)
+    {
+        using var writer = new PdfWriter(path);
+        using var pdf = new PdfDocument(writer);
+        pdf.SetTagged();
+
+        using var doc = new Document(pdf);
+
+        var intro = new Paragraph("Intro");
+        intro.GetAccessibilityProperties().SetRole("H1");
+        doc.Add(intro);
+
+        for (var i = 1; i <= pageCount; i++)
+        {
+            if (i > 1)
+            {
+                doc.Add(new AreaBreak(AreaBreakType.NEXT_PAGE));
+            }
+
+            var section = new Paragraph($"Section {i}");
+            section.GetAccessibilityProperties().SetRole("Sect");
+            doc.Add(section);
+            doc.Add(new Paragraph($"Body text for section {i}."));
+        }
+    }
+
+    private static IEnumerable<string> ListOutlineTitles(PdfOutline outline)
+    {
+        foreach (var child in outline.GetAllChildren())
+        {
+            var title = child.GetTitle();
+            if (!string.IsNullOrWhiteSpace(title))
+            {
+                yield return title;
+            }
+
+            foreach (var nested in ListOutlineTitles(child))
+            {
+                yield return nested;
+            }
+        }
     }
 }
