@@ -52,6 +52,8 @@ public sealed class NoopPdfRemediationProcessor : IPdfRemediationProcessor
 public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 {
     private const int ContextMaxCharsPerSide = 800;
+    private const int LangContextMinWords = 20;
+    private const string DefaultPrimaryLanguage = "en-US";
     private const int TitleContextMinWords = 100;
     private const int TitleContextMaxPages = 5;
     private const int TitleMaxChars = 200;
@@ -102,6 +104,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             using var pdf = new PdfDocument(new PdfReader(inputPdfPath), new PdfWriter(outputPdfPath));
 
             await EnsurePdfHasTitleAsync(pdf, cancellationToken);
+            EnsurePdfHasPrimaryLanguage(pdf, cancellationToken);
 
             if (!pdf.IsTagged())
             {
@@ -229,6 +232,24 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         }
 
         info.SetTitle(suggestedTitle);
+    }
+
+    /// <summary>
+    /// Ensures the PDF catalog has a primary language (<c>/Lang</c>) set.
+    /// </summary>
+    /// <remarks>
+    /// This runs for both tagged and untagged PDFs, and will not overwrite an existing <c>/Lang</c> value.
+    /// </remarks>
+    private static void EnsurePdfHasPrimaryLanguage(PdfDocument pdf, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        _ = PdfPrimaryLanguageDetector.TrySetPrimaryLanguageIfMissing(
+            pdf,
+            defaultLanguage: DefaultPrimaryLanguage,
+            maxPagesToScan: TitleContextMaxPages,
+            minWords: LangContextMinWords,
+            cancellationToken: cancellationToken);
     }
 
     /// <summary>
