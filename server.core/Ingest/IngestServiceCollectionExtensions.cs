@@ -29,6 +29,7 @@ public static class IngestServiceCollectionExtensions
             o.UseAdobePdfServices = options.UseAdobePdfServices;
             o.UsePdfRemediationProcessor = options.UsePdfRemediationProcessor;
             o.UsePdfBookmarks = options.UsePdfBookmarks;
+            o.AutotagTaggedPdfs = options.AutotagTaggedPdfs;
             o.MaxPagesPerChunk = options.PdfMaxPagesPerChunk;
             o.WorkDirRoot = options.PdfWorkDirRoot;
         });

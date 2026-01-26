@@ -99,56 +99,72 @@ public sealed class PdfProcessor : IPdfProcessor
         if (_options.UseAdobePdfServices)
         {
             var outputTaggedPath = Path.Combine(workDir, $"{safeFileId}.tagged.pdf");
-            var totalPages = ReadPageCount(sourcePath);
-
-            if (totalPages <= _options.MaxPagesPerChunk)
+            var sourceInfo = ReadSourcePdfInfo(sourcePath);
+            if (sourceInfo.TaggingState == PdfTaggingState.TaggedUsable && !_options.AutotagTaggedPdfs)
             {
-                // Common case: avoid split/merge overhead when the PDF fits in a single chunk.
-                var reportPath = Path.Combine(workDir, $"{safeFileId}.autotag-report.xlsx");
-                await _adobePdfServices.AutotagPdfAsync(
-                    inputPdfPath: sourcePath,
-                    outputTaggedPdfPath: outputTaggedPath,
-                    outputTaggingReportPath: reportPath,
-                    cancellationToken: cancellationToken);
-
-                taggedPdfPath = outputTaggedPath;
+                _logger.LogInformation("Skipping Adobe autotagging for {fileId}: PDF is already tagged.", fileId);
+                taggedPdfPath = sourcePath;
             }
             else
             {
-                // 1) Split the incoming PDF stream into chunks of <= MaxPagesPerChunk pages.
-                //    - Write each chunk to a temp file under the work directory.
-                //    - Keep an ordered list of the chunk file paths.
-                var chunks = SplitIntoChunks(sourcePath, workDir, safeFileId, _options.MaxPagesPerChunk, cancellationToken);
-
-                _logger.LogInformation(
-                    "Split {fileId} into {chunkCount} chunk(s) in {workDir}",
-                    fileId,
-                    chunks.Count,
-                    workDir);
-
-                // 3. Autotag each chunk via Adobe PDF Services.
-                var taggedChunkPaths = new List<string>(chunks.Count);
-                foreach (var chunk in chunks)
+                if (sourceInfo.TaggingState == PdfTaggingState.TaggedUsable && _options.AutotagTaggedPdfs)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    _logger.LogInformation("Retagging already-tagged PDF for {fileId} (AutotagTaggedPdfs=true).", fileId);
+                }
+                else if (sourceInfo.TaggingState == PdfTaggingState.TaggedBroken)
+                {
+                    _logger.LogWarning("PDF appears tagged but tag tree looks incomplete; autotagging {fileId}.", fileId);
+                }
 
-                    var taggedPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.tagged.pdf");
-                    var reportPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.autotag-report.xlsx");
-
+                if (sourceInfo.PageCount <= _options.MaxPagesPerChunk)
+                {
+                    // Common case: avoid split/merge overhead when the PDF fits in a single chunk.
+                    var reportPath = Path.Combine(workDir, $"{safeFileId}.autotag-report.xlsx");
                     await _adobePdfServices.AutotagPdfAsync(
-                        inputPdfPath: chunk.Path,
-                        outputTaggedPdfPath: taggedPath,
+                        inputPdfPath: sourcePath,
+                        outputTaggedPdfPath: outputTaggedPath,
                         outputTaggingReportPath: reportPath,
                         cancellationToken: cancellationToken);
 
-                    taggedChunkPaths.Add(taggedPath);
+                    taggedPdfPath = outputTaggedPath;
                 }
+                else
+                {
+                    // 1) Split the incoming PDF stream into chunks of <= MaxPagesPerChunk pages.
+                    //    - Write each chunk to a temp file under the work directory.
+                    //    - Keep an ordered list of the chunk file paths.
+                    var chunks = SplitIntoChunks(sourcePath, workDir, safeFileId, _options.MaxPagesPerChunk, cancellationToken);
 
-                // 4. Merge all tagged chunk PDFs back into a single tagged PDF.
-                MergePdfsInOrder(taggedChunkPaths, outputTaggedPath, cancellationToken);
-                _logger.LogInformation("Merged tagged PDF written to {path}", outputTaggedPath);
+                    _logger.LogInformation(
+                        "Split {fileId} into {chunkCount} chunk(s) in {workDir}",
+                        fileId,
+                        chunks.Count,
+                        workDir);
 
-                taggedPdfPath = outputTaggedPath;
+                    // 3. Autotag each chunk via Adobe PDF Services.
+                    var taggedChunkPaths = new List<string>(chunks.Count);
+                    foreach (var chunk in chunks)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        var taggedPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.tagged.pdf");
+                        var reportPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.autotag-report.xlsx");
+
+                        await _adobePdfServices.AutotagPdfAsync(
+                            inputPdfPath: chunk.Path,
+                            outputTaggedPdfPath: taggedPath,
+                            outputTaggingReportPath: reportPath,
+                            cancellationToken: cancellationToken);
+
+                        taggedChunkPaths.Add(taggedPath);
+                    }
+
+                    // 4. Merge all tagged chunk PDFs back into a single tagged PDF.
+                    MergePdfsInOrder(taggedChunkPaths, outputTaggedPath, cancellationToken);
+                    _logger.LogInformation("Merged tagged PDF written to {path}", outputTaggedPath);
+
+                    taggedPdfPath = outputTaggedPath;
+                }
             }
         }
         else
@@ -211,10 +227,54 @@ public sealed class PdfProcessor : IPdfProcessor
             accessibilityReport?.ReportPath);
     }
 
-    private static int ReadPageCount(string pdfPath)
+    private enum PdfTaggingState
     {
-        using var pdf = new PdfDocument(new PdfReader(pdfPath));
-        return pdf.GetNumberOfPages();
+        Untagged = 0,
+        TaggedUsable = 1,
+        TaggedBroken = 2,
+        Unknown = 3,
+    }
+
+    private sealed record SourcePdfInfo(int PageCount, PdfTaggingState TaggingState);
+
+    private static SourcePdfInfo ReadSourcePdfInfo(string pdfPath)
+    {
+        try
+        {
+            using var pdf = new PdfDocument(new PdfReader(pdfPath));
+
+            var pageCount = pdf.GetNumberOfPages();
+
+            if (!pdf.IsTagged())
+            {
+                return new SourcePdfInfo(pageCount, PdfTaggingState.Untagged);
+            }
+
+            var catalog = pdf.GetCatalog().GetPdfObject();
+            var structTreeRoot = catalog.GetAsDictionary(PdfName.StructTreeRoot);
+            if (structTreeRoot is null)
+            {
+                return new SourcePdfInfo(pageCount, PdfTaggingState.TaggedBroken);
+            }
+
+            var rootKids = structTreeRoot.Get(PdfName.K);
+            if (rootKids is null || rootKids is PdfNull)
+            {
+                return new SourcePdfInfo(pageCount, PdfTaggingState.TaggedBroken);
+            }
+
+            var parentTree = structTreeRoot.Get(PdfName.ParentTree);
+            if (parentTree is null || parentTree is PdfNull)
+            {
+                return new SourcePdfInfo(pageCount, PdfTaggingState.TaggedBroken);
+            }
+
+            return new SourcePdfInfo(pageCount, PdfTaggingState.TaggedUsable);
+        }
+        catch
+        {
+            return new SourcePdfInfo(0, PdfTaggingState.Unknown);
+        }
     }
 
     /// <summary>
