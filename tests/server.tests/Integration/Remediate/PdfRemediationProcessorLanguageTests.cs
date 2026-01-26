@@ -25,7 +25,9 @@ public sealed class PdfRemediationProcessorLanguageTests
                 existingLang: null,
                 pages:
                 [
-                    MakePageText("This is an English document used to detect the primary language.", wordCount: 30),
+                    MakePageText(
+                        "Bonjour, ceci est un document en français. Il contient suffisamment de texte pour détecter la langue principale.",
+                        wordCount: 30),
                 ]);
 
             var outputPdfPath = Path.Combine(runRoot, "output.pdf");
@@ -43,7 +45,7 @@ public sealed class PdfRemediationProcessorLanguageTests
                 cancellationToken: CancellationToken.None);
 
             using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
-            GetLang(outputPdf).Should().Be("en-US");
+            GetLang(outputPdf).Should().Be("fr");
         }
         finally
         {
@@ -160,4 +162,3 @@ public sealed class PdfRemediationProcessorLanguageTests
     private static string? GetLang(PdfDocument pdf)
         => pdf.GetCatalog().GetPdfObject().GetAsString(PdfName.Lang)?.ToUnicodeString();
 }
-
