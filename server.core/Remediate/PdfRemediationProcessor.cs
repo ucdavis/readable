@@ -203,13 +203,16 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         var info = pdf.GetDocumentInfo();
         var currentTitle = TextContext.NormalizeWhitespace(info.GetTitle() ?? string.Empty);
 
+        // If the PDF already has a non-empty title, do not overwrite it.
+        if (!string.IsNullOrWhiteSpace(currentTitle))
+        {
+            return;
+        }
+
         var (extractedText, wordCount) = ExtractTitleContext(pdf);
         if (wordCount < TitleContextMinWords)
         {
-            if (string.IsNullOrWhiteSpace(currentTitle))
-            {
-                info.SetTitle(TitlePlaceholder);
-            }
+            info.SetTitle(TitlePlaceholder);
 
             return;
         }
