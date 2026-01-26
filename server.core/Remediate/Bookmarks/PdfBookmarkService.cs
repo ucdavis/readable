@@ -12,7 +12,10 @@ namespace server.core.Remediate.Bookmarks;
 public sealed class PdfBookmarkService : IPdfBookmarkService
 {
     private const int MaxBookmarkTitleChars = 200;
+    private const int MaxBookmarkTitleWords = 20;
     private const int MaxBookmarks = 2000;
+    private const int MaxMcidRefsPerCandidate = 250;
+    private const int TargetPagesPerBookmark = 8;
 
     private readonly ILogger<PdfBookmarkService> _logger;
 
@@ -42,8 +45,20 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
                 return Task.CompletedTask;
             }
 
-            var headings = ExtractHeadings(pdf, cancellationToken);
-            if (headings.Count == 0)
+            var pageCount = pdf.GetNumberOfPages();
+
+            var bookmarks = FilterBookmarks(ExtractHeadings(pdf, cancellationToken), pageCount);
+
+            if (!IsSufficientBookmarkSet(bookmarks, pageCount))
+            {
+                var sectionBookmarks = FilterBookmarks(ExtractSections(pdf, cancellationToken), pageCount, maxTitleWords: 12);
+                if (BookmarkScore(sectionBookmarks) > BookmarkScore(bookmarks))
+                {
+                    bookmarks = sectionBookmarks;
+                }
+            }
+
+            if (bookmarks.Count == 0)
             {
                 return Task.CompletedTask;
             }
@@ -56,23 +71,23 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
                 (Level: 0, Outline: outlineRoot),
             };
 
-            foreach (var heading in headings.Take(MaxBookmarks))
+            foreach (var bookmark in bookmarks.Take(MaxBookmarks))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var level = Math.Clamp(heading.Level, 1, 6);
+                var level = Math.Clamp(bookmark.Level, 1, 6);
                 while (outlineStack.Count > 0 && outlineStack[^1].Level >= level)
                 {
                     outlineStack.RemoveAt(outlineStack.Count - 1);
                 }
 
                 var parent = outlineStack.Count > 0 ? outlineStack[^1].Outline : outlineRoot;
-                var outline = parent.AddOutline(heading.Title);
+                var outline = parent.AddOutline(bookmark.Title);
 
-                var page = pdf.GetPage(heading.PageNumber);
-                var destination = heading.TopY is null
+                var page = pdf.GetPage(bookmark.PageNumber);
+                var destination = bookmark.TopY is null
                     ? PdfExplicitDestination.CreateFit(page)
-                    : PdfExplicitDestination.CreateFitH(page, heading.TopY.Value);
+                    : PdfExplicitDestination.CreateFitH(page, bookmark.TopY.Value);
 
                 outline.AddDestination(destination);
 
@@ -91,9 +106,9 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
         return Task.CompletedTask;
     }
 
-    private sealed record BookmarkHeading(int Level, int PageNumber, float? TopY, string Title);
+    private sealed record Bookmark(int Level, int PageNumber, float? TopY, string Title);
 
-    private static List<BookmarkHeading> ExtractHeadings(PdfDocument pdf, CancellationToken cancellationToken)
+    private static List<Bookmark> ExtractHeadings(PdfDocument pdf, CancellationToken cancellationToken)
     {
         var catalogDict = pdf.GetCatalog().GetPdfObject();
         var structTreeRootDict = catalogDict.GetAsDictionary(PdfName.StructTreeRoot);
@@ -120,10 +135,12 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
             return [];
         }
 
+        var pageCount = pdf.GetNumberOfPages();
         var pagesToScan = headingNodes
-            .SelectMany(h => h.McidRefs.Select(m => m.PageNumber))
+            .Select(TryGetNodeDestinationPageNumber)
+            .Where(p => p is not null && p >= 1 && p <= pageCount)
+            .Select(p => p!.Value)
             .Distinct()
-            .Where(p => p >= 1 && p <= pdf.GetNumberOfPages())
             .ToArray();
 
         var pageMcidTextMaps = new Dictionary<int, IReadOnlyDictionary<int, McidText>>(pagesToScan.Length);
@@ -141,19 +158,25 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
             }
         }
 
-        var results = new List<BookmarkHeading>(headingNodes.Count);
+        var results = new List<Bookmark>(headingNodes.Count);
 
         foreach (var node in headingNodes.OrderBy(h => h.DocumentOrder))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var pageNumber = node.McidRefs.Count > 0 ? node.McidRefs[0].PageNumber : node.PageNumberFromPg;
+            var pageNumber = TryGetNodeDestinationPageNumber(node);
             if (pageNumber is null || pageNumber <= 0 || pageNumber > pdf.GetNumberOfPages())
             {
                 continue;
             }
 
-            var (titleFromMcids, topY) = BuildHeadingTextAndTopY(node, pageMcidTextMaps);
+            var (titleFromMcids, topY) = BuildTextAndTopYFromMcids(
+                node.McidRefs,
+                destinationPageNumber: pageNumber.Value,
+                pageMcidTextMaps,
+                maxTitleChars: MaxBookmarkTitleChars,
+                maxTitleWords: MaxBookmarkTitleWords);
+
             var title = RemediationHelpers.NormalizeWhitespace(titleFromMcids);
             if (string.IsNullOrWhiteSpace(title))
             {
@@ -170,10 +193,310 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
                 title = title[..MaxBookmarkTitleChars].Trim();
             }
 
-            results.Add(new BookmarkHeading(node.Level, pageNumber.Value, topY, title));
+            results.Add(new Bookmark(node.Level, pageNumber.Value, topY, title));
         }
 
         return results;
+    }
+
+    private static List<Bookmark> ExtractSections(PdfDocument pdf, CancellationToken cancellationToken)
+    {
+        var catalogDict = pdf.GetCatalog().GetPdfObject();
+        var structTreeRootDict = catalogDict.GetAsDictionary(PdfName.StructTreeRoot);
+        if (structTreeRootDict is null)
+        {
+            return [];
+        }
+
+        var roleMap = structTreeRootDict.GetAsDictionary(PdfName.RoleMap);
+        var rootKids = structTreeRootDict.Get(PdfName.K);
+        if (rootKids is null)
+        {
+            return [];
+        }
+
+        var pageObjNumToPageNumber = BuildPageObjectNumberToPageNumberMap(pdf);
+
+        var sectionNodes = new List<SectionNode>();
+        var order = 0;
+        TraverseTagTreeForSections(
+            rootKids,
+            roleMap,
+            pageObjNumToPageNumber,
+            sectionNodes,
+            ref order,
+            sectionDepth: 0,
+            cancellationToken);
+
+        if (sectionNodes.Count == 0)
+        {
+            return [];
+        }
+
+        var pageCount = pdf.GetNumberOfPages();
+        var pagesToScan = sectionNodes
+            .Select(TryGetNodeDestinationPageNumber)
+            .Where(p => p is not null && p >= 1 && p <= pageCount)
+            .Select(p => p!.Value)
+            .Distinct()
+            .ToArray();
+
+        var pageMcidTextMaps = new Dictionary<int, IReadOnlyDictionary<int, McidText>>(pagesToScan.Length);
+        foreach (var pageNumber in pagesToScan)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                pageMcidTextMaps[pageNumber] = CollectMcidText(pdf.GetPage(pageNumber));
+            }
+            catch
+            {
+                pageMcidTextMaps[pageNumber] = new Dictionary<int, McidText>();
+            }
+        }
+
+        var results = new List<Bookmark>(sectionNodes.Count);
+
+        foreach (var node in sectionNodes.OrderBy(h => h.DocumentOrder))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var pageNumber = TryGetNodeDestinationPageNumber(node);
+            if (pageNumber is null || pageNumber <= 0 || pageNumber > pageCount)
+            {
+                continue;
+            }
+
+            var title = RemediationHelpers.NormalizeWhitespace(node.TitleFallback ?? string.Empty);
+            var (snippetText, topY) = BuildTextAndTopYFromMcids(
+                node.McidRefs,
+                destinationPageNumber: pageNumber.Value,
+                pageMcidTextMaps,
+                maxTitleChars: MaxBookmarkTitleChars,
+                maxTitleWords: 12);
+
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                title = RemediationHelpers.NormalizeWhitespace(snippetText);
+            }
+
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                continue;
+            }
+
+            if (title.Length > MaxBookmarkTitleChars)
+            {
+                title = title[..MaxBookmarkTitleChars].Trim();
+            }
+
+            results.Add(new Bookmark(node.Level, pageNumber.Value, topY, title));
+        }
+
+        return results;
+    }
+
+    private static List<Bookmark> FilterBookmarks(
+        List<Bookmark> candidates,
+        int pageCount,
+        int maxTitleWords = MaxBookmarkTitleWords)
+    {
+        if (candidates.Count == 0)
+        {
+            return [];
+        }
+
+        var normalizedFrequencies = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in candidates)
+        {
+            var title = RemediationHelpers.NormalizeWhitespace(candidate.Title).Trim();
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                continue;
+            }
+
+            var key = BookmarkTitleKey(title);
+            if (key.Length == 0)
+            {
+                continue;
+            }
+
+            normalizedFrequencies[key] = normalizedFrequencies.GetValueOrDefault(key) + 1;
+        }
+
+        var repeatedTitleThreshold = GetRepeatedTitleThreshold(pageCount);
+        var emittedByTitle = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        var results = new List<Bookmark>(Math.Min(candidates.Count, MaxBookmarks));
+        string? lastKey = null;
+        var lastPage = -1;
+
+        foreach (var candidate in candidates)
+        {
+            var title = RemediationHelpers.NormalizeWhitespace(candidate.Title).Trim();
+            if (!IsLikelyBookmarkTitle(title, maxTitleWords))
+            {
+                continue;
+            }
+
+            var key = BookmarkTitleKey(title);
+            if (key.Length == 0)
+            {
+                continue;
+            }
+
+            if (lastKey is not null && string.Equals(key, lastKey, StringComparison.OrdinalIgnoreCase) && Math.Abs(candidate.PageNumber - lastPage) <= 1)
+            {
+                continue;
+            }
+
+            if (normalizedFrequencies.TryGetValue(key, out var freq) && freq >= repeatedTitleThreshold)
+            {
+                if (emittedByTitle.TryGetValue(key, out var emitted) && emitted >= 1)
+                {
+                    continue;
+                }
+            }
+
+            emittedByTitle[key] = emittedByTitle.GetValueOrDefault(key) + 1;
+
+            results.Add(candidate with { Title = title });
+
+            lastKey = key;
+            lastPage = candidate.PageNumber;
+
+            if (results.Count >= MaxBookmarks)
+            {
+                break;
+            }
+        }
+
+        return results;
+    }
+
+    private static bool IsSufficientBookmarkSet(List<Bookmark> bookmarks, int pageCount)
+    {
+        if (bookmarks.Count == 0)
+        {
+            return false;
+        }
+
+        var minimum = GetMinimumBookmarkCount(pageCount);
+        if (bookmarks.Count >= minimum)
+        {
+            return true;
+        }
+
+        // Small docs often legitimately have only a single heading.
+        return pageCount <= 3 && bookmarks.Count >= 1;
+    }
+
+    private static int GetMinimumBookmarkCount(int pageCount)
+    {
+        if (pageCount <= 0)
+        {
+            return 0;
+        }
+
+        var raw = (int)Math.Ceiling(pageCount / (double)TargetPagesPerBookmark);
+        return Math.Clamp(raw, 1, 50);
+    }
+
+    private static int BookmarkScore(List<Bookmark> bookmarks)
+    {
+        if (bookmarks.Count == 0)
+        {
+            return 0;
+        }
+
+        var distinctPages = bookmarks.Select(b => b.PageNumber).Distinct().Count();
+        return (distinctPages * 1000) + bookmarks.Count;
+    }
+
+    private static int GetRepeatedTitleThreshold(int pageCount)
+    {
+        if (pageCount <= 0)
+        {
+            return 6;
+        }
+
+        return Math.Max(6, (int)Math.Ceiling(pageCount * 0.20));
+    }
+
+    private static string BookmarkTitleKey(string title)
+    {
+        title = RemediationHelpers.NormalizeWhitespace(title).Trim();
+        if (title.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        // Avoid treating harmless punctuation differences as separate titles.
+        title = title.TrimEnd('.', ':', ';', '-', '–', '—');
+        return title.Trim().ToLowerInvariant();
+    }
+
+    private static bool IsLikelyBookmarkTitle(string title, int maxWords)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return false;
+        }
+
+        title = RemediationHelpers.NormalizeWhitespace(title).Trim();
+        if (title.Length < 2)
+        {
+            return false;
+        }
+
+        var wordCount = CountWords(title);
+        if (wordCount == 0 || wordCount > maxWords)
+        {
+            return false;
+        }
+
+        var hasLetter = title.Any(char.IsLetter);
+        if (!hasLetter)
+        {
+            return false;
+        }
+
+        // Heuristic: avoid sentence-like strings that are probably body text.
+        if (wordCount > 6 && (title.EndsWith('.') || title.EndsWith('!') || title.EndsWith('?')))
+        {
+            return false;
+        }
+
+        if (wordCount > 8 && title.Contains(". ", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static int CountWords(string text)
+    {
+        var count = 0;
+        var inWord = false;
+
+        foreach (var ch in text)
+        {
+            if (char.IsWhiteSpace(ch))
+            {
+                inWord = false;
+                continue;
+            }
+
+            if (!inWord)
+            {
+                count++;
+                inWord = true;
+            }
+        }
+
+        return count;
     }
 
     private static bool HasOutlines(PdfDocument pdf)
@@ -203,26 +526,52 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
         string? TitleFallback,
         int DocumentOrder);
 
+    private sealed record SectionNode(
+        int Level,
+        IReadOnlyList<McidRef> McidRefs,
+        int? PageNumberFromPg,
+        string? TitleFallback,
+        int DocumentOrder);
+
     private sealed record McidRef(int PageNumber, int Mcid);
 
     private sealed record McidText(string Text, Rectangle? Bounds);
 
-    private static (string Text, float? TopY) BuildHeadingTextAndTopY(
-        HeadingNode node,
-        IReadOnlyDictionary<int, IReadOnlyDictionary<int, McidText>> pageMcidTextMaps)
+    private static int? TryGetNodeDestinationPageNumber(HeadingNode node)
     {
-        var seen = new HashSet<(int Page, int Mcid)>();
+        return node.McidRefs.Count > 0 ? node.McidRefs[0].PageNumber : node.PageNumberFromPg;
+    }
+
+    private static int? TryGetNodeDestinationPageNumber(SectionNode node)
+    {
+        return node.McidRefs.Count > 0 ? node.McidRefs[0].PageNumber : node.PageNumberFromPg;
+    }
+
+    private static (string Text, float? TopY) BuildTextAndTopYFromMcids(
+        IReadOnlyList<McidRef> mcidRefs,
+        int destinationPageNumber,
+        IReadOnlyDictionary<int, IReadOnlyDictionary<int, McidText>> pageMcidTextMaps,
+        int maxTitleChars,
+        int maxTitleWords)
+    {
+        if (!pageMcidTextMaps.TryGetValue(destinationPageNumber, out var mcidMap) || mcidMap.Count == 0)
+        {
+            return (string.Empty, TopY: null);
+        }
+
+        var seen = new HashSet<int>();
         var sb = new StringBuilder();
         float? topY = null;
+        var wordCount = 0;
 
-        foreach (var mcidRef in node.McidRefs)
+        foreach (var mcidRef in mcidRefs)
         {
-            if (!seen.Add((mcidRef.PageNumber, mcidRef.Mcid)))
+            if (mcidRef.PageNumber != destinationPageNumber)
             {
                 continue;
             }
 
-            if (!pageMcidTextMaps.TryGetValue(mcidRef.PageNumber, out var mcidMap))
+            if (!seen.Add(mcidRef.Mcid))
             {
                 continue;
             }
@@ -240,6 +589,7 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
                 }
 
                 sb.Append(mcidText.Text);
+                wordCount += CountWords(mcidText.Text);
             }
 
             if (mcidText.Bounds is not null)
@@ -247,9 +597,20 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
                 var candidateTop = mcidText.Bounds.GetY() + mcidText.Bounds.GetHeight();
                 topY = topY is null ? candidateTop : Math.Max(topY.Value, candidateTop);
             }
+
+            if (sb.Length >= maxTitleChars || wordCount >= maxTitleWords)
+            {
+                break;
+            }
         }
 
-        return (sb.ToString(), topY);
+        var text = RemediationHelpers.NormalizeWhitespace(sb.ToString());
+        if (text.Length > maxTitleChars)
+        {
+            text = text[..maxTitleChars].Trim();
+        }
+
+        return (text, topY);
     }
 
     private static IReadOnlyDictionary<int, McidText> CollectMcidText(PdfPage page)
@@ -411,7 +772,7 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
             var resolvedRole = ResolveRole(role, roleMap);
             if (TryGetHeadingLevel(resolvedRole, out var level))
             {
-                var mcidRefs = CollectMcidRefs(dict, pageObjNumToPageNumber);
+                var mcidRefs = CollectMcidRefs(dict, pageObjNumToPageNumber, maxRefs: MaxMcidRefsPerCandidate);
                 var pageNumberFromPg = TryResolvePageNumber(dict.GetAsDictionary(PdfName.Pg), pageObjNumToPageNumber);
                 var titleFallback = GetTitleFallback(dict);
 
@@ -425,6 +786,67 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
         {
             TraverseTagTreeForHeadings(kids, roleMap, pageObjNumToPageNumber, results, ref order, cancellationToken);
         }
+    }
+
+    private static void TraverseTagTreeForSections(
+        PdfObject node,
+        PdfDictionary? roleMap,
+        Dictionary<int, int> pageObjNumToPageNumber,
+        List<SectionNode> results,
+        ref int order,
+        int sectionDepth,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        node = Dereference(node);
+
+        if (node is PdfArray array)
+        {
+            foreach (var item in array)
+            {
+                TraverseTagTreeForSections(item, roleMap, pageObjNumToPageNumber, results, ref order, sectionDepth, cancellationToken);
+            }
+
+            return;
+        }
+
+        if (node is not PdfDictionary dict || !IsStructElemDictionary(dict))
+        {
+            return;
+        }
+
+        var role = dict.GetAsName(PdfName.S);
+        var resolvedRole = role is null ? null : ResolveRole(role, roleMap);
+
+        var isSection = resolvedRole is not null && IsSectionRole(resolvedRole);
+        var childDepth = sectionDepth;
+
+        if (isSection)
+        {
+            var level = Math.Clamp(sectionDepth + 1, 1, 6);
+            var mcidRefs = CollectMcidRefs(dict, pageObjNumToPageNumber, maxRefs: MaxMcidRefsPerCandidate);
+            var pageNumberFromPg = TryResolvePageNumber(dict.GetAsDictionary(PdfName.Pg), pageObjNumToPageNumber);
+            var titleFallback = GetTitleFallback(dict);
+
+            results.Add(new SectionNode(level, mcidRefs, pageNumberFromPg, titleFallback, DocumentOrder: order));
+            order++;
+
+            childDepth = sectionDepth + 1;
+        }
+
+        var kids = dict.Get(PdfName.K);
+        if (kids is not null)
+        {
+            TraverseTagTreeForSections(kids, roleMap, pageObjNumToPageNumber, results, ref order, childDepth, cancellationToken);
+        }
+    }
+
+    private static bool IsSectionRole(PdfName role)
+    {
+        var value = role.GetValue();
+        return string.Equals(value, "Sect", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "Part", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryGetHeadingLevel(PdfName role, out int level)
@@ -512,7 +934,10 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
         }
     }
 
-    private static IReadOnlyList<McidRef> CollectMcidRefs(PdfDictionary structElem, Dictionary<int, int> pageObjNumToPageNumber)
+    private static IReadOnlyList<McidRef> CollectMcidRefs(
+        PdfDictionary structElem,
+        Dictionary<int, int> pageObjNumToPageNumber,
+        int maxRefs)
     {
         var defaultPageDict = structElem.GetAsDictionary(PdfName.Pg);
         var kids = structElem.Get(PdfName.K);
@@ -522,7 +947,7 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
         }
 
         var mcids = new List<McidRef>();
-        CollectMcidRefsRecursive(kids, defaultPageDict, pageObjNumToPageNumber, mcids);
+        CollectMcidRefsRecursive(kids, defaultPageDict, pageObjNumToPageNumber, mcids, maxRefs);
         return mcids;
     }
 
@@ -530,15 +955,25 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
         PdfObject node,
         PdfDictionary? inheritedPageDict,
         Dictionary<int, int> pageObjNumToPageNumber,
-        List<McidRef> results)
+        List<McidRef> results,
+        int maxRefs)
     {
+        if (results.Count >= maxRefs)
+        {
+            return;
+        }
+
         node = Dereference(node);
 
         if (node is PdfArray array)
         {
             foreach (var item in array)
             {
-                CollectMcidRefsRecursive(item, inheritedPageDict, pageObjNumToPageNumber, results);
+                CollectMcidRefsRecursive(item, inheritedPageDict, pageObjNumToPageNumber, results, maxRefs);
+                if (results.Count >= maxRefs)
+                {
+                    return;
+                }
             }
 
             return;
@@ -566,7 +1001,7 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
             var kids = dict.Get(PdfName.K);
             if (kids is not null)
             {
-                CollectMcidRefsRecursive(kids, nestedPageDict, pageObjNumToPageNumber, results);
+                CollectMcidRefsRecursive(kids, nestedPageDict, pageObjNumToPageNumber, results, maxRefs);
             }
 
             return;
