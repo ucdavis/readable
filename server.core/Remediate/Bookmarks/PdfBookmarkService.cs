@@ -671,6 +671,8 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
     {
         private readonly StringBuilder _text = new();
         private bool _hasText;
+        private Rectangle? _lastFragmentBounds;
+        private int _lastFragmentNonWhitespaceChars;
 
         public Rectangle? Bounds { get; private set; }
 
@@ -683,16 +685,73 @@ public sealed class PdfBookmarkService : IPdfBookmarkService
 
             if (_hasText && _text.Length > 0 && !char.IsWhiteSpace(_text[^1]) && !char.IsWhiteSpace(text[0]))
             {
-                _text.Append(' ');
+                if (ShouldInsertSpaceBefore(bounds))
+                {
+                    _text.Append(' ');
+                }
             }
 
             _text.Append(text);
             _hasText = true;
 
+            _lastFragmentBounds = bounds;
+            _lastFragmentNonWhitespaceChars = CountNonWhitespaceChars(text);
+
             Bounds = Bounds is null ? bounds : Union(Bounds, bounds);
         }
 
         public string GetText() => RemediationHelpers.NormalizeWhitespace(_text.ToString());
+
+        private bool ShouldInsertSpaceBefore(Rectangle nextBounds)
+        {
+            if (_lastFragmentBounds is null || _lastFragmentNonWhitespaceChars <= 0)
+            {
+                return true;
+            }
+
+            var last = _lastFragmentBounds;
+            var overlap = VerticalOverlap(last, nextBounds);
+            var minHeight = Math.Min(last.GetHeight(), nextBounds.GetHeight());
+            var sameLine = overlap >= minHeight * 0.2f;
+            if (!sameLine)
+            {
+                return true;
+            }
+
+            var gapX = nextBounds.GetX() - (last.GetX() + last.GetWidth());
+            if (gapX <= 0)
+            {
+                return false;
+            }
+
+            var avgCharWidth = last.GetWidth() / Math.Max(1, _lastFragmentNonWhitespaceChars);
+            var threshold = Math.Max(0.75f, avgCharWidth * 0.35f);
+            return gapX >= threshold;
+        }
+
+        private static float VerticalOverlap(Rectangle a, Rectangle b)
+        {
+            var aBottom = a.GetY();
+            var aTop = a.GetY() + a.GetHeight();
+            var bBottom = b.GetY();
+            var bTop = b.GetY() + b.GetHeight();
+
+            return Math.Max(0, Math.Min(aTop, bTop) - Math.Max(aBottom, bBottom));
+        }
+
+        private static int CountNonWhitespaceChars(string text)
+        {
+            var count = 0;
+            foreach (var ch in text)
+            {
+                if (!char.IsWhiteSpace(ch))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
     }
 
     private static Rectangle Union(Rectangle a, Rectangle b)

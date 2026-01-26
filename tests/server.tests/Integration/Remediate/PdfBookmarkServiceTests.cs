@@ -1,5 +1,6 @@
 using FluentAssertions;
 using iText.Kernel.Pdf;
+using iText.Kernel.Pdf.Navigation;
 using iText.Layout;
 using iText.Layout.Properties;
 using iText.Layout.Element;
@@ -41,6 +42,10 @@ public sealed class PdfBookmarkServiceTests
 
             var outlineRoot = outputPdf.GetOutlines(updateOutlines: true);
             outlineRoot.GetAllChildren().Count.Should().BeGreaterThan(0);
+
+            var titles = ListOutlineTitles(outlineRoot).ToArray();
+            titles.Should().Contain(t => t.Contains("delayed", StringComparison.OrdinalIgnoreCase));
+            titles.Should().NotContain(t => t.Contains("dela y", StringComparison.OrdinalIgnoreCase));
         }
         finally
         {
@@ -302,8 +307,24 @@ public sealed class PdfBookmarkServiceTests
             var section = new Paragraph($"Section {i}");
             section.GetAccessibilityProperties().SetRole("Sect");
             doc.Add(section);
-
             doc.Add(new Paragraph($"Body text for section {i}."));
+        }
+    }
+
+    private static IEnumerable<string> ListOutlineTitles(PdfOutline outline)
+    {
+        foreach (var child in outline.GetAllChildren())
+        {
+            var title = child.GetTitle();
+            if (!string.IsNullOrWhiteSpace(title))
+            {
+                yield return title;
+            }
+
+            foreach (var nested in ListOutlineTitles(child))
+            {
+                yield return nested;
+            }
         }
     }
 }
