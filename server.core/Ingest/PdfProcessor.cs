@@ -239,11 +239,12 @@ public sealed class PdfProcessor : IPdfProcessor
 
     private static SourcePdfInfo ReadSourcePdfInfo(string pdfPath)
     {
+        var pageCount = 0;
         try
         {
             using var pdf = new PdfDocument(new PdfReader(pdfPath));
 
-            var pageCount = pdf.GetNumberOfPages();
+            pageCount = pdf.GetNumberOfPages();
 
             if (!pdf.IsTagged())
             {
@@ -273,7 +274,7 @@ public sealed class PdfProcessor : IPdfProcessor
         }
         catch
         {
-            return new SourcePdfInfo(0, PdfTaggingState.Unknown);
+            return new SourcePdfInfo(pageCount, PdfTaggingState.Unknown);
         }
     }
 
