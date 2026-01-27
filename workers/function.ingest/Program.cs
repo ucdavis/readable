@@ -42,6 +42,10 @@ builder.Services.AddFileIngest(o =>
 
     o.UseAdobePdfServices = true;
     o.UsePdfRemediationProcessor = true;
+    // Default: skip autotagging for already-tagged PDFs (e.g., Office exports) unless explicitly enabled.
+    o.AutotagTaggedPdfs =
+        builder.Configuration.GetValue<bool>("Ingest:AutotagTaggedPdfs")
+        || builder.Configuration.GetValue<bool>("INGEST_AUTOTAG_TAGGED_PDFS");
     // Feature flag (default off): enable with Ingest:UsePdfBookmarks or INGEST_USE_PDF_BOOKMARKS=true.
     o.UsePdfBookmarks =
         builder.Configuration.GetValue<bool>("Ingest:UsePdfBookmarks")

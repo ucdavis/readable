@@ -11,6 +11,7 @@
     <PackageReference Include="itext" Version="9.4.0" />
     <PackageReference Include="itext.bouncy-castle-adapter" Version="9.4.0" />
     <PackageReference Include="OpenAI" Version="2.7.0" />
+    <PackageReference Include="Panlingo.LanguageIdentification.Whatlang" Version="0.7.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.21" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.26.0" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.13.1" />

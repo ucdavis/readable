@@ -163,6 +163,55 @@ public sealed class PdfProcessorIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task ProcessAsync_WithAdobeEnabledAndTaggedPdf_SkipsAutotagByDefault()
+    {
+        var fileId = $"pdf-tagged-adobe-skip-test-{Guid.NewGuid():N}";
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", fileId);
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var repoRoot = FindRepoRoot();
+            var inputPdfPath = Path.Combine(repoRoot, "tests", "server.tests", "Fixtures", "pdfs", "tagged-missing-alt.pdf");
+            File.Exists(inputPdfPath).Should().BeTrue($"fixture should exist at {inputPdfPath}");
+
+            await using var inputStream = File.OpenRead(inputPdfPath);
+
+            using var loggerFactory = LoggerFactory.Create(_ => { });
+            var adobe = new CapturingAdobePdfServices();
+            var remediation = new NoopPdfRemediationProcessor();
+            var options = Options.Create(new PdfProcessorOptions
+            {
+                UseAdobePdfServices = true,
+                UsePdfRemediationProcessor = false,
+                MaxPagesPerChunk = 2,
+                WorkDirRoot = runRoot
+            });
+
+            var sut = new PdfProcessor(adobe, remediation, options, loggerFactory.CreateLogger<PdfProcessor>());
+
+            var result = await sut.ProcessAsync(fileId, inputStream, CancellationToken.None);
+
+            adobe.Calls.Should().BeEmpty("already-tagged PDFs should skip Adobe autotagging by default");
+            result.OutputPdfPath.Should().EndWith(".source.pdf");
+
+            using var output = new PdfDocument(new PdfReader(result.OutputPdfPath));
+            output.IsTagged().Should().BeTrue();
+
+            var workDir = Path.Combine(runRoot, "readable-ingest", fileId);
+            Directory.GetFiles(workDir, "*.part*.pdf").Should().BeEmpty();
+            File.Exists(Path.Combine(workDir, $"{fileId}.tagged.pdf")).Should().BeFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
     private sealed record AdobeCall(string InputPdfPath, string OutputTaggedPdfPath, string OutputTaggingReportPath);
 
     private sealed class CapturingAdobePdfServices : IAdobePdfServices

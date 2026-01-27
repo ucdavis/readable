@@ -18,6 +18,12 @@ public sealed class PdfProcessorOptions
     /// </summary>
     public bool UsePdfBookmarks { get; set; }
 
+    /// <summary>
+    /// When true, the pipeline will run Adobe autotagging even if the incoming PDF is already tagged.
+    /// When false, tagged PDFs will skip autotagging unless the tag tree looks obviously broken.
+    /// </summary>
+    public bool AutotagTaggedPdfs { get; set; }
+
     public int MaxPagesPerChunk { get; set; } = 200;
 
     /// <summary>

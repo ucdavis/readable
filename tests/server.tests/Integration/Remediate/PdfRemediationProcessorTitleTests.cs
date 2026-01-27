@@ -23,7 +23,7 @@ public sealed class PdfRemediationProcessorTitleTests
             var inputPdfPath = Path.Combine(runRoot, "input.pdf");
             CreatePdf(
                 inputPdfPath,
-                title: "Old Title",
+                title: null,
                 pages:
                 [
                     MakePageText("PAGE1TOKEN", wordCount: 40),
@@ -48,7 +48,7 @@ public sealed class PdfRemediationProcessorTitleTests
                 cancellationToken: CancellationToken.None);
 
             titleService.Requests.Should().ContainSingle();
-            titleService.Requests[0].CurrentTitle.Should().Be("Old Title");
+            titleService.Requests[0].CurrentTitle.Should().BeEmpty();
 
             titleService.Requests[0].ExtractedText.Should().Contain("PAGE1TOKEN");
             titleService.Requests[0].ExtractedText.Should().Contain("PAGE2TOKEN");
@@ -57,6 +57,54 @@ public sealed class PdfRemediationProcessorTitleTests
 
             using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
             outputPdf.GetDocumentInfo().GetTitle().Should().Be("New Generated Title");
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WhenEnoughTextAndHasTitle_KeepsExistingTitleWithoutCallingAi()
+    {
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-title-keep-enough-text-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreatePdf(
+                inputPdfPath,
+                title: "Existing Title",
+                pages:
+                [
+                    MakePageText("PAGE1TOKEN", wordCount: 40),
+                    MakePageText("PAGE2TOKEN", wordCount: 40),
+                    MakePageText("PAGE3TOKEN", wordCount: 40),
+                ]);
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+
+            var titleService = new CapturingPdfTitleService { TitleToReturn = "New Generated Title" };
+            var sut = new PdfRemediationProcessor(
+                new ThrowingAltTextService(),
+                new NoopPdfBookmarkService(),
+                titleService,
+                NullLogger<PdfRemediationProcessor>.Instance);
+
+            await sut.ProcessAsync(
+                fileId: "fixture",
+                inputPdfPath: inputPdfPath,
+                outputPdfPath: outputPdfPath,
+                cancellationToken: CancellationToken.None);
+
+            titleService.Requests.Should().BeEmpty();
+
+            using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
+            outputPdf.GetDocumentInfo().GetTitle().Should().Be("Existing Title");
         }
         finally
         {
