@@ -409,6 +409,18 @@ internal static class PdfTableSummaryRemediator
 
     private static string? TryGetAnySummaryFromAttributeDict(PdfDictionary dict)
     {
+        var tableOwned = TryGetTableSummaryFromAttributeDict(dict);
+        if (!string.IsNullOrWhiteSpace(tableOwned))
+        {
+            return tableOwned;
+        }
+
+        var owner = dict.GetAsName(AttrOwnerKey);
+        if (owner is not null && !AttrOwnerTable.Equals(owner))
+        {
+            return null;
+        }
+
         var summary = dict.GetAsString(AttrSummaryKey)?.ToUnicodeString();
         summary = RemediationHelpers.NormalizeWhitespace(summary ?? string.Empty);
         return string.IsNullOrWhiteSpace(summary) ? null : summary;
