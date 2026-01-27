@@ -1,5 +1,6 @@
 using System.Text;
 using iText.IO.Font;
+using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas.Parser;
 using iText.Kernel.Pdf.Canvas.Parser.Data;
@@ -277,7 +278,7 @@ internal static class PdfTableSummaryRemediator
 
     private sealed class McidTextListener : IEventListener
     {
-        private readonly Dictionary<int, StringBuilder> _byMcid = new();
+        private readonly Dictionary<int, McidTextState> _byMcid = new();
 
         public void EventOccurred(IEventData data, EventType type)
         {
@@ -298,13 +299,13 @@ internal static class PdfTableSummaryRemediator
                 return;
             }
 
-            if (!_byMcid.TryGetValue(mcid, out var sb))
+            if (!_byMcid.TryGetValue(mcid, out var state))
             {
-                sb = new StringBuilder();
-                _byMcid[mcid] = sb;
+                state = new McidTextState();
+                _byMcid[mcid] = state;
             }
 
-            AppendWithWordBoundary(sb, text);
+            state.Append(tri, text);
         }
 
         public ICollection<EventType> GetSupportedEvents() => new[] { EventType.RENDER_TEXT };
@@ -312,9 +313,9 @@ internal static class PdfTableSummaryRemediator
         public Dictionary<int, string> GetTextByMcid()
         {
             var result = new Dictionary<int, string>();
-            foreach (var (mcid, sb) in _byMcid)
+            foreach (var (mcid, state) in _byMcid)
             {
-                var text = RemediationHelpers.NormalizeWhitespace(sb.ToString());
+                var text = RemediationHelpers.NormalizeWhitespace(state.Text.ToString());
                 if (!string.IsNullOrWhiteSpace(text))
                 {
                     result[mcid] = text;
@@ -322,6 +323,62 @@ internal static class PdfTableSummaryRemediator
             }
 
             return result;
+        }
+
+        private sealed class McidTextState
+        {
+            public StringBuilder Text { get; } = new();
+
+            private Vector? _lastBaselineEnd;
+
+            public void Append(TextRenderInfo tri, string text)
+            {
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    return;
+                }
+
+                var baseline = tri.GetBaseline();
+                var start = baseline.GetStartPoint();
+                var end = baseline.GetEndPoint();
+
+                TryAppendSpaceIfGapIndicatesWordBoundary(tri, start, text);
+                Text.Append(text);
+                _lastBaselineEnd = end;
+            }
+
+            private void TryAppendSpaceIfGapIndicatesWordBoundary(TextRenderInfo tri, Vector start, string text)
+            {
+                if (Text.Length == 0 || _lastBaselineEnd is null)
+                {
+                    return;
+                }
+
+                var lastChar = Text[^1];
+                var firstChar = text[0];
+                if (char.IsWhiteSpace(lastChar) || char.IsWhiteSpace(firstChar))
+                {
+                    return;
+                }
+
+                var spaceWidth = tri.GetSingleSpaceWidth();
+                if (spaceWidth <= 0)
+                {
+                    spaceWidth = 3f;
+                }
+
+                // Use baseline endpoints to detect gaps: adjacent glyph runs should have ~0 gap, while a word
+                // boundary typically advances by approximately one space width. This avoids the "D i s a b i l i t y"
+                // style output when PDFs render text as separate glyph operations.
+                var dx = start.Get(0) - _lastBaselineEnd.Get(0);
+                var dy = start.Get(1) - _lastBaselineEnd.Get(1);
+                var distance = MathF.Sqrt((dx * dx) + (dy * dy));
+
+                if (distance > (spaceWidth * 0.5f))
+                {
+                    Text.Append(' ');
+                }
+            }
         }
     }
 
