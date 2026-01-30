@@ -57,6 +57,7 @@ public sealed class PdfRemediationProcessorTitleTests
 
             using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
             outputPdf.GetDocumentInfo().GetTitle().Should().Be("New Generated Title");
+            GetDisplayDocTitle(outputPdf).Should().BeTrue();
         }
         finally
         {
@@ -105,6 +106,7 @@ public sealed class PdfRemediationProcessorTitleTests
 
             using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
             outputPdf.GetDocumentInfo().GetTitle().Should().Be("Existing Title");
+            GetDisplayDocTitle(outputPdf).Should().BeTrue();
         }
         finally
         {
@@ -153,6 +155,7 @@ public sealed class PdfRemediationProcessorTitleTests
 
             using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
             outputPdf.GetDocumentInfo().GetTitle().Should().Be("Untitled PDF document");
+            GetDisplayDocTitle(outputPdf).Should().BeTrue();
         }
         finally
         {
@@ -201,6 +204,7 @@ public sealed class PdfRemediationProcessorTitleTests
 
             using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
             outputPdf.GetDocumentInfo().GetTitle().Should().Be("Existing Title");
+            GetDisplayDocTitle(outputPdf).Should().BeTrue();
         }
         finally
         {
@@ -237,6 +241,14 @@ public sealed class PdfRemediationProcessorTitleTests
 
             doc.Add(new Paragraph(pages[i]));
         }
+    }
+
+    private static bool GetDisplayDocTitle(PdfDocument pdf)
+    {
+        var catalogDict = pdf.GetCatalog().GetPdfObject();
+        var viewerPrefs = catalogDict.GetAsDictionary(PdfName.ViewerPreferences);
+        var displayDocTitle = viewerPrefs?.Get(new PdfName("DisplayDocTitle"));
+        return displayDocTitle is PdfBoolean b && b.GetValue();
     }
 
     private sealed class ThrowingAltTextService : IAltTextService
