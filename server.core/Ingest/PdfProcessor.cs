@@ -99,7 +99,19 @@ public sealed class PdfProcessor : IPdfProcessor
         if (_options.UseAdobePdfServices)
         {
             var outputTaggedPath = Path.Combine(workDir, $"{safeFileId}.tagged.pdf");
-            var sourceInfo = ReadSourcePdfInfo(sourcePath);
+            var sourceInfo = ReadSourcePdfInfo(
+                sourcePath,
+                beforeAccessibilityReport?.ReportJson,
+                out var retagTriggers,
+                out var retagDecisionError);
+            if (!string.IsNullOrWhiteSpace(retagDecisionError))
+            {
+                _logger.LogDebug(
+                    "Could not evaluate BEFORE accessibility report retag triggers for {fileId}: {error}",
+                    fileId,
+                    retagDecisionError);
+            }
+
             if (sourceInfo.TaggingState == PdfTaggingState.TaggedUsable && !_options.AutotagTaggedPdfs)
             {
                 _logger.LogInformation("Skipping Adobe autotagging for {fileId}: PDF is already tagged.", fileId);
@@ -113,7 +125,17 @@ public sealed class PdfProcessor : IPdfProcessor
                 }
                 else if (sourceInfo.TaggingState == PdfTaggingState.TaggedBroken)
                 {
-                    _logger.LogWarning("PDF appears tagged but tag tree looks incomplete; autotagging {fileId}.", fileId);
+                    if (retagTriggers.Count > 0)
+                    {
+                        _logger.LogWarning(
+                            "BEFORE accessibility report indicates tag/structure issues ({triggers}); autotagging {fileId}.",
+                            string.Join(", ", retagTriggers),
+                            fileId);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("PDF appears tagged but tag tree looks incomplete; autotagging {fileId}.", fileId);
+                    }
                 }
 
                 if (sourceInfo.PageCount <= _options.MaxPagesPerChunk)
@@ -237,8 +259,15 @@ public sealed class PdfProcessor : IPdfProcessor
 
     private sealed record SourcePdfInfo(int PageCount, PdfTaggingState TaggingState);
 
-    private static SourcePdfInfo ReadSourcePdfInfo(string pdfPath)
+    private static SourcePdfInfo ReadSourcePdfInfo(
+        string pdfPath,
+        string? beforeAccessibilityReportJson,
+        out IReadOnlyList<string> retagTriggers,
+        out string? retagDecisionError)
     {
+        retagTriggers = Array.Empty<string>();
+        retagDecisionError = null;
+
         var pageCount = 0;
         try
         {
@@ -249,6 +278,23 @@ public sealed class PdfProcessor : IPdfProcessor
             if (!pdf.IsTagged())
             {
                 return new SourcePdfInfo(pageCount, PdfTaggingState.Untagged);
+            }
+
+            if (AdobeAccessibilityReportRetagDecider.TryShouldRetag(
+                beforeAccessibilityReportJson,
+                out var shouldRetag,
+                out var triggers,
+                out var error))
+            {
+                if (shouldRetag)
+                {
+                    retagTriggers = triggers;
+                    return new SourcePdfInfo(pageCount, PdfTaggingState.TaggedBroken);
+                }
+            }
+            else
+            {
+                retagDecisionError = error;
             }
 
             var catalog = pdf.GetCatalog().GetPdfObject();

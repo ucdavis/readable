@@ -20,7 +20,8 @@ public sealed class PdfProcessorOptions
 
     /// <summary>
     /// When true, the pipeline will run Adobe autotagging even if the incoming PDF is already tagged.
-    /// When false, tagged PDFs will skip autotagging unless the tag tree looks obviously broken.
+    /// When false, tagged PDFs will skip autotagging unless the BEFORE accessibility report indicates major
+    /// tag/structure problems (e.g., "Tagged content", "Tab order") or the tag tree looks obviously broken.
     /// </summary>
     public bool AutotagTaggedPdfs { get; set; }
 
