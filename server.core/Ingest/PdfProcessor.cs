@@ -270,12 +270,91 @@ public sealed class PdfProcessor : IPdfProcessor
                 return new SourcePdfInfo(pageCount, PdfTaggingState.TaggedBroken);
             }
 
+            // Some PDFs present as "tagged" but contain an effectively empty tag tree (e.g., a single /Document
+            // struct elem with no marked-content references). Treat these as broken so we can force re-tagging.
+            if (!TagTreeHasContentItems(rootKids))
+            {
+                return new SourcePdfInfo(pageCount, PdfTaggingState.TaggedBroken);
+            }
+
             return new SourcePdfInfo(pageCount, PdfTaggingState.TaggedUsable);
         }
         catch
         {
             return new SourcePdfInfo(pageCount, PdfTaggingState.Unknown);
         }
+    }
+
+    private static bool TagTreeHasContentItems(PdfObject rootKids)
+    {
+        const int maxNodesToScan = 20_000;
+
+        var visited = new HashSet<(int objNum, int genNum)>();
+        var stack = new Stack<PdfObject>();
+        stack.Push(rootKids);
+
+        var nodesScanned = 0;
+        while (stack.Count > 0 && nodesScanned < maxNodesToScan)
+        {
+            var node = stack.Pop();
+            node = Dereference(node, visited);
+            nodesScanned++;
+
+            if (node is PdfArray array)
+            {
+                foreach (var item in array)
+                {
+                    stack.Push(item);
+                }
+
+                continue;
+            }
+
+            if (node is PdfNumber)
+            {
+                // Integers in a structure element's /K can represent MCIDs.
+                return true;
+            }
+
+            if (node is not PdfDictionary dict)
+            {
+                continue;
+            }
+
+            if (dict.GetAsNumber(PdfName.MCID) is not null)
+            {
+                return true;
+            }
+
+            if (dict.Get(PdfName.Obj) is not null)
+            {
+                return true;
+            }
+
+            var kids = dict.Get(PdfName.K);
+            if (kids is not null && kids is not PdfNull)
+            {
+                stack.Push(kids);
+            }
+        }
+
+        return false;
+    }
+
+    private static PdfObject Dereference(PdfObject obj, HashSet<(int objNum, int genNum)> visited)
+    {
+        if (obj is PdfIndirectReference reference)
+        {
+            var key = (reference.GetObjNumber(), reference.GetGenNumber());
+            if (!visited.Add(key))
+            {
+                return new PdfNull();
+            }
+
+            return reference.GetRefersTo(true) ?? new PdfNull();
+        }
+
+        return obj;
     }
 
     /// <summary>

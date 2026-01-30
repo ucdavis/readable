@@ -212,6 +212,47 @@ public sealed class PdfProcessorIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task ProcessAsync_WithAdobeEnabledAndTriviallyTaggedPdf_Autotags()
+    {
+        var fileId = $"pdf-tagged-adobe-trivial-test-{Guid.NewGuid():N}";
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", fileId);
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateTriviallyTaggedPdf(inputPdfPath);
+
+            await using var inputStream = File.OpenRead(inputPdfPath);
+
+            using var loggerFactory = LoggerFactory.Create(_ => { });
+            var adobe = new CapturingAdobePdfServices();
+            var remediation = new NoopPdfRemediationProcessor();
+            var options = Options.Create(new PdfProcessorOptions
+            {
+                UseAdobePdfServices = true,
+                UsePdfRemediationProcessor = false,
+                MaxPagesPerChunk = 200,
+                WorkDirRoot = runRoot
+            });
+
+            var sut = new PdfProcessor(adobe, remediation, options, loggerFactory.CreateLogger<PdfProcessor>());
+
+            var result = await sut.ProcessAsync(fileId, inputStream, CancellationToken.None);
+
+            adobe.Calls.Should().ContainSingle("trivially-tagged PDFs should be treated as broken and re-tagged");
+            result.OutputPdfPath.Should().EndWith(".tagged.pdf");
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
     private sealed record AdobeCall(string InputPdfPath, string OutputTaggedPdfPath, string OutputTaggingReportPath);
 
     private sealed class CapturingAdobePdfServices : IAdobePdfServices
@@ -281,6 +322,44 @@ public sealed class PdfProcessorIntegrationTests
         {
             pdf.AddNewPage();
         }
+    }
+
+    private static void CreateTriviallyTaggedPdf(string outputPath)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+
+        using (var pdf = new PdfDocument(new PdfWriter(outputPath)))
+        {
+            pdf.AddNewPage();
+
+            var catalog = pdf.GetCatalog().GetPdfObject();
+
+            var structTreeRoot = new PdfDictionary();
+            structTreeRoot.MakeIndirect(pdf);
+            structTreeRoot.Put(PdfName.Type, PdfName.StructTreeRoot);
+
+            var parentTree = new PdfDictionary();
+            parentTree.MakeIndirect(pdf);
+            structTreeRoot.Put(PdfName.ParentTree, parentTree);
+
+            var documentElem = new PdfDictionary();
+            documentElem.MakeIndirect(pdf);
+            documentElem.Put(PdfName.Type, new PdfName("StructElem"));
+            documentElem.Put(PdfName.S, new PdfName("Document"));
+            documentElem.Put(PdfName.P, structTreeRoot);
+
+            structTreeRoot.Put(PdfName.K, documentElem);
+
+            var markInfo = new PdfDictionary();
+            markInfo.MakeIndirect(pdf);
+            markInfo.Put(PdfName.Marked, PdfBoolean.ValueOf(true));
+
+            catalog.Put(PdfName.MarkInfo, markInfo);
+            catalog.Put(PdfName.StructTreeRoot, structTreeRoot);
+        }
+
+        using var verify = new PdfDocument(new PdfReader(outputPath));
+        verify.IsTagged().Should().BeTrue("fixture should appear tagged");
     }
 
     private static int ReadPageCount(string pdfPath)

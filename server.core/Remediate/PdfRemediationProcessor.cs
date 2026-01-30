@@ -210,6 +210,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         // If the PDF already has a non-empty title, do not overwrite it.
         if (!string.IsNullOrWhiteSpace(currentTitle))
         {
+            EnsurePdfDisplaysTitleInTitleBar(pdf, cancellationToken);
             return;
         }
 
@@ -217,6 +218,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         if (wordCount < TitleContextMinWords)
         {
             info.SetTitle(TitlePlaceholder);
+            EnsurePdfDisplaysTitleInTitleBar(pdf, cancellationToken);
 
             return;
         }
@@ -233,6 +235,26 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         }
 
         info.SetTitle(suggestedTitle);
+        EnsurePdfDisplaysTitleInTitleBar(pdf, cancellationToken);
+    }
+
+    /// <summary>
+    /// Ensures the PDF is configured to show the document title in the viewer title bar (<c>/ViewerPreferences</c>).
+    /// </summary>
+    private static void EnsurePdfDisplaysTitleInTitleBar(PdfDocument pdf, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var catalogDict = pdf.GetCatalog().GetPdfObject();
+
+        var viewerPrefs = catalogDict.GetAsDictionary(PdfName.ViewerPreferences);
+        if (viewerPrefs is null)
+        {
+            viewerPrefs = new PdfDictionary();
+            catalogDict.Put(PdfName.ViewerPreferences, viewerPrefs);
+        }
+
+        viewerPrefs.Put(new PdfName("DisplayDocTitle"), PdfBoolean.ValueOf(true));
     }
 
     /// <summary>
