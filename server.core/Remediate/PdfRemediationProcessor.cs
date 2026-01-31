@@ -114,6 +114,14 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
             await _bookmarkService.EnsureBookmarksAsync(pdf, cancellationToken);
             PdfTableSummaryRemediator.EnsureTablesHaveSummary(pdf, cancellationToken);
+            var removedAnnotations = PdfAnnotationRemediator.RemoveUntaggedAnnotations(pdf, cancellationToken);
+            if (removedAnnotations > 0)
+            {
+                _logger.LogInformation(
+                    "Removed {count} untagged annotation(s) from {fileId}.",
+                    removedAnnotations,
+                    fileId);
+            }
 
             var pageObjNumToPageNumber = PdfStructTreeIndex.BuildPageObjectNumberToPageNumberMap(pdf);
             var figureIndex = PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Figure);
