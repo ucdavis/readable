@@ -44,7 +44,7 @@ internal static class PdfAnnotationRemediator
                     continue;
                 }
 
-                if (parentTree is not null && !NumberTreeContainsKey(parentTree, structParent.Value))
+                if (parentTree is null || !NumberTreeContainsKey(parentTree, structParent.Value))
                 {
                     toRemove.Add(annotation);
                 }
@@ -154,4 +154,3 @@ internal static class PdfAnnotationRemediator
         return obj;
     }
 }
-

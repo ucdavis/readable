@@ -53,6 +53,57 @@ public sealed class PdfRemediationProcessorTaggedAnnotationsTests
         }
     }
 
+    [Fact]
+    public void RemoveUntaggedAnnotations_WhenParentTreeIsMissing_RemovesAnnotationsWithStructParent()
+    {
+        var repoRoot = FindRepoRoot();
+        var inputPdfPath = Path.Combine(repoRoot, "tests", "server.tests", "Fixtures", "pdfs", "tagged-bad-annotations.pdf");
+        File.Exists(inputPdfPath).Should().BeTrue($"fixture should exist at {inputPdfPath}");
+
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-annots-noparenttree-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+
+            int totalBefore;
+            int removed;
+            using (var pdf = new PdfDocument(new PdfReader(inputPdfPath), new PdfWriter(outputPdfPath)))
+            {
+                pdf.IsTagged().Should().BeTrue();
+
+                totalBefore = CountAnnotations(pdf);
+                totalBefore.Should().BeGreaterThan(0);
+
+                var structParentKey = new PdfName("StructParent");
+                CountAnnotationsWithStructParent(pdf, structParentKey).Should().BeGreaterThan(0);
+
+                var catalogDict = pdf.GetCatalog().GetPdfObject();
+                var structTreeRootDict = catalogDict.GetAsDictionary(PdfName.StructTreeRoot);
+                structTreeRootDict.Should().NotBeNull();
+                structTreeRootDict!.Remove(PdfName.ParentTree);
+
+                TryGetParentTree(pdf).Should().BeNull();
+
+                removed = InvokeRemoveUntaggedAnnotations(pdf, CancellationToken.None);
+                removed.Should().Be(totalBefore);
+            }
+
+            using (var pdf = new PdfDocument(new PdfReader(outputPdfPath)))
+            {
+                CountAnnotations(pdf).Should().Be(0);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
     private sealed record AnnotationStats(int TotalAnnotations, int TaggedAnnotations, int UntaggedAnnotations);
 
     private static AnnotationStats ReadAnnotationStats(string pdfPath)
@@ -83,7 +134,7 @@ public sealed class PdfRemediationProcessorTaggedAnnotationsTests
                     continue;
                 }
 
-                if (parentTree is not null && !NumberTreeContainsKey(parentTree, structParent.Value))
+                if (parentTree is null || !NumberTreeContainsKey(parentTree, structParent.Value))
                 {
                     untagged++;
                     continue;
@@ -94,6 +145,45 @@ public sealed class PdfRemediationProcessorTaggedAnnotationsTests
         }
 
         return new AnnotationStats(total, tagged, untagged);
+    }
+
+    private static int CountAnnotations(PdfDocument pdf)
+    {
+        var total = 0;
+        for (var pageNumber = 1; pageNumber <= pdf.GetNumberOfPages(); pageNumber++)
+        {
+            total += pdf.GetPage(pageNumber).GetAnnotations().Count;
+        }
+
+        return total;
+    }
+
+    private static int CountAnnotationsWithStructParent(PdfDocument pdf, PdfName structParentKey)
+    {
+        var total = 0;
+        for (var pageNumber = 1; pageNumber <= pdf.GetNumberOfPages(); pageNumber++)
+        {
+            foreach (var annotation in pdf.GetPage(pageNumber).GetAnnotations())
+            {
+                if (annotation.GetPdfObject().GetAsNumber(structParentKey) is not null)
+                {
+                    total++;
+                }
+            }
+        }
+
+        return total;
+    }
+
+    private static int InvokeRemoveUntaggedAnnotations(PdfDocument pdf, CancellationToken cancellationToken)
+    {
+        var assembly = typeof(PdfRemediationProcessor).Assembly;
+        var type = assembly.GetType("server.core.Remediate.PdfAnnotationRemediator", throwOnError: true)!;
+        var method = type.GetMethod(
+            "RemoveUntaggedAnnotations",
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!;
+
+        return (int)method.Invoke(null, new object[] { pdf, cancellationToken })!;
     }
 
     private static PdfDictionary? TryGetParentTree(PdfDocument pdf)
@@ -237,4 +327,3 @@ public sealed class PdfRemediationProcessorTaggedAnnotationsTests
         return dir.FullName;
     }
 }
-
