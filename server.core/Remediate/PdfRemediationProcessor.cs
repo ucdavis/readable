@@ -106,7 +106,13 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             await EnsurePdfHasTitleAsync(pdf, cancellationToken);
             EnsurePdfHasPrimaryLanguage(pdf, cancellationToken);
 
-            if (!pdf.IsTagged())
+            var isTagged = pdf.IsTagged();
+            if (isTagged)
+            {
+                EnsurePagesUseDocumentStructureTabOrder(pdf, cancellationToken);
+            }
+
+            if (!isTagged)
             {
                 success = true;
                 return new PdfRemediationResult(outputPdfPath);
@@ -202,6 +208,41 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 inputPdfPath,
                 outputPdfPath,
                 success);
+        }
+    }
+
+    /// <summary>
+    /// Ensures each page uses document-structure tab order (<c>/Tabs /S</c>).
+    /// </summary>
+    /// <remarks>
+    /// Acrobat's Accessibility Checker can fail "Tab order" even when the PDF is already tagged, and Acrobat's "Fix"
+    /// is effectively a fast metadata update at the page level (no full re-tag needed).
+    /// </remarks>
+    private void EnsurePagesUseDocumentStructureTabOrder(PdfDocument pdf, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var updatedPages = 0;
+        for (var pageNumber = 1; pageNumber <= pdf.GetNumberOfPages(); pageNumber++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var page = pdf.GetPage(pageNumber);
+            var pageDict = page.GetPdfObject();
+
+            var current = pageDict.GetAsName(PdfName.Tabs);
+            if (PdfName.S.Equals(current))
+            {
+                continue;
+            }
+
+            pageDict.Put(PdfName.Tabs, PdfName.S);
+            updatedPages++;
+        }
+
+        if (updatedPages > 0)
+        {
+            _logger.LogInformation("Set /Tabs /S (Use Document Structure) on {count} page(s).", updatedPages);
         }
     }
 
