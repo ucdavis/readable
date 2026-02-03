@@ -7,6 +7,7 @@ using iText.Kernel.Pdf.Canvas.Parser;
 using iText.Kernel.Pdf.Canvas.Parser.Data;
 using iText.Kernel.Pdf.Canvas.Parser.Listener;
 using iText.Kernel.Pdf.Xobject;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using IOPath = System.IO.Path;
 using server.core.Remediate.AltText;
@@ -61,27 +62,44 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
     private readonly IAltTextService _altTextService;
     private readonly IPdfBookmarkService _bookmarkService;
     private readonly IPdfTitleService _pdfTitleService;
+    private readonly PdfRemediationOptions _options;
     private readonly ILogger<PdfRemediationProcessor> _logger;
 
     public PdfRemediationProcessor(
         IAltTextService altTextService,
         IPdfBookmarkService bookmarkService,
         IPdfTitleService pdfTitleService,
+        IOptions<PdfRemediationOptions> options,
         ILogger<PdfRemediationProcessor> logger)
     {
         _altTextService = altTextService ?? throw new ArgumentNullException(nameof(altTextService));
         _bookmarkService = bookmarkService ?? throw new ArgumentNullException(nameof(bookmarkService));
         _pdfTitleService = pdfTitleService ?? throw new ArgumentNullException(nameof(pdfTitleService));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
+    public PdfRemediationProcessor(
+        IAltTextService altTextService,
+        IPdfBookmarkService bookmarkService,
+        IPdfTitleService pdfTitleService,
+        ILogger<PdfRemediationProcessor> logger)
+        : this(
+            altTextService,
+            bookmarkService,
+            pdfTitleService,
+            Options.Create(new PdfRemediationOptions()),
+            logger)
+    {
+    }
+
     /// <summary>
-    /// Remediates a PDF by ensuring it has a title and (when tagged) adding missing alt text for figures and links.
+    /// Remediates a PDF by ensuring it has a title and (when tagged) adding missing alt text for figures (and optionally links).
     /// </summary>
     /// <remarks>
     /// Alt-text remediation relies on the PDF tag tree, so it only runs for tagged PDFs. A fallback pass ensures
-    /// any remaining <c>/Figure</c> and <c>/Link</c> structure elements have some <c>/Alt</c> value even when exact
-    /// content-to-tag matching is imperfect.
+    /// any remaining <c>/Figure</c> structure elements have some <c>/Alt</c> value even when exact content-to-tag
+    /// matching is imperfect. Link <c>/Alt</c> generation is opt-in via <see cref="PdfRemediationOptions" />.
     /// </remarks>
     public async Task<PdfRemediationResult> ProcessAsync(
         string fileId,
@@ -118,6 +136,10 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 return new PdfRemediationResult(outputPdfPath);
             }
 
+            _logger.LogInformation(
+                "PDF remediation options: generateLinkAltText={generateLinkAltText}",
+                _options.GenerateLinkAltText);
+
             await _bookmarkService.EnsureBookmarksAsync(pdf, cancellationToken);
             PdfTableSummaryRemediator.EnsureTablesHaveSummary(pdf, cancellationToken);
             var removedAnnotations = PdfAnnotationRemediator.RemoveUntaggedAnnotations(pdf, cancellationToken);
@@ -131,7 +153,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
             var pageObjNumToPageNumber = PdfStructTreeIndex.BuildPageObjectNumberToPageNumberMap(pdf);
             var figureIndex = PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Figure);
-            var linkIndex = PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Link);
+            var linkIndex = _options.GenerateLinkAltText
+                ? PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Link)
+                : null;
 
             for (var pageNumber = 1; pageNumber <= pdf.GetNumberOfPages(); pageNumber++)
             {
@@ -156,6 +180,11 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     SetAlt(figure, altText);
                 }
 
+                if (!_options.GenerateLinkAltText)
+                {
+                    continue;
+                }
+
                 foreach (var occ in PdfContentScanner.ListLinkOccurrences(page, pageNumber))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -165,7 +194,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                         continue;
                     }
 
-                    var link = ResolveStructElem(linkIndex, pageNumber, mcid: null, occ.AnnotationRef);
+                    var link = ResolveStructElem(linkIndex!, pageNumber, mcid: null, occ.AnnotationRef);
                     if (link is null || HasNonEmptyAlt(link))
                     {
                         continue;
@@ -179,7 +208,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 }
             }
 
-            // Fallback safety-net: ensure any remaining tagged Figures/Links get *some* alt text.
+            // Fallback safety-net: ensure any remaining tagged Figures get *some* alt text.
             // This keeps remediation robust even when we can't reliably match content-stream occurrences to tag-tree elements.
             foreach (var figure in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Figure))
             {
@@ -189,11 +218,14 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 }
             }
 
-            foreach (var link in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Link))
+            if (_options.GenerateLinkAltText)
             {
-                if (!HasNonEmptyAlt(link))
+                foreach (var link in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Link))
                 {
-                    SetAlt(link, _altTextService.GetFallbackAltTextForLink());
+                    if (!HasNonEmptyAlt(link))
+                    {
+                        SetAlt(link, _altTextService.GetFallbackAltTextForLink());
+                    }
                 }
             }
 
