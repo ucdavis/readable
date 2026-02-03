@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Text;
+using System.Threading;
 using iText.IO.Font;
 using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
@@ -107,6 +109,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         string outputPdfPath,
         CancellationToken cancellationToken)
     {
+        var totalSw = Stopwatch.StartNew();
         _logger.LogInformation(
             "PDF remediation starting: {fileId} {input} -> {output}",
             fileId,
@@ -121,13 +124,28 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
             using var pdf = new PdfDocument(new PdfReader(inputPdfPath), new PdfWriter(outputPdfPath));
 
-            await EnsurePdfHasTitleAsync(pdf, cancellationToken);
-            EnsurePdfHasPrimaryLanguage(pdf, cancellationToken);
+            using (BeginStage(fileId, "ensure_title", null))
+            {
+                await EnsurePdfHasTitleAsync(pdf, cancellationToken);
+            }
+
+            using (BeginStage(fileId, "ensure_primary_language", null))
+            {
+                EnsurePdfHasPrimaryLanguage(pdf, cancellationToken);
+            }
 
             var isTagged = pdf.IsTagged();
+            _logger.LogInformation(
+                "PDF remediation input characteristics: {fileId} pages={pages} isTagged={isTagged}",
+                fileId,
+                pdf.GetNumberOfPages(),
+                isTagged);
             if (isTagged)
             {
-                EnsurePagesUseDocumentStructureTabOrder(pdf, cancellationToken);
+                using (BeginStage(fileId, "ensure_tab_order", null))
+                {
+                    EnsurePagesUseDocumentStructureTabOrder(pdf, cancellationToken);
+                }
             }
 
             if (!isTagged)
@@ -140,9 +158,21 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 "PDF remediation options: generateLinkAltText={generateLinkAltText}",
                 _options.GenerateLinkAltText);
 
-            await _bookmarkService.EnsureBookmarksAsync(pdf, cancellationToken);
-            PdfTableSummaryRemediator.EnsureTablesHaveSummary(pdf, cancellationToken);
-            var removedAnnotations = PdfAnnotationRemediator.RemoveUntaggedAnnotations(pdf, cancellationToken);
+            using (BeginStage(fileId, "ensure_bookmarks", null))
+            {
+                await _bookmarkService.EnsureBookmarksAsync(pdf, cancellationToken);
+            }
+
+            using (BeginStage(fileId, "ensure_table_summaries", null))
+            {
+                PdfTableSummaryRemediator.EnsureTablesHaveSummary(pdf, cancellationToken);
+            }
+
+            int removedAnnotations;
+            using (BeginStage(fileId, "remove_untagged_annotations", null))
+            {
+                removedAnnotations = PdfAnnotationRemediator.RemoveUntaggedAnnotations(pdf, cancellationToken);
+            }
             if (removedAnnotations > 0)
             {
                 _logger.LogInformation(
@@ -151,83 +181,125 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     fileId);
             }
 
-            var pageObjNumToPageNumber = PdfStructTreeIndex.BuildPageObjectNumberToPageNumberMap(pdf);
-            var figureIndex = PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Figure);
+            Dictionary<int, int> pageObjNumToPageNumber;
+            PdfStructTreeIndex figureIndex;
+            using (BeginStage(fileId, "build_struct_tree_indices", null))
+            {
+                pageObjNumToPageNumber = PdfStructTreeIndex.BuildPageObjectNumberToPageNumberMap(pdf);
+                figureIndex = PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Figure);
+            }
+
             var linkIndex = _options.GenerateLinkAltText
                 ? PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Link)
                 : null;
 
-            for (var pageNumber = 1; pageNumber <= pdf.GetNumberOfPages(); pageNumber++)
+            var imageOccurrences = 0;
+            var imageAltSet = 0;
+            var linkOccurrences = 0;
+            var linkAltSet = 0;
+
+            using (BeginStage(fileId, "scan_pages_for_alt_text", new { generateLinkAltText = _options.GenerateLinkAltText }))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var page = pdf.GetPage(pageNumber);
-
-                foreach (var occ in PdfContentScanner.ListImageOccurrences(page, pageNumber))
+                for (var pageNumber = 1; pageNumber <= pdf.GetNumberOfPages(); pageNumber++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var figure = ResolveStructElem(figureIndex, pageNumber, occ.Mcid, occ.ObjectRef);
-                    if (figure is null || HasNonEmptyAlt(figure))
+                    var page = pdf.GetPage(pageNumber);
+
+                    foreach (var occ in PdfContentScanner.ListImageOccurrences(page, pageNumber))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        imageOccurrences++;
+
+                        var figure = ResolveStructElem(figureIndex, pageNumber, occ.Mcid, occ.ObjectRef);
+                        if (figure is null || HasNonEmptyAlt(figure))
+                        {
+                            continue;
+                        }
+
+                        var (bytes, mimeType) = ExtractImageBytes(occ.Image);
+                        var altText = await _altTextService.GetAltTextForImageAsync(
+                            new ImageAltTextRequest(bytes, mimeType, occ.ContextBefore, occ.ContextAfter),
+                            cancellationToken);
+                        SetAlt(figure, altText);
+                        if (!string.IsNullOrWhiteSpace(altText))
+                        {
+                            imageAltSet++;
+                        }
+                    }
+
+                    if (!_options.GenerateLinkAltText)
                     {
                         continue;
                     }
 
-                    var (bytes, mimeType) = ExtractImageBytes(occ.Image);
-                    var altText = await _altTextService.GetAltTextForImageAsync(
-                        new ImageAltTextRequest(bytes, mimeType, occ.ContextBefore, occ.ContextAfter),
-                        cancellationToken);
-                    SetAlt(figure, altText);
-                }
-
-                if (!_options.GenerateLinkAltText)
-                {
-                    continue;
-                }
-
-                foreach (var occ in PdfContentScanner.ListLinkOccurrences(page, pageNumber))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    if (occ.AnnotationRef is null)
+                    foreach (var occ in PdfContentScanner.ListLinkOccurrences(page, pageNumber))
                     {
-                        continue;
-                    }
+                        cancellationToken.ThrowIfCancellationRequested();
+                        linkOccurrences++;
 
-                    var link = ResolveStructElem(linkIndex!, pageNumber, mcid: null, occ.AnnotationRef);
-                    if (link is null || HasNonEmptyAlt(link))
-                    {
-                        continue;
-                    }
+                        if (occ.AnnotationRef is null)
+                        {
+                            continue;
+                        }
 
-                    var target = TryGetLinkTarget(occ.LinkAnnotation);
-                    var altText = await _altTextService.GetAltTextForLinkAsync(
-                        new LinkAltTextRequest(target, occ.LinkText, occ.ContextBefore, occ.ContextAfter),
-                        cancellationToken);
-                    SetAlt(link, altText);
+                        var link = ResolveStructElem(linkIndex!, pageNumber, mcid: null, occ.AnnotationRef);
+                        if (link is null || HasNonEmptyAlt(link))
+                        {
+                            continue;
+                        }
+
+                        var target = TryGetLinkTarget(occ.LinkAnnotation);
+                        var altText = await _altTextService.GetAltTextForLinkAsync(
+                            new LinkAltTextRequest(target, occ.LinkText, occ.ContextBefore, occ.ContextAfter),
+                            cancellationToken);
+                        SetAlt(link, altText);
+                        if (!string.IsNullOrWhiteSpace(altText))
+                        {
+                            linkAltSet++;
+                        }
+                    }
                 }
             }
 
             // Fallback safety-net: ensure any remaining tagged Figures get *some* alt text.
             // This keeps remediation robust even when we can't reliably match content-stream occurrences to tag-tree elements.
+            var fallbackImageAltSet = 0;
             foreach (var figure in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Figure))
             {
                 if (!HasNonEmptyAlt(figure))
                 {
                     SetAlt(figure, _altTextService.GetFallbackAltTextForImage());
+                    fallbackImageAltSet++;
                 }
             }
 
             if (_options.GenerateLinkAltText)
             {
+                var fallbackLinkAltSet = 0;
                 foreach (var link in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Link))
                 {
                     if (!HasNonEmptyAlt(link))
                     {
                         SetAlt(link, _altTextService.GetFallbackAltTextForLink());
+                        fallbackLinkAltSet++;
                     }
                 }
+
+                _logger.LogInformation(
+                    "PDF remediation link alt summary: {fileId} linkOccurrences={linkOccurrences} linkAltSet={linkAltSet} fallbackLinkAltSet={fallbackLinkAltSet}",
+                    fileId,
+                    linkOccurrences,
+                    linkAltSet,
+                    fallbackLinkAltSet);
             }
+
+            _logger.LogInformation(
+                "PDF remediation image alt summary: {fileId} imageOccurrences={imageOccurrences} imageAltSet={imageAltSet} fallbackImageAltSet={fallbackImageAltSet}",
+                fileId,
+                imageOccurrences,
+                imageAltSet,
+                fallbackImageAltSet);
 
             success = true;
             return new PdfRemediationResult(outputPdfPath);
@@ -240,6 +312,46 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 inputPdfPath,
                 outputPdfPath,
                 success);
+
+            _logger.LogInformation(
+                "PDF remediation duration: {fileId} elapsedMs={elapsedMs}",
+                fileId,
+                totalSw.Elapsed.TotalMilliseconds);
+        }
+    }
+
+    private IDisposable BeginStage(string fileId, string stage, object? details)
+    {
+        var sw = Stopwatch.StartNew();
+        _logger.LogInformation("Remediation stage start: {fileId} stage={stage} details={details}", fileId, stage, details);
+        return new DisposableAction(() =>
+        {
+            _logger.LogInformation(
+                "Remediation stage end: {fileId} stage={stage} elapsedMs={elapsedMs}",
+                fileId,
+                stage,
+                sw.Elapsed.TotalMilliseconds);
+        });
+    }
+
+    private sealed class DisposableAction : IDisposable
+    {
+        private readonly Action _onDispose;
+        private int _disposed;
+
+        public DisposableAction(Action onDispose)
+        {
+            _onDispose = onDispose;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            {
+                return;
+            }
+
+            _onDispose();
         }
     }
 

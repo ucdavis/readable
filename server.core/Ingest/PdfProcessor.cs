@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Text;
+using System.Threading;
 using iText.Kernel.Pdf;
 using iText.Kernel.Utils;
 using Microsoft.Extensions.Logging;
@@ -60,15 +62,27 @@ public sealed class PdfProcessor : IPdfProcessor
     /// </remarks>
     public async Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
     {
+        var totalSw = Stopwatch.StartNew();
         var safeFileId = SanitizeForFileName(fileId);
         var workDir = GetWorkDir(safeFileId, _options.WorkDirRoot);
         Directory.CreateDirectory(workDir);
 
         // persist the incoming stream locally so we can reliably split it.
         var sourcePath = Path.Combine(workDir, $"{safeFileId}.source.pdf");
-        await using (var sourceFile = File.Create(sourcePath))
+        using (BeginStage(fileId, "write_source_pdf", new { sourcePath, workDir }))
         {
+            await using var sourceFile = File.Create(sourcePath);
             await pdfStream.CopyToAsync(sourceFile, cancellationToken);
+        }
+
+        try
+        {
+            var sizeBytes = new FileInfo(sourcePath).Length;
+            _logger.LogInformation("Source PDF persisted: {fileId} path={path} sizeBytes={sizeBytes}", fileId, sourcePath, sizeBytes);
+        }
+        catch
+        {
+            // ignore
         }
 
         // Best-effort: generate a "before" accessibility report on the original uploaded PDF.
@@ -78,6 +92,10 @@ public sealed class PdfProcessor : IPdfProcessor
             var beforeAccessibilityPdfPath = Path.Combine(workDir, $"{safeFileId}.before.a11y.pdf");
             var beforeAccessibilityReportPath = Path.Combine(workDir, $"{safeFileId}.before.a11y-report.json");
 
+            using var _beforeA11yStage = BeginStage(
+                fileId,
+                "adobe_before_a11y",
+                new { input = sourcePath, outputPdf = beforeAccessibilityPdfPath, outputReport = beforeAccessibilityReportPath });
             beforeAccessibilityReport = await _adobePdfServices.RunAccessibilityCheckerAsync(
                 inputPdfPath: sourcePath,
                 outputPdfPath: beforeAccessibilityPdfPath,
@@ -98,6 +116,12 @@ public sealed class PdfProcessor : IPdfProcessor
         string taggedPdfPath;
         if (_options.UseAdobePdfServices)
         {
+            _logger.LogInformation(
+                "Adobe autotagging enabled: {fileId} autotagTaggedPdfs={autotagTaggedPdfs} maxPagesPerChunk={maxPagesPerChunk}",
+                fileId,
+                _options.AutotagTaggedPdfs,
+                _options.MaxPagesPerChunk);
+
             var outputTaggedPath = Path.Combine(workDir, $"{safeFileId}.tagged.pdf");
             var sourceInfo = ReadSourcePdfInfo(
                 sourcePath,
@@ -142,6 +166,10 @@ public sealed class PdfProcessor : IPdfProcessor
                 {
                     // Common case: avoid split/merge overhead when the PDF fits in a single chunk.
                     var reportPath = Path.Combine(workDir, $"{safeFileId}.autotag-report.xlsx");
+                    using var _singleAutotagStage = BeginStage(
+                        fileId,
+                        "adobe_autotag_single",
+                        new { input = sourcePath, outputTagged = outputTaggedPath, outputReport = reportPath, pageCount = sourceInfo.PageCount });
                     await _adobePdfServices.AutotagPdfAsync(
                         inputPdfPath: sourcePath,
                         outputTaggedPdfPath: outputTaggedPath,
@@ -155,7 +183,14 @@ public sealed class PdfProcessor : IPdfProcessor
                     // 1) Split the incoming PDF stream into chunks of <= MaxPagesPerChunk pages.
                     //    - Write each chunk to a temp file under the work directory.
                     //    - Keep an ordered list of the chunk file paths.
-                    var chunks = SplitIntoChunks(sourcePath, workDir, safeFileId, _options.MaxPagesPerChunk, cancellationToken);
+                    List<PdfChunk> chunks;
+                    using (BeginStage(
+                               fileId,
+                               "split_into_chunks",
+                               new { input = sourcePath, maxPagesPerChunk = _options.MaxPagesPerChunk }))
+                    {
+                        chunks = SplitIntoChunks(sourcePath, workDir, safeFileId, _options.MaxPagesPerChunk, cancellationToken);
+                    }
 
                     _logger.LogInformation(
                         "Split {fileId} into {chunkCount} chunk(s) in {workDir}",
@@ -172,6 +207,18 @@ public sealed class PdfProcessor : IPdfProcessor
                         var taggedPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.tagged.pdf");
                         var reportPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.autotag-report.xlsx");
 
+                        using var _chunkAutotagStage = BeginStage(
+                            fileId,
+                            "adobe_autotag_chunk",
+                            new
+                            {
+                                chunk = chunk.Index + 1,
+                                chunkFromPage = chunk.FromPage,
+                                chunkToPage = chunk.ToPage,
+                                input = chunk.Path,
+                                outputTagged = taggedPath,
+                                outputReport = reportPath
+                            });
                         await _adobePdfServices.AutotagPdfAsync(
                             inputPdfPath: chunk.Path,
                             outputTaggedPdfPath: taggedPath,
@@ -182,7 +229,10 @@ public sealed class PdfProcessor : IPdfProcessor
                     }
 
                     // 4. Merge all tagged chunk PDFs back into a single tagged PDF.
-                    MergePdfsInOrder(taggedChunkPaths, outputTaggedPath, cancellationToken);
+                    using (BeginStage(fileId, "merge_chunks", new { chunkCount = taggedChunkPaths.Count, output = outputTaggedPath }))
+                    {
+                        MergePdfsInOrder(taggedChunkPaths, outputTaggedPath, cancellationToken);
+                    }
                     _logger.LogInformation("Merged tagged PDF written to {path}", outputTaggedPath);
 
                     taggedPdfPath = outputTaggedPath;
@@ -203,6 +253,7 @@ public sealed class PdfProcessor : IPdfProcessor
             //    - Infer/set a document title.
             //    - Optional: build/insert a TOC.
             var remediatedPdfPath = Path.Combine(workDir, $"{safeFileId}.remediated.pdf");
+            using var _remediationStage = BeginStage(fileId, "pdf_remediation", new { input = taggedPdfPath, output = remediatedPdfPath });
             var remediation = await _pdfRemediationProcessor.ProcessAsync(
                 fileId,
                 taggedPdfPath,
@@ -224,6 +275,10 @@ public sealed class PdfProcessor : IPdfProcessor
             var accessibilityPdfPath = Path.Combine(workDir, $"{safeFileId}.a11y.pdf");
             var accessibilityReportPath = Path.Combine(workDir, $"{safeFileId}.a11y-report.json");
 
+            using var _afterA11yStage = BeginStage(
+                fileId,
+                "adobe_after_a11y",
+                new { input = finalPdfPath, outputPdf = accessibilityPdfPath, outputReport = accessibilityReportPath });
             accessibilityReport = await _adobePdfServices.RunAccessibilityCheckerAsync(
                 inputPdfPath: finalPdfPath,
                 outputPdfPath: accessibilityPdfPath,
@@ -241,12 +296,53 @@ public sealed class PdfProcessor : IPdfProcessor
             _logger.LogWarning(ex, "Failed to generate accessibility report for {fileId}", fileId);
         }
 
+        _logger.LogInformation(
+            "PDF processing finished: {fileId} elapsedMs={elapsedMs} workDir={workDir}",
+            fileId,
+            totalSw.Elapsed.TotalMilliseconds,
+            workDir);
+
         return new PdfProcessResult(
             finalPdfPath,
             beforeAccessibilityReport?.ReportJson,
             beforeAccessibilityReport?.ReportPath,
             accessibilityReport?.ReportJson,
             accessibilityReport?.ReportPath);
+    }
+
+    private IDisposable BeginStage(string fileId, string stage, object? details = null)
+    {
+        var sw = Stopwatch.StartNew();
+        _logger.LogInformation("Stage start: {fileId} stage={stage} details={details}", fileId, stage, details);
+        return new DisposableAction(() =>
+        {
+            _logger.LogInformation(
+                "Stage end: {fileId} stage={stage} elapsedMs={elapsedMs}",
+                fileId,
+                stage,
+                sw.Elapsed.TotalMilliseconds);
+        });
+    }
+
+    private sealed class DisposableAction : IDisposable
+    {
+        private readonly Action _onDispose;
+        private int _disposed;
+
+        public DisposableAction(Action onDispose)
+        {
+            _onDispose = onDispose;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            {
+                return;
+            }
+
+            _onDispose();
+        }
     }
 
     private enum PdfTaggingState
