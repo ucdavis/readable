@@ -20,6 +20,7 @@ public static class TelemetryHelper
 {
     public const string ActivitySourceName = "readable";
     public static readonly ActivitySource ActivitySource = new(ActivitySourceName);
+    private const string OtelResourceAttributesEnvVarName = "OTEL_RESOURCE_ATTRIBUTES";
 
     /// <summary>
     /// Configures OpenTelemetry logging with optional JSON console output and OTLP exporter.
@@ -110,12 +111,13 @@ public static class TelemetryHelper
     private static void ApplyDefaultResource(ResourceBuilder resourceBuilder)
     {
         var entryAssembly = Assembly.GetEntryAssembly();
-        var serviceName =
-            Environment.GetEnvironmentVariable("OTEL_SERVICE_NAME")
-            ?? entryAssembly?.GetName().Name
-            ?? "unknown_service";
+        var serviceName = GetNonEmptyEnvironmentVariable("OTEL_SERVICE_NAME")
+                          ?? GetOtelResourceAttribute("service.name")
+                          ?? entryAssembly?.GetName().Name
+                          ?? "unknown_service";
 
-        var serviceVersion = entryAssembly?.GetName().Version?.ToString();
+        var serviceVersion = GetOtelResourceAttribute("service.version")
+                             ?? entryAssembly?.GetName().Version?.ToString();
         var environmentName =
             Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
             ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
@@ -127,6 +129,118 @@ public static class TelemetryHelper
             resourceBuilder.AddAttributes(
                 new[] { new KeyValuePair<string, object>("deployment.environment", environmentName) });
         }
+    }
+
+    private static string? GetNonEmptyEnvironmentVariable(string name)
+    {
+        var value = Environment.GetEnvironmentVariable(name);
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static string? GetOtelResourceAttribute(string attributeName)
+    {
+        var raw = Environment.GetEnvironmentVariable(OtelResourceAttributesEnvVarName);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        foreach (var pair in SplitUnescaped(raw, ','))
+        {
+            if (string.IsNullOrWhiteSpace(pair))
+            {
+                continue;
+            }
+
+            if (!TrySplitFirstUnescaped(pair, '=', out var rawKey, out var rawValue))
+            {
+                continue;
+            }
+
+            var key = UnescapeOtelValue(rawKey).Trim();
+            if (!string.Equals(key, attributeName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var value = UnescapeOtelValue(rawValue).Trim();
+            return string.IsNullOrWhiteSpace(value) ? null : value;
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> SplitUnescaped(string input, char separator)
+    {
+        var start = 0;
+        var escaped = false;
+
+        for (var i = 0; i < input.Length; i++)
+        {
+            var c = input[i];
+
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+
+            if (c == '\\')
+            {
+                escaped = true;
+                continue;
+            }
+
+            if (c == separator)
+            {
+                yield return input[start..i];
+                start = i + 1;
+            }
+        }
+
+        yield return input[start..];
+    }
+
+    private static bool TrySplitFirstUnescaped(string input, char separator, out string left, out string right)
+    {
+        var escaped = false;
+        for (var i = 0; i < input.Length; i++)
+        {
+            var c = input[i];
+
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+
+            if (c == '\\')
+            {
+                escaped = true;
+                continue;
+            }
+
+            if (c == separator)
+            {
+                left = input[..i];
+                right = input[(i + 1)..];
+                return true;
+            }
+        }
+
+        left = string.Empty;
+        right = string.Empty;
+        return false;
+    }
+
+    private static string UnescapeOtelValue(string value)
+    {
+        // OTEL_RESOURCE_ATTRIBUTES supports escaping for separators (\, \=) and backslash (\\).
+        // Keep this intentionally small and only handle the documented sequences.
+        return value
+            .Replace("\\\\", "\\", StringComparison.Ordinal)
+            .Replace("\\,", ",", StringComparison.Ordinal)
+            .Replace("\\=", "=", StringComparison.Ordinal);
     }
 
     private static void ApplyOtelEnvironmentFromConfiguration(IConfiguration? configuration)
