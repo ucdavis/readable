@@ -16,8 +16,8 @@ public sealed class PdfRemediationOptions
     /// </summary>
     /// <remarks>
     /// This is intended to address false-positive "layout tables" produced by autotagging that cause accessibility
-    /// checker failures such as "Tables should have headers". Keep this disabled unless you are confident the
-    /// affected tables are not true data tables.
+    /// checker failures such as "Tables should have headers" for tables that are effectively single row/column layout.
+    /// Disable this if you find it demoting true data tables.
     /// </remarks>
-    public bool DemoteSmallTablesWithoutHeaders { get; set; }
+    public bool DemoteSmallTablesWithoutHeaders { get; set; } = true;
 }

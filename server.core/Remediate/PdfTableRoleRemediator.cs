@@ -129,31 +129,35 @@ internal static class PdfTableRoleRemediator
 
         var rowCount = rows.Count;
         var maxCols = 0;
-        var tdCount = 0;
+        var cellCountTotal = 0;
         foreach (var row in rows)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var cellCount = 0;
+            var cellCountInRow = 0;
             foreach (var child in ListDirectStructElementChildren(row))
             {
                 var role = child.GetAsName(PdfName.S);
                 if (RoleTd.Equals(role))
                 {
-                    tdCount++;
-                    cellCount++;
+                    cellCountTotal++;
+                    cellCountInRow++;
                 }
                 else if (RoleTh.Equals(role))
                 {
                     // If a TH exists under a TR but wasn't found in the descendant scan for any reason, treat as data.
                     return false;
                 }
+                else if (RoleTable.Equals(role) || RoleTr.Equals(role))
+                {
+                    // ignore
+                }
             }
 
-            maxCols = Math.Max(maxCols, cellCount);
+            maxCols = Math.Max(maxCols, cellCountInRow);
         }
 
-        // A /Table with no /TD (even with /TR) is likely a tagging mistake.
-        if (tdCount == 0)
+        // A /Table with no cells (even with /TR) is likely a tagging mistake.
+        if (cellCountTotal == 0)
         {
             return true;
         }
@@ -163,14 +167,13 @@ internal static class PdfTableRoleRemediator
             return false;
         }
 
-        // Heuristic: small /Table elements without headers are very often layout tables.
-        var cellUpperBound = rowCount * Math.Max(1, maxCols);
         if (rowCount <= 1 || maxCols <= 1)
         {
             return true;
         }
 
-        return rowCount <= 2 && maxCols <= 2 && cellUpperBound <= 4;
+        // Keep multi-row, multi-column "real tables" (even without explicit /TH tags) as tables.
+        return false;
     }
 
     private static void DemoteTableAndDescendants(PdfDictionary table, CancellationToken cancellationToken)
