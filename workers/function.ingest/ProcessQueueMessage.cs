@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Azure.Messaging.ServiceBus;
@@ -35,6 +36,13 @@ public class ProcessQueueMessage
         activity?.SetTag("messaging.destination.name", "files");
         activity?.SetTag("messaging.message.id", message.MessageId);
 
+        using var messageScope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["messaging.system"] = "azure.servicebus",
+            ["messaging.destination.name"] = "files",
+            ["messaging.message.id"] = message.MessageId
+        });
+
         var body = message.Body.ToString();
         _logger.LogInformation("Message ID: {id}", message.MessageId);
         _logger.LogInformation("Message Content-Type: {contentType}", message.ContentType);
@@ -49,6 +57,14 @@ public class ProcessQueueMessage
         activity?.SetTag("blob.container", request.ContainerName);
         activity?.SetTag("blob.name", request.BlobName);
         activity?.SetTag("file.id", request.FileId);
+
+        using var fileScope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["file.id"] = request.FileId,
+            ["blob.container"] = request.ContainerName,
+            ["blob.name"] = request.BlobName,
+            ["url.full"] = request.BlobUri.ToString()
+        });
 
         await _fileIngestProcessor.ProcessAsync(request, cancellationToken);
 
