@@ -163,6 +163,27 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 await _bookmarkService.EnsureBookmarksAsync(pdf, cancellationToken);
             }
 
+            int layoutTablesDemoted;
+            using (LogStage.Begin(
+                       _logger,
+                       fileId,
+                       "demote_layout_tables",
+                       new { demoteSmallTablesWithoutHeaders = _options.DemoteSmallTablesWithoutHeaders },
+                       kind: "Remediation stage"))
+            {
+                layoutTablesDemoted = PdfTableRoleRemediator.DemoteLikelyLayoutTables(
+                    pdf,
+                    demoteSmallTablesWithoutHeaders: _options.DemoteSmallTablesWithoutHeaders,
+                    cancellationToken);
+            }
+            if (layoutTablesDemoted > 0)
+            {
+                _logger.LogInformation(
+                    "Demoted {count} likely layout table(s) in {fileId}.",
+                    layoutTablesDemoted,
+                    fileId);
+            }
+
             using (LogStage.Begin(_logger, fileId, "ensure_table_summaries", null, kind: "Remediation stage"))
             {
                 PdfTableSummaryRemediator.EnsureTablesHaveSummary(pdf, cancellationToken);

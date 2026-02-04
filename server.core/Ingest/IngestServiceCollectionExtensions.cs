@@ -57,6 +57,10 @@ public static class IngestServiceCollectionExtensions
                 o.GenerateLinkAltText =
                     configuration.GetValue<bool>("Ingest:GenerateLinkAltText")
                     || configuration.GetValue<bool>("INGEST_GENERATE_LINK_ALT_TEXT");
+
+                o.DemoteSmallTablesWithoutHeaders =
+                    configuration.GetValue<bool>("Ingest:DemoteSmallTablesWithoutHeaders")
+                    || configuration.GetValue<bool>("INGEST_DEMOTE_SMALL_TABLES_WITHOUT_HEADERS");
             });
 
             services.AddSingleton<OpenAiRemediationConfig>(sp =>
