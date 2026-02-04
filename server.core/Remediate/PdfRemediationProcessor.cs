@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text;
-using System.Threading;
 using iText.IO.Font;
 using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
@@ -15,6 +14,7 @@ using IOPath = System.IO.Path;
 using server.core.Remediate.AltText;
 using server.core.Remediate.Bookmarks;
 using server.core.Remediate.Title;
+using server.core.Telemetry;
 
 namespace server.core.Remediate;
 
@@ -124,12 +124,12 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
             using var pdf = new PdfDocument(new PdfReader(inputPdfPath), new PdfWriter(outputPdfPath));
 
-            using (BeginStage(fileId, "ensure_title", null))
+            using (LogStage.Begin(_logger, fileId, "ensure_title", null, kind: "Remediation stage"))
             {
                 await EnsurePdfHasTitleAsync(pdf, cancellationToken);
             }
 
-            using (BeginStage(fileId, "ensure_primary_language", null))
+            using (LogStage.Begin(_logger, fileId, "ensure_primary_language", null, kind: "Remediation stage"))
             {
                 EnsurePdfHasPrimaryLanguage(pdf, cancellationToken);
             }
@@ -142,7 +142,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 isTagged);
             if (isTagged)
             {
-                using (BeginStage(fileId, "ensure_tab_order", null))
+                using (LogStage.Begin(_logger, fileId, "ensure_tab_order", null, kind: "Remediation stage"))
                 {
                     EnsurePagesUseDocumentStructureTabOrder(pdf, cancellationToken);
                 }
@@ -158,18 +158,18 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 "PDF remediation options: generateLinkAltText={generateLinkAltText}",
                 _options.GenerateLinkAltText);
 
-            using (BeginStage(fileId, "ensure_bookmarks", null))
+            using (LogStage.Begin(_logger, fileId, "ensure_bookmarks", null, kind: "Remediation stage"))
             {
                 await _bookmarkService.EnsureBookmarksAsync(pdf, cancellationToken);
             }
 
-            using (BeginStage(fileId, "ensure_table_summaries", null))
+            using (LogStage.Begin(_logger, fileId, "ensure_table_summaries", null, kind: "Remediation stage"))
             {
                 PdfTableSummaryRemediator.EnsureTablesHaveSummary(pdf, cancellationToken);
             }
 
             int removedAnnotations;
-            using (BeginStage(fileId, "remove_untagged_annotations", null))
+            using (LogStage.Begin(_logger, fileId, "remove_untagged_annotations", null, kind: "Remediation stage"))
             {
                 removedAnnotations = PdfAnnotationRemediator.RemoveUntaggedAnnotations(pdf, cancellationToken);
             }
@@ -183,7 +183,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
             Dictionary<int, int> pageObjNumToPageNumber;
             PdfStructTreeIndex figureIndex;
-            using (BeginStage(fileId, "build_struct_tree_indices", null))
+            using (LogStage.Begin(_logger, fileId, "build_struct_tree_indices", null, kind: "Remediation stage"))
             {
                 pageObjNumToPageNumber = PdfStructTreeIndex.BuildPageObjectNumberToPageNumberMap(pdf);
                 figureIndex = PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Figure);
@@ -198,7 +198,12 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             var linkOccurrences = 0;
             var linkAltSet = 0;
 
-            using (BeginStage(fileId, "scan_pages_for_alt_text", new { generateLinkAltText = _options.GenerateLinkAltText }))
+            using (LogStage.Begin(
+                       _logger,
+                       fileId,
+                       "scan_pages_for_alt_text",
+                       new { generateLinkAltText = _options.GenerateLinkAltText },
+                       kind: "Remediation stage"))
             {
                 for (var pageNumber = 1; pageNumber <= pdf.GetNumberOfPages(); pageNumber++)
                 {
@@ -317,41 +322,6 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 "PDF remediation duration: {fileId} elapsedMs={elapsedMs}",
                 fileId,
                 totalSw.Elapsed.TotalMilliseconds);
-        }
-    }
-
-    private IDisposable BeginStage(string fileId, string stage, object? details)
-    {
-        var sw = Stopwatch.StartNew();
-        _logger.LogInformation("Remediation stage start: {fileId} stage={stage} details={details}", fileId, stage, details);
-        return new DisposableAction(() =>
-        {
-            _logger.LogInformation(
-                "Remediation stage end: {fileId} stage={stage} elapsedMs={elapsedMs}",
-                fileId,
-                stage,
-                sw.Elapsed.TotalMilliseconds);
-        });
-    }
-
-    private sealed class DisposableAction : IDisposable
-    {
-        private readonly Action _onDispose;
-        private int _disposed;
-
-        public DisposableAction(Action onDispose)
-        {
-            _onDispose = onDispose;
-        }
-
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) == 1)
-            {
-                return;
-            }
-
-            _onDispose();
         }
     }
 

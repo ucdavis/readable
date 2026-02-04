@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text.Json;
-using System.Threading;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -75,7 +74,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             await using var stream = await OpenBlobStreamAsync(request.FileId, request.BlobUri, cancellationToken);
 
             PdfProcessResult pdfResult;
-            using (BeginStage(request.FileId, "pdf_processor", null))
+            using (LogStage.Begin(_logger, request.FileId, "pdf_processor", null))
             {
                 pdfResult = await _pdfProcessor.ProcessAsync(request.FileId, stream, cancellationToken);
             }
@@ -91,7 +90,8 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 processedContainerName,
                 request.BlobName);
 
-            using (BeginStage(
+            using (LogStage.Begin(
+                       _logger,
                        request.FileId,
                        "upload_processed_pdf",
                        new { localPath = pdfResult.OutputPdfPath, destination = processedBlobUri.ToString() }))
@@ -103,7 +103,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                     cancellationToken: cancellationToken);
             }
 
-            using (BeginStage(request.FileId, "delete_incoming_blob", new { request.BlobUri }))
+            using (LogStage.Begin(_logger, request.FileId, "delete_incoming_blob", new { request.BlobUri }))
             {
                 await DeleteIncomingBlobAsync(request, cancellationToken);
             }
@@ -115,7 +115,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             {
                 try
                 {
-                    using var _reportStage = BeginStage(request.FileId, "persist_before_a11y_report", null);
+                    using var _reportStage = LogStage.Begin(_logger, request.FileId, "persist_before_a11y_report", null);
                     await SaveAccessibilityReportAsync(
                         fileId,
                         tool: "AdobePdfServices",
@@ -134,7 +134,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             {
                 try
                 {
-                    using var _reportStage = BeginStage(request.FileId, "persist_after_a11y_report", null);
+                    using var _reportStage = LogStage.Begin(_logger, request.FileId, "persist_after_a11y_report", null);
                     await SaveAccessibilityReportAsync(
                         fileId,
                         tool: "AdobePdfServices",
@@ -148,7 +148,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 }
             }
 
-            using (BeginStage(request.FileId, "complete_attempt", new { outcome = FileProcessingAttempt.Outcomes.Succeeded }))
+            using (LogStage.Begin(_logger, request.FileId, "complete_attempt", new { outcome = FileProcessingAttempt.Outcomes.Succeeded }))
             {
                 await CompleteProcessingAttemptAsync(
                     fileId,
@@ -200,44 +200,9 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
 
     private async Task<Stream> OpenBlobStreamAsync(string fileId, Uri blobUri, CancellationToken cancellationToken)
     {
-        using (BeginStage(fileId, "open_blob_stream", new { blobUri }))
+        using (LogStage.Begin(_logger, fileId, "open_blob_stream", new { blobUri }))
         {
             return await _blobStreamOpener.OpenReadAsync(blobUri, cancellationToken);
-        }
-    }
-
-    private IDisposable BeginStage(string fileId, string stage, object? details)
-    {
-        var sw = Stopwatch.StartNew();
-        _logger.LogInformation("Stage start: {fileId} stage={stage} details={details}", fileId, stage, details);
-        return new DisposableAction(() =>
-        {
-            _logger.LogInformation(
-                "Stage end: {fileId} stage={stage} elapsedMs={elapsedMs}",
-                fileId,
-                stage,
-                sw.Elapsed.TotalMilliseconds);
-        });
-    }
-
-    private sealed class DisposableAction : IDisposable
-    {
-        private readonly Action _onDispose;
-        private int _disposed;
-
-        public DisposableAction(Action onDispose)
-        {
-            _onDispose = onDispose;
-        }
-
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) == 1)
-            {
-                return;
-            }
-
-            _onDispose();
         }
     }
 
