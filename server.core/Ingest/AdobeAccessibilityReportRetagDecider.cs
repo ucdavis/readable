@@ -18,7 +18,7 @@ public static class AdobeAccessibilityReportRetagDecider
             // Page Content
             MakeKey(section: "pagecontent", rule: "taggedcontent"),
             MakeKey(section: "pagecontent", rule: "taggedannotations"),
-            MakeKey(section: "pagecontent", rule: "taborder"),
+            // "Tab order" is usually fixable without full autotagging (e.g., setting page /Tabs to /S).
             MakeKey(section: "pagecontent", rule: "taggedmultimedia"),
 
             // Forms
@@ -173,4 +173,3 @@ public static class AdobeAccessibilityReportRetagDecider
 
     private static string MakeKey(string section, string rule) => $"{section}|{rule}";
 }
-

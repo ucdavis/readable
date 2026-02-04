@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using iText.IO.Font;
 using iText.Kernel.Geom;
@@ -7,11 +8,13 @@ using iText.Kernel.Pdf.Canvas.Parser;
 using iText.Kernel.Pdf.Canvas.Parser.Data;
 using iText.Kernel.Pdf.Canvas.Parser.Listener;
 using iText.Kernel.Pdf.Xobject;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using IOPath = System.IO.Path;
 using server.core.Remediate.AltText;
 using server.core.Remediate.Bookmarks;
 using server.core.Remediate.Title;
+using server.core.Telemetry;
 
 namespace server.core.Remediate;
 
@@ -61,27 +64,44 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
     private readonly IAltTextService _altTextService;
     private readonly IPdfBookmarkService _bookmarkService;
     private readonly IPdfTitleService _pdfTitleService;
+    private readonly PdfRemediationOptions _options;
     private readonly ILogger<PdfRemediationProcessor> _logger;
 
     public PdfRemediationProcessor(
         IAltTextService altTextService,
         IPdfBookmarkService bookmarkService,
         IPdfTitleService pdfTitleService,
+        IOptions<PdfRemediationOptions> options,
         ILogger<PdfRemediationProcessor> logger)
     {
         _altTextService = altTextService ?? throw new ArgumentNullException(nameof(altTextService));
         _bookmarkService = bookmarkService ?? throw new ArgumentNullException(nameof(bookmarkService));
         _pdfTitleService = pdfTitleService ?? throw new ArgumentNullException(nameof(pdfTitleService));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
+    public PdfRemediationProcessor(
+        IAltTextService altTextService,
+        IPdfBookmarkService bookmarkService,
+        IPdfTitleService pdfTitleService,
+        ILogger<PdfRemediationProcessor> logger)
+        : this(
+            altTextService,
+            bookmarkService,
+            pdfTitleService,
+            Options.Create(new PdfRemediationOptions()),
+            logger)
+    {
+    }
+
     /// <summary>
-    /// Remediates a PDF by ensuring it has a title and (when tagged) adding missing alt text for figures and links.
+    /// Remediates a PDF by ensuring it has a title and (when tagged) adding missing alt text for figures (and optionally links).
     /// </summary>
     /// <remarks>
     /// Alt-text remediation relies on the PDF tag tree, so it only runs for tagged PDFs. A fallback pass ensures
-    /// any remaining <c>/Figure</c> and <c>/Link</c> structure elements have some <c>/Alt</c> value even when exact
-    /// content-to-tag matching is imperfect.
+    /// any remaining <c>/Figure</c> structure elements have some <c>/Alt</c> value even when exact content-to-tag
+    /// matching is imperfect. Link <c>/Alt</c> generation is opt-in via <see cref="PdfRemediationOptions" />.
     /// </remarks>
     public async Task<PdfRemediationResult> ProcessAsync(
         string fileId,
@@ -89,6 +109,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         string outputPdfPath,
         CancellationToken cancellationToken)
     {
+        var totalSw = Stopwatch.StartNew();
         _logger.LogInformation(
             "PDF remediation starting: {fileId} {input} -> {output}",
             fileId,
@@ -103,18 +124,55 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
             using var pdf = new PdfDocument(new PdfReader(inputPdfPath), new PdfWriter(outputPdfPath));
 
-            await EnsurePdfHasTitleAsync(pdf, cancellationToken);
-            EnsurePdfHasPrimaryLanguage(pdf, cancellationToken);
+            using (LogStage.Begin(_logger, fileId, "ensure_title", null, kind: "Remediation stage"))
+            {
+                await EnsurePdfHasTitleAsync(pdf, cancellationToken);
+            }
 
-            if (!pdf.IsTagged())
+            using (LogStage.Begin(_logger, fileId, "ensure_primary_language", null, kind: "Remediation stage"))
+            {
+                EnsurePdfHasPrimaryLanguage(pdf, cancellationToken);
+            }
+
+            var isTagged = pdf.IsTagged();
+            _logger.LogInformation(
+                "PDF remediation input characteristics: {fileId} pages={pages} isTagged={isTagged}",
+                fileId,
+                pdf.GetNumberOfPages(),
+                isTagged);
+            if (isTagged)
+            {
+                using (LogStage.Begin(_logger, fileId, "ensure_tab_order", null, kind: "Remediation stage"))
+                {
+                    EnsurePagesUseDocumentStructureTabOrder(pdf, cancellationToken);
+                }
+            }
+
+            if (!isTagged)
             {
                 success = true;
                 return new PdfRemediationResult(outputPdfPath);
             }
 
-            await _bookmarkService.EnsureBookmarksAsync(pdf, cancellationToken);
-            PdfTableSummaryRemediator.EnsureTablesHaveSummary(pdf, cancellationToken);
-            var removedAnnotations = PdfAnnotationRemediator.RemoveUntaggedAnnotations(pdf, cancellationToken);
+            _logger.LogInformation(
+                "PDF remediation options: generateLinkAltText={generateLinkAltText}",
+                _options.GenerateLinkAltText);
+
+            using (LogStage.Begin(_logger, fileId, "ensure_bookmarks", null, kind: "Remediation stage"))
+            {
+                await _bookmarkService.EnsureBookmarksAsync(pdf, cancellationToken);
+            }
+
+            using (LogStage.Begin(_logger, fileId, "ensure_table_summaries", null, kind: "Remediation stage"))
+            {
+                PdfTableSummaryRemediator.EnsureTablesHaveSummary(pdf, cancellationToken);
+            }
+
+            int removedAnnotations;
+            using (LogStage.Begin(_logger, fileId, "remove_untagged_annotations", null, kind: "Remediation stage"))
+            {
+                removedAnnotations = PdfAnnotationRemediator.RemoveUntaggedAnnotations(pdf, cancellationToken);
+            }
             if (removedAnnotations > 0)
             {
                 _logger.LogInformation(
@@ -123,73 +181,130 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     fileId);
             }
 
-            var pageObjNumToPageNumber = PdfStructTreeIndex.BuildPageObjectNumberToPageNumberMap(pdf);
-            var figureIndex = PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Figure);
-            var linkIndex = PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Link);
-
-            for (var pageNumber = 1; pageNumber <= pdf.GetNumberOfPages(); pageNumber++)
+            Dictionary<int, int> pageObjNumToPageNumber;
+            PdfStructTreeIndex figureIndex;
+            using (LogStage.Begin(_logger, fileId, "build_struct_tree_indices", null, kind: "Remediation stage"))
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                pageObjNumToPageNumber = PdfStructTreeIndex.BuildPageObjectNumberToPageNumberMap(pdf);
+                figureIndex = PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Figure);
+            }
 
-                var page = pdf.GetPage(pageNumber);
+            var linkIndex = _options.GenerateLinkAltText
+                ? PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Link)
+                : null;
 
-                foreach (var occ in PdfContentScanner.ListImageOccurrences(page, pageNumber))
+            var imageOccurrences = 0;
+            var imageAltSet = 0;
+            var linkOccurrences = 0;
+            var linkAltSet = 0;
+
+            using (LogStage.Begin(
+                       _logger,
+                       fileId,
+                       "scan_pages_for_alt_text",
+                       new { generateLinkAltText = _options.GenerateLinkAltText },
+                       kind: "Remediation stage"))
+            {
+                for (var pageNumber = 1; pageNumber <= pdf.GetNumberOfPages(); pageNumber++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var figure = ResolveStructElem(figureIndex, pageNumber, occ.Mcid, occ.ObjectRef);
-                    if (figure is null || HasNonEmptyAlt(figure))
+                    var page = pdf.GetPage(pageNumber);
+
+                    foreach (var occ in PdfContentScanner.ListImageOccurrences(page, pageNumber))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        imageOccurrences++;
+
+                        var figure = ResolveStructElem(figureIndex, pageNumber, occ.Mcid, occ.ObjectRef);
+                        if (figure is null || HasNonEmptyAlt(figure))
+                        {
+                            continue;
+                        }
+
+                        var (bytes, mimeType) = ExtractImageBytes(occ.Image);
+                        var altText = await _altTextService.GetAltTextForImageAsync(
+                            new ImageAltTextRequest(bytes, mimeType, occ.ContextBefore, occ.ContextAfter),
+                            cancellationToken);
+                        SetAlt(figure, altText);
+                        if (!string.IsNullOrWhiteSpace(altText))
+                        {
+                            imageAltSet++;
+                        }
+                    }
+
+                    if (!_options.GenerateLinkAltText)
                     {
                         continue;
                     }
 
-                    var (bytes, mimeType) = ExtractImageBytes(occ.Image);
-                    var altText = await _altTextService.GetAltTextForImageAsync(
-                        new ImageAltTextRequest(bytes, mimeType, occ.ContextBefore, occ.ContextAfter),
-                        cancellationToken);
-                    SetAlt(figure, altText);
-                }
-
-                foreach (var occ in PdfContentScanner.ListLinkOccurrences(page, pageNumber))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    if (occ.AnnotationRef is null)
+                    foreach (var occ in PdfContentScanner.ListLinkOccurrences(page, pageNumber))
                     {
-                        continue;
-                    }
+                        cancellationToken.ThrowIfCancellationRequested();
+                        linkOccurrences++;
 
-                    var link = ResolveStructElem(linkIndex, pageNumber, mcid: null, occ.AnnotationRef);
-                    if (link is null || HasNonEmptyAlt(link))
-                    {
-                        continue;
-                    }
+                        if (occ.AnnotationRef is null)
+                        {
+                            continue;
+                        }
 
-                    var target = TryGetLinkTarget(occ.LinkAnnotation);
-                    var altText = await _altTextService.GetAltTextForLinkAsync(
-                        new LinkAltTextRequest(target, occ.LinkText, occ.ContextBefore, occ.ContextAfter),
-                        cancellationToken);
-                    SetAlt(link, altText);
+                        var link = ResolveStructElem(linkIndex!, pageNumber, mcid: null, occ.AnnotationRef);
+                        if (link is null || HasNonEmptyAlt(link))
+                        {
+                            continue;
+                        }
+
+                        var target = TryGetLinkTarget(occ.LinkAnnotation);
+                        var altText = await _altTextService.GetAltTextForLinkAsync(
+                            new LinkAltTextRequest(target, occ.LinkText, occ.ContextBefore, occ.ContextAfter),
+                            cancellationToken);
+                        SetAlt(link, altText);
+                        if (!string.IsNullOrWhiteSpace(altText))
+                        {
+                            linkAltSet++;
+                        }
+                    }
                 }
             }
 
-            // Fallback safety-net: ensure any remaining tagged Figures/Links get *some* alt text.
+            // Fallback safety-net: ensure any remaining tagged Figures get *some* alt text.
             // This keeps remediation robust even when we can't reliably match content-stream occurrences to tag-tree elements.
+            var fallbackImageAltSet = 0;
             foreach (var figure in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Figure))
             {
                 if (!HasNonEmptyAlt(figure))
                 {
                     SetAlt(figure, _altTextService.GetFallbackAltTextForImage());
+                    fallbackImageAltSet++;
                 }
             }
 
-            foreach (var link in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Link))
+            if (_options.GenerateLinkAltText)
             {
-                if (!HasNonEmptyAlt(link))
+                var fallbackLinkAltSet = 0;
+                foreach (var link in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Link))
                 {
-                    SetAlt(link, _altTextService.GetFallbackAltTextForLink());
+                    if (!HasNonEmptyAlt(link))
+                    {
+                        SetAlt(link, _altTextService.GetFallbackAltTextForLink());
+                        fallbackLinkAltSet++;
+                    }
                 }
+
+                _logger.LogInformation(
+                    "PDF remediation link alt summary: {fileId} linkOccurrences={linkOccurrences} linkAltSet={linkAltSet} fallbackLinkAltSet={fallbackLinkAltSet}",
+                    fileId,
+                    linkOccurrences,
+                    linkAltSet,
+                    fallbackLinkAltSet);
             }
+
+            _logger.LogInformation(
+                "PDF remediation image alt summary: {fileId} imageOccurrences={imageOccurrences} imageAltSet={imageAltSet} fallbackImageAltSet={fallbackImageAltSet}",
+                fileId,
+                imageOccurrences,
+                imageAltSet,
+                fallbackImageAltSet);
 
             success = true;
             return new PdfRemediationResult(outputPdfPath);
@@ -202,6 +317,46 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 inputPdfPath,
                 outputPdfPath,
                 success);
+
+            _logger.LogInformation(
+                "PDF remediation duration: {fileId} elapsedMs={elapsedMs}",
+                fileId,
+                totalSw.Elapsed.TotalMilliseconds);
+        }
+    }
+
+    /// <summary>
+    /// Ensures each page uses document-structure tab order (<c>/Tabs /S</c>).
+    /// </summary>
+    /// <remarks>
+    /// Acrobat's Accessibility Checker can fail "Tab order" even when the PDF is already tagged, and Acrobat's "Fix"
+    /// is effectively a fast metadata update at the page level (no full re-tag needed).
+    /// </remarks>
+    private void EnsurePagesUseDocumentStructureTabOrder(PdfDocument pdf, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var updatedPages = 0;
+        for (var pageNumber = 1; pageNumber <= pdf.GetNumberOfPages(); pageNumber++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var page = pdf.GetPage(pageNumber);
+            var pageDict = page.GetPdfObject();
+
+            var current = pageDict.GetAsName(PdfName.Tabs);
+            if (PdfName.S.Equals(current))
+            {
+                continue;
+            }
+
+            pageDict.Put(PdfName.Tabs, PdfName.S);
+            updatedPages++;
+        }
+
+        if (updatedPages > 0)
+        {
+            _logger.LogInformation("Set /Tabs /S (Use Document Structure) on {count} page(s).", updatedPages);
         }
     }
 

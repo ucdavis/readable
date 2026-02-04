@@ -44,6 +44,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
     /// </summary>
     public async Task ProcessAsync(BlobIngestRequest request, CancellationToken cancellationToken)
     {
+        var totalSw = Stopwatch.StartNew();
         using var activity = TelemetryHelper.ActivitySource.StartActivity(
             "file_ingest.process",
             ActivityKind.Internal);
@@ -70,8 +71,13 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         // start the actual processing
         try
         {
-            await using var stream = await _blobStreamOpener.OpenReadAsync(request.BlobUri, cancellationToken);
-            var pdfResult = await _pdfProcessor.ProcessAsync(request.FileId, stream, cancellationToken);
+            await using var stream = await OpenBlobStreamAsync(request.FileId, request.BlobUri, cancellationToken);
+
+            PdfProcessResult pdfResult;
+            using (LogStage.Begin(_logger, request.FileId, "pdf_processor", null))
+            {
+                pdfResult = await _pdfProcessor.ProcessAsync(request.FileId, stream, cancellationToken);
+            }
 
             // pdf processing done, move the resulting PDF to the processed container and clean up
             var processedContainerName =
@@ -84,13 +90,23 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 processedContainerName,
                 request.BlobName);
 
-            await UploadFinalPdfAsync(
-                fileId: request.FileId,
-                localPdfPath: pdfResult.OutputPdfPath,
-                destinationBlobUri: processedBlobUri,
-                cancellationToken: cancellationToken);
+            using (LogStage.Begin(
+                       _logger,
+                       request.FileId,
+                       "upload_processed_pdf",
+                       new { localPath = pdfResult.OutputPdfPath, destination = processedBlobUri.ToString() }))
+            {
+                await UploadFinalPdfAsync(
+                    fileId: request.FileId,
+                    localPdfPath: pdfResult.OutputPdfPath,
+                    destinationBlobUri: processedBlobUri,
+                    cancellationToken: cancellationToken);
+            }
 
-            await DeleteIncomingBlobAsync(request, cancellationToken);
+            using (LogStage.Begin(_logger, request.FileId, "delete_incoming_blob", new { request.BlobUri }))
+            {
+                await DeleteIncomingBlobAsync(request, cancellationToken);
+            }
 
             // attempt to save accessibility report if present
             // later we might want to make it required but i think it's better to just ensure the pdf gets processed
@@ -99,6 +115,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             {
                 try
                 {
+                    using var _reportStage = LogStage.Begin(_logger, request.FileId, "persist_before_a11y_report", null);
                     await SaveAccessibilityReportAsync(
                         fileId,
                         tool: "AdobePdfServices",
@@ -117,6 +134,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             {
                 try
                 {
+                    using var _reportStage = LogStage.Begin(_logger, request.FileId, "persist_after_a11y_report", null);
                     await SaveAccessibilityReportAsync(
                         fileId,
                         tool: "AdobePdfServices",
@@ -130,18 +148,29 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 }
             }
 
-            await CompleteProcessingAttemptAsync(
-                fileId,
-                attemptId,
-                outcome: FileProcessingAttempt.Outcomes.Succeeded,
-                error: null,
-                request,
-                CancellationToken.None);
+            using (LogStage.Begin(_logger, request.FileId, "complete_attempt", new { outcome = FileProcessingAttempt.Outcomes.Succeeded }))
+            {
+                await CompleteProcessingAttemptAsync(
+                    fileId,
+                    attemptId,
+                    outcome: FileProcessingAttempt.Outcomes.Succeeded,
+                    error: null,
+                    request,
+                    CancellationToken.None);
+            }
 
-            _logger.LogInformation("Completed ingest for {fileId}", request.FileId);
+            _logger.LogInformation(
+                "Completed ingest for {fileId} elapsedMs={elapsedMs}",
+                request.FileId,
+                totalSw.Elapsed.TotalMilliseconds);
         }
         catch (OperationCanceledException oce)
         {
+            _logger.LogWarning(
+                oce,
+                "Ingest cancelled for {fileId} elapsedMs={elapsedMs}",
+                request.FileId,
+                totalSw.Elapsed.TotalMilliseconds);
             await CompleteProcessingAttemptAsync(
                 fileId,
                 attemptId,
@@ -153,6 +182,11 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         }
         catch (Exception ex)
         {
+            _logger.LogError(
+                ex,
+                "Ingest failed for {fileId} elapsedMs={elapsedMs}",
+                request.FileId,
+                totalSw.Elapsed.TotalMilliseconds);
             await CompleteProcessingAttemptAsync(
                 fileId,
                 attemptId,
@@ -161,6 +195,14 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 request,
                 CancellationToken.None);
             throw;
+        }
+    }
+
+    private async Task<Stream> OpenBlobStreamAsync(string fileId, Uri blobUri, CancellationToken cancellationToken)
+    {
+        using (LogStage.Begin(_logger, fileId, "open_blob_stream", new { blobUri }))
+        {
+            return await _blobStreamOpener.OpenReadAsync(blobUri, cancellationToken);
         }
     }
 

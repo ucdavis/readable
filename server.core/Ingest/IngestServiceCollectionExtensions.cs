@@ -52,6 +52,13 @@ public static class IngestServiceCollectionExtensions
 
         if (options.UsePdfRemediationProcessor)
         {
+            services.AddOptions<PdfRemediationOptions>().Configure<IConfiguration>((o, configuration) =>
+            {
+                o.GenerateLinkAltText =
+                    configuration.GetValue<bool>("Ingest:GenerateLinkAltText")
+                    || configuration.GetValue<bool>("INGEST_GENERATE_LINK_ALT_TEXT");
+            });
+
             services.AddSingleton<OpenAiRemediationConfig>(sp =>
             {
                 var configuration = sp.GetRequiredService<IConfiguration>();

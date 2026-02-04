@@ -37,7 +37,6 @@ public class AdobeAccessibilityReportRetagDeciderTests
             "Document: Tagged PDF",
             "Page Content: Tagged content",
             "Page Content: Tagged annotations",
-            "Page Content: Tab order",
             "Headings: Appropriate nesting",
         });
     }
@@ -68,8 +67,8 @@ public class AdobeAccessibilityReportRetagDeciderTests
 
         ok.Should().BeTrue();
         error.Should().BeNull();
-        shouldRetag.Should().BeTrue();
-        triggers.Should().Contain("PageContent: Tab order");
+        shouldRetag.Should().BeFalse();
+        triggers.Should().BeEmpty();
     }
 
     private const string SampleReport_WithTriggerFailures = """
@@ -132,4 +131,3 @@ public class AdobeAccessibilityReportRetagDeciderTests
         }
         """;
 }
-

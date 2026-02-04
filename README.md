@@ -62,7 +62,7 @@ At a high level, PDFs flow through:
 ### What remediation currently does
 
 - **PDF title**: extracts text from the first pages and writes a descriptive title into PDF metadata. If there isn't enough text, the existing title is kept (or a placeholder is used when missing).
-- **Alt text (tagged PDFs only)**: fills missing `Alt` text for tagged `Figure` and `Link` elements, using AI when configured and a fallback otherwise.
+- **Alt text (tagged PDFs only)**: fills missing `Alt` text for tagged `Figure` elements, using AI when configured and a fallback otherwise. (Optional) link `Alt` generation is off by default; enable with `INGEST_GENERATE_LINK_ALT_TEXT=true`.
 
 ### Database configuration
 
@@ -75,8 +75,8 @@ When you want to specify your own DB connection, provide it by setting the `DB_C
 AI-backed remediation is enabled when `OPENAI_API_KEY` is set. If it is not set, the app uses local “sample” implementations (useful for development/tests).
 
 - `OPENAI_API_KEY`: enables OpenAI-backed services
-- `OPENAI_ALT_TEXT_MODEL`: model for image/link alt text generation (default: `gpt-4o-mini`)
-- `OPENAI_PDF_TITLE_MODEL`: model for PDF title generation (default: `gpt-4o-mini`)
+- `OPENAI_ALT_TEXT_MODEL`: model for image alt text generation (default: `gpt-5-mini`)
+- `OPENAI_PDF_TITLE_MODEL`: model for PDF title generation (default: `gpt-5-mini`)
 
 ### Observability (OpenTelemetry / OTLP)
 
