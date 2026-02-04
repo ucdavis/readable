@@ -120,10 +120,12 @@ public sealed class PdfProcessor : IPdfProcessor
         if (_options.UseAdobePdfServices)
         {
             _logger.LogInformation(
-                "Adobe autotagging enabled: {fileId} autotagTaggedPdfs={autotagTaggedPdfs} maxPagesPerChunk={maxPagesPerChunk}",
+                "Adobe autotagging enabled: {fileId} autotagTaggedPdfs={autotagTaggedPdfs} maxPagesPerChunk={maxPagesPerChunk} remediation={useRemediation} bookmarks={useBookmarks}",
                 fileId,
                 _options.AutotagTaggedPdfs,
-                _options.MaxPagesPerChunk);
+                _options.MaxPagesPerChunk,
+                _options.UsePdfRemediationProcessor,
+                _options.UsePdfBookmarks);
 
             var outputTaggedPath = Path.Combine(workDir, $"{safeFileId}.tagged.pdf");
             var sourceInfo = ReadSourcePdfInfo(
