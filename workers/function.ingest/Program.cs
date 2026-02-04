@@ -46,10 +46,11 @@ builder.Services.AddFileIngest(o =>
     o.AutotagTaggedPdfs =
         builder.Configuration.GetValue<bool>("Ingest:AutotagTaggedPdfs")
         || builder.Configuration.GetValue<bool>("INGEST_AUTOTAG_TAGGED_PDFS");
-    // Feature flag (default off): enable with Ingest:UsePdfBookmarks or INGEST_USE_PDF_BOOKMARKS=true.
+    // Default on: allow override with Ingest:UsePdfBookmarks or INGEST_USE_PDF_BOOKMARKS (true/false).
     o.UsePdfBookmarks =
-        builder.Configuration.GetValue<bool>("Ingest:UsePdfBookmarks")
-        || builder.Configuration.GetValue<bool>("INGEST_USE_PDF_BOOKMARKS");
+        builder.Configuration.GetValue<bool?>("Ingest:UsePdfBookmarks")
+        ?? builder.Configuration.GetValue<bool?>("INGEST_USE_PDF_BOOKMARKS")
+        ?? true;
 });
 
 builder.Services.AddApplicationInsightsTelemetryWorkerService();
