@@ -4,6 +4,7 @@ import {
   type AccessibilityReportDetails,
   type AccessibilityReportJson,
 } from '@/queries/files.ts';
+import { RuleInfoLink } from '@/shared/accessibility/ruleInfoLink.tsx';
 import { ArrowDownTrayIcon } from '@heroicons/react/24/solid';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
@@ -416,7 +417,10 @@ function RouteComponent() {
                       <tr key={`${r.category}||${r.rule}||${idx}`}>
                         <td className="text-base-content">{r.category}</td>
                         <td>
-                          <div className="font-medium">{r.rule}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="font-medium">{r.rule}</div>
+                            <RuleInfoLink rule={r.rule} />
+                          </div>
                           {r.description ? (
                             <div className="text-xs text-base-content/80">
                               {r.description}
@@ -466,7 +470,10 @@ function RouteComponent() {
                       <tr key={`${r.category}||${r.rule}||${idx}`}>
                         <td className="text-base-content">{r.category}</td>
                         <td>
-                          <div className="font-medium">{r.rule}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="font-medium">{r.rule}</div>
+                            <RuleInfoLink rule={r.rule} />
+                          </div>
                           {r.description ? (
                             <div className="text-xs text-base-content/80">
                               {r.description}
@@ -531,7 +538,10 @@ function RouteComponent() {
                           {c.rows.map((r) => (
                             <tr key={`${r.category}||${r.rule}`}>
                               <td>
-                                <div className="font-medium">{r.rule}</div>
+                                <div className="flex items-center gap-2">
+                                  <div className="font-medium">{r.rule}</div>
+                                  <RuleInfoLink rule={r.rule} />
+                                </div>
                                 {r.description ? (
                                   <div className="text-xs text-base-content/80">
                                     {r.description}
