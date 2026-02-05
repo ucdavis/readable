@@ -50,6 +50,8 @@ public class FileRecord
 
     public long SizeBytes { get; set; }
 
+    public int PageCount { get; set; }
+
     [StringLength(32)]
     public string Status { get; set; } = Statuses.Created;
 
@@ -77,6 +79,9 @@ public class FileRecord
 
             entity.Property(x => x.StatusUpdatedAt)
                 .HasDefaultValueSql("SYSUTCDATETIME()");
+
+            entity.Property(x => x.PageCount)
+                .HasDefaultValue(0);
 
             entity.Property(x => x.RowVersion)
                 .IsRowVersion();
