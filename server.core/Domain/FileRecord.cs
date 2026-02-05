@@ -80,9 +80,6 @@ public class FileRecord
             entity.Property(x => x.StatusUpdatedAt)
                 .HasDefaultValueSql("SYSUTCDATETIME()");
 
-            entity.Property(x => x.PageCount)
-                .HasDefaultValue(0);
-
             entity.Property(x => x.RowVersion)
                 .IsRowVersion();
 

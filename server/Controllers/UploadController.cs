@@ -59,6 +59,7 @@ public class UploadController : ApiControllerBase
             OriginalFileName = originalFileName,
             ContentType = contentType,
             SizeBytes = sizeBytes,
+            PageCount = 0,
             Status = FileRecord.Statuses.Created,
             CreatedAt = now,
             StatusUpdatedAt = now,
