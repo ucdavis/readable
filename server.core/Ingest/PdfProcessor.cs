@@ -19,7 +19,8 @@ public sealed record PdfProcessResult(
     string? BeforeAccessibilityReportJson = null,
     string? BeforeAccessibilityReportPath = null,
     string? AfterAccessibilityReportJson = null,
-    string? AfterAccessibilityReportPath = null);
+    string? AfterAccessibilityReportPath = null,
+    int PageCount = 0);
 
 public sealed record PdfChunk(int Index, int FromPage, int ToPage, string Path)
 {
@@ -116,6 +117,7 @@ public sealed class PdfProcessor : IPdfProcessor
             _logger.LogWarning(ex, "Failed to generate BEFORE accessibility report for {fileId}", fileId);
         }
 
+        var pageCount = 0;
         string taggedPdfPath;
         if (_options.UseAdobePdfServices)
         {
@@ -133,6 +135,7 @@ public sealed class PdfProcessor : IPdfProcessor
                 beforeAccessibilityReport?.ReportJson,
                 out var retagTriggers,
                 out var retagDecisionError);
+            pageCount = sourceInfo.PageCount > 0 ? sourceInfo.PageCount : 0;
             if (!string.IsNullOrWhiteSpace(retagDecisionError))
             {
                 _logger.LogDebug(
@@ -255,6 +258,7 @@ public sealed class PdfProcessor : IPdfProcessor
         {
             // When Adobe autotagging is disabled, avoid splitting/merging with iText.
             taggedPdfPath = sourcePath;
+            pageCount = TryReadPageCount(sourcePath);
         }
 
         string finalPdfPath;
@@ -325,7 +329,8 @@ public sealed class PdfProcessor : IPdfProcessor
             beforeAccessibilityReport?.ReportJson,
             beforeAccessibilityReport?.ReportPath,
             accessibilityReport?.ReportJson,
-            accessibilityReport?.ReportPath);
+            accessibilityReport?.ReportPath,
+            PageCount: pageCount);
     }
 
     private enum PdfTaggingState
@@ -337,6 +342,20 @@ public sealed class PdfProcessor : IPdfProcessor
     }
 
     private sealed record SourcePdfInfo(int PageCount, PdfTaggingState TaggingState);
+
+    private static int TryReadPageCount(string pdfPath)
+    {
+        try
+        {
+            using var pdf = new PdfDocument(new PdfReader(pdfPath));
+            var pageCount = pdf.GetNumberOfPages();
+            return pageCount > 0 ? pageCount : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
 
     private static SourcePdfInfo ReadSourcePdfInfo(
         string pdfPath,

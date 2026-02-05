@@ -68,6 +68,8 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         // record the processing attempt in the database
         var attemptId = await StartProcessingAttemptAsync(fileId, cancellationToken);
 
+        var pageCount = 0;
+
         // start the actual processing
         try
         {
@@ -78,6 +80,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             {
                 pdfResult = await _pdfProcessor.ProcessAsync(request.FileId, stream, cancellationToken);
             }
+            pageCount = pdfResult.PageCount;
 
             // pdf processing done, move the resulting PDF to the processed container and clean up
             var processedContainerName =
@@ -156,7 +159,8 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                     outcome: FileProcessingAttempt.Outcomes.Succeeded,
                     error: null,
                     request,
-                    CancellationToken.None);
+                    CancellationToken.None,
+                    pageCount: pageCount);
             }
 
             _logger.LogInformation(
@@ -177,7 +181,8 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 outcome: FileProcessingAttempt.Outcomes.Cancelled,
                 error: oce,
                 request,
-                CancellationToken.None);
+                CancellationToken.None,
+                pageCount: pageCount);
             throw;
         }
         catch (Exception ex)
@@ -193,7 +198,8 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 outcome: FileProcessingAttempt.Outcomes.Failed,
                 error: ex,
                 request,
-                CancellationToken.None);
+                CancellationToken.None,
+                pageCount: pageCount);
             throw;
         }
     }
@@ -404,7 +410,8 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         string outcome,
         Exception? error,
         BlobIngestRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int pageCount = 0)
     {
         var finishedAt = DateTimeOffset.UtcNow;
 
@@ -448,6 +455,11 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 _ => FileRecord.Statuses.Failed,
             };
             attempt.File.StatusUpdatedAt = finishedAt;
+
+            if (pageCount > 0)
+            {
+                attempt.File.PageCount = pageCount;
+            }
 
             await dbContext.SaveChangesAsync(cancellationToken);
         }

@@ -87,6 +87,7 @@ public class FileIngestProcessorTests
         await using var verify = new AppDbContext(options);
         var file = await verify.Files.SingleAsync(x => x.FileId == fileId);
         file.Status.Should().Be(FileRecord.Statuses.Completed);
+        file.PageCount.Should().Be(pdf.PageCount);
 
         var beforeReport = await verify.AccessibilityReports.SingleOrDefaultAsync(
             x => x.FileId == fileId
@@ -263,6 +264,7 @@ public class FileIngestProcessorTests
 
         public int Calls { get; private set; }
         public string? SeenFileId { get; private set; }
+        public int PageCount { get; } = 7;
         public string BeforeAccessibilityReportJson { get; } = "{\"kind\":\"test\",\"stage\":\"before\",\"issues\":[]}";
         public string AfterAccessibilityReportJson { get; } = "{\"kind\":\"test\",\"stage\":\"after\",\"issues\":[]}";
         private readonly string _outputPath = Path.Combine(Path.GetTempPath(), $"readable-test-{Guid.NewGuid():N}.pdf");
@@ -300,7 +302,8 @@ public class FileIngestProcessorTests
             return new PdfProcessResult(
                 _outputPath,
                 BeforeAccessibilityReportJson: BeforeAccessibilityReportJson,
-                AfterAccessibilityReportJson: AfterAccessibilityReportJson);
+                AfterAccessibilityReportJson: AfterAccessibilityReportJson,
+                PageCount: PageCount);
         }
 
         public void Cleanup()
