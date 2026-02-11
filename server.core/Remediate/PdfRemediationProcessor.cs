@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
+using System.Runtime.CompilerServices;
 using iText.IO.Font;
 using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
@@ -13,6 +15,7 @@ using Microsoft.Extensions.Logging;
 using IOPath = System.IO.Path;
 using server.core.Remediate.AltText;
 using server.core.Remediate.Bookmarks;
+using server.core.Remediate.Rasterize;
 using server.core.Remediate.Title;
 using server.core.Telemetry;
 
@@ -61,8 +64,10 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
     private const int TitleContextMaxPages = 5;
     private const int TitleMaxChars = 200;
     private const string TitlePlaceholder = "Untitled PDF document";
+    private const string PlaceholderImageAltText = "alt text for image";
     private readonly IAltTextService _altTextService;
     private readonly IPdfBookmarkService _bookmarkService;
+    private readonly IPdfPageRasterizer _pageRasterizer;
     private readonly IPdfTitleService _pdfTitleService;
     private readonly PdfRemediationOptions _options;
     private readonly ILogger<PdfRemediationProcessor> _logger;
@@ -70,15 +75,33 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
     public PdfRemediationProcessor(
         IAltTextService altTextService,
         IPdfBookmarkService bookmarkService,
+        IPdfPageRasterizer pageRasterizer,
         IPdfTitleService pdfTitleService,
         IOptions<PdfRemediationOptions> options,
         ILogger<PdfRemediationProcessor> logger)
     {
         _altTextService = altTextService ?? throw new ArgumentNullException(nameof(altTextService));
         _bookmarkService = bookmarkService ?? throw new ArgumentNullException(nameof(bookmarkService));
+        _pageRasterizer = pageRasterizer ?? throw new ArgumentNullException(nameof(pageRasterizer));
         _pdfTitleService = pdfTitleService ?? throw new ArgumentNullException(nameof(pdfTitleService));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    public PdfRemediationProcessor(
+        IAltTextService altTextService,
+        IPdfBookmarkService bookmarkService,
+        IPdfTitleService pdfTitleService,
+        IPdfPageRasterizer pageRasterizer,
+        ILogger<PdfRemediationProcessor> logger)
+        : this(
+            altTextService,
+            bookmarkService,
+            pageRasterizer,
+            pdfTitleService,
+            Options.Create(new PdfRemediationOptions()),
+            logger)
+    {
     }
 
     public PdfRemediationProcessor(
@@ -90,7 +113,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             altTextService,
             bookmarkService,
             pdfTitleService,
-            Options.Create(new PdfRemediationOptions()),
+            NoopPdfPageRasterizer.Instance,
             logger)
     {
     }
@@ -238,7 +261,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                         imageOccurrences++;
 
                         var figure = ResolveStructElem(figureIndex, pageNumber, occ.Mcid, occ.ObjectRef);
-                        if (figure is null || HasNonEmptyAlt(figure))
+                        if (figure is null || !ShouldGenerateAltForFigure(figure))
                         {
                             continue;
                         }
@@ -288,6 +311,208 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 }
             }
 
+            var vectorFigureCandidates = 0;
+            var vectorAltSet = 0;
+            var vectorAltDedupeHits = 0;
+            var vectorRasterFailures = 0;
+            var vectorUniqueImages = 0;
+
+            if (_pageRasterizer.IsAvailable)
+            {
+                using (LogStage.Begin(
+                           _logger,
+                           fileId,
+                           "scan_pages_for_vector_figure_alt_text",
+                           new { dpi = 216 },
+                           kind: "Remediation stage"))
+                {
+                    const int dpi = 216;
+
+                    var targetMcidsByPage = new Dictionary<int, HashSet<int>>();
+                    foreach (var kvp in figureIndex.StructElemByMcid)
+                    {
+                        var pageNumber = kvp.Key.pageNumber;
+                        var mcid = kvp.Key.mcid;
+                        var figure = kvp.Value;
+
+                        if (!ShouldGenerateAltForFigure(figure))
+                        {
+                            continue;
+                        }
+
+                        if (!targetMcidsByPage.TryGetValue(pageNumber, out var set))
+                        {
+                            set = new HashSet<int>();
+                            targetMcidsByPage[pageNumber] = set;
+                        }
+
+                        set.Add(mcid);
+                    }
+
+                    if (targetMcidsByPage.Count > 0)
+                    {
+                        Dictionary<string, string> altByImageHash = new(StringComparer.Ordinal);
+
+                        try
+                        {
+                            using var rasterDoc = _pageRasterizer.OpenDocument(inputPdfPath, dpi);
+
+                            foreach (var pageNumber in targetMcidsByPage.Keys.OrderBy(p => p))
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+
+                                var page = pdf.GetPage(pageNumber);
+                                var targetMcids = targetMcidsByPage[pageNumber];
+
+                                var occurrences = PdfContentScanner.ListVectorFigureOccurrences(page, pageNumber, targetMcids);
+                                if (occurrences.Count == 0)
+                                {
+                                    continue;
+                                }
+
+                                var candidates = new Dictionary<PdfDictionary, VectorFigureCandidate>(PdfDictionaryReferenceComparer.Instance);
+                                foreach (var occ in occurrences)
+                                {
+                                    cancellationToken.ThrowIfCancellationRequested();
+
+                                    if (!figureIndex.StructElemByMcid.TryGetValue((pageNumber, occ.Mcid), out var figure))
+                                    {
+                                        continue;
+                                    }
+
+                                    if (!ShouldGenerateAltForFigure(figure))
+                                    {
+                                        continue;
+                                    }
+
+                                    if (candidates.TryGetValue(figure, out var existing))
+                                    {
+                                        existing.BoundsPts = Union(existing.BoundsPts, occ.Bounds);
+                                        if (string.IsNullOrWhiteSpace(existing.ContextBefore) && !string.IsNullOrWhiteSpace(occ.ContextBefore))
+                                        {
+                                            existing.ContextBefore = occ.ContextBefore;
+                                        }
+
+                                        if (string.IsNullOrWhiteSpace(existing.ContextAfter) && !string.IsNullOrWhiteSpace(occ.ContextAfter))
+                                        {
+                                            existing.ContextAfter = occ.ContextAfter;
+                                        }
+
+                                        continue;
+                                    }
+
+                                    candidates.Add(
+                                        figure,
+                                        new VectorFigureCandidate(
+                                            figure,
+                                            boundsPts: occ.Bounds,
+                                            contextBefore: occ.ContextBefore,
+                                            contextAfter: occ.ContextAfter));
+                                }
+
+                                if (candidates.Count == 0)
+                                {
+                                    continue;
+                                }
+
+                                vectorFigureCandidates += candidates.Count;
+
+                                BgraBitmap pageBitmap;
+                                try
+                                {
+                                    pageBitmap = rasterDoc.RenderPage(pageNumber, cancellationToken);
+                                }
+                                catch (Exception ex)
+                                {
+                                    vectorRasterFailures += candidates.Count;
+                                    _logger.LogWarning(ex, "Failed to rasterize page {pageNumber} for vector figure alt text generation.", pageNumber);
+                                    continue;
+                                }
+
+                                if (!pageBitmap.IsValid)
+                                {
+                                    vectorRasterFailures += candidates.Count;
+                                    continue;
+                                }
+
+                                var pageSizePts = page.GetPageSizeWithRotation();
+
+                                foreach (var candidate in candidates.Values)
+                                {
+                                    cancellationToken.ThrowIfCancellationRequested();
+
+                                    if (!ShouldGenerateAltForFigure(candidate.Figure))
+                                    {
+                                        continue;
+                                    }
+
+                                    var cropRectPx = TryComputeCropRectPx(candidate.BoundsPts, pageSizePts, pageBitmap, minSizePx: 64, padPts: 2f);
+                                    if (cropRectPx is null || cropRectPx.Value.IsEmpty)
+                                    {
+                                        vectorRasterFailures++;
+                                        continue;
+                                    }
+
+                                    BgraBitmap cropBitmap;
+                                    try
+                                    {
+                                        cropBitmap = BgraBitmapCropper.Crop(pageBitmap, cropRectPx.Value);
+                                    }
+                                    catch
+                                    {
+                                        vectorRasterFailures++;
+                                        continue;
+                                    }
+
+                                    if (!cropBitmap.IsValid)
+                                    {
+                                        vectorRasterFailures++;
+                                        continue;
+                                    }
+
+                                    byte[] pngBytes;
+                                    try
+                                    {
+                                        pngBytes = PngEncoder.EncodeBgra32(cropBitmap);
+                                    }
+                                    catch
+                                    {
+                                        vectorRasterFailures++;
+                                        continue;
+                                    }
+
+                                    var hash = Convert.ToHexString(SHA256.HashData(pngBytes));
+                                    if (altByImageHash.TryGetValue(hash, out var dedupedAlt))
+                                    {
+                                        vectorAltDedupeHits++;
+                                        SetAlt(candidate.Figure, dedupedAlt);
+                                        vectorAltSet++;
+                                        continue;
+                                    }
+
+                                    var altText = await _altTextService.GetAltTextForImageAsync(
+                                        new ImageAltTextRequest(pngBytes, "image/png", candidate.ContextBefore, candidate.ContextAfter),
+                                        cancellationToken);
+
+                                    altByImageHash[hash] = altText;
+                                    vectorUniqueImages++;
+
+                                    SetAlt(candidate.Figure, altText);
+                                    if (!string.IsNullOrWhiteSpace(altText))
+                                    {
+                                        vectorAltSet++;
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Vector figure alt text generation skipped due to rasterizer error.");
+                        }
+                    }
+                }
+            }
+
             // Fallback safety-net: ensure any remaining tagged Figures get *some* alt text.
             // This keeps remediation robust even when we can't reliably match content-stream occurrences to tag-tree elements.
             var fallbackImageAltSet = 0;
@@ -326,6 +551,18 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 imageOccurrences,
                 imageAltSet,
                 fallbackImageAltSet);
+
+            if (vectorFigureCandidates > 0)
+            {
+                _logger.LogInformation(
+                    "PDF remediation vector figure alt summary: {fileId} candidates={candidates} uniqueImages={uniqueImages} altSet={altSet} dedupeHits={dedupeHits} rasterFailures={rasterFailures}",
+                    fileId,
+                    vectorFigureCandidates,
+                    vectorUniqueImages,
+                    vectorAltSet,
+                    vectorAltDedupeHits,
+                    vectorRasterFailures);
+            }
 
             success = true;
             return new PdfRemediationResult(outputPdfPath);
@@ -708,6 +945,16 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         return !string.IsNullOrWhiteSpace(alt);
     }
 
+    private static bool HasPlaceholderAlt(PdfDictionary structElem)
+    {
+        var alt = structElem.GetAsString(PdfName.Alt)?.ToUnicodeString() ?? string.Empty;
+        alt = RemediationHelpers.NormalizeWhitespace(alt);
+        return string.Equals(alt, PlaceholderImageAltText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ShouldGenerateAltForFigure(PdfDictionary figure)
+        => !HasNonEmptyAlt(figure) || HasPlaceholderAlt(figure);
+
     /// <summary>
     /// Writes an <c>/Alt</c> entry to a structure element if the provided text is non-empty.
     /// </summary>
@@ -719,6 +966,133 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         }
 
         structElem.Put(PdfName.Alt, new PdfString(altText, PdfEncodings.UNICODE_BIG));
+    }
+
+    private sealed class PdfDictionaryReferenceComparer : IEqualityComparer<PdfDictionary>
+    {
+        public static PdfDictionaryReferenceComparer Instance { get; } = new();
+
+        public bool Equals(PdfDictionary? x, PdfDictionary? y) => ReferenceEquals(x, y);
+
+        public int GetHashCode(PdfDictionary obj) => RuntimeHelpers.GetHashCode(obj);
+    }
+
+    private sealed class VectorFigureCandidate
+    {
+        public VectorFigureCandidate(PdfDictionary figure, Rectangle boundsPts, string contextBefore, string contextAfter)
+        {
+            Figure = figure ?? throw new ArgumentNullException(nameof(figure));
+            BoundsPts = boundsPts;
+            ContextBefore = contextBefore ?? string.Empty;
+            ContextAfter = contextAfter ?? string.Empty;
+        }
+
+        public PdfDictionary Figure { get; }
+        public Rectangle BoundsPts { get; set; }
+        public string ContextBefore { get; set; }
+        public string ContextAfter { get; set; }
+    }
+
+    private static Rectangle Union(Rectangle a, Rectangle b)
+    {
+        var minX = Math.Min(a.GetX(), b.GetX());
+        var minY = Math.Min(a.GetY(), b.GetY());
+        var maxX = Math.Max(a.GetX() + a.GetWidth(), b.GetX() + b.GetWidth());
+        var maxY = Math.Max(a.GetY() + a.GetHeight(), b.GetY() + b.GetHeight());
+        return new Rectangle(minX, minY, maxX - minX, maxY - minY);
+    }
+
+    private static IntRect? TryComputeCropRectPx(
+        Rectangle boundsPts,
+        Rectangle pageSizePts,
+        BgraBitmap pageBitmap,
+        int minSizePx,
+        float padPts)
+    {
+        if (!pageBitmap.IsValid)
+        {
+            return null;
+        }
+
+        var pageWidthPts = pageSizePts.GetWidth();
+        var pageHeightPts = pageSizePts.GetHeight();
+        if (pageWidthPts <= 0 || pageHeightPts <= 0)
+        {
+            return null;
+        }
+
+        var x1 = boundsPts.GetX();
+        var y1 = boundsPts.GetY();
+        var x2 = x1 + boundsPts.GetWidth();
+        var y2 = y1 + boundsPts.GetHeight();
+
+        if (boundsPts.GetWidth() <= 0 || boundsPts.GetHeight() <= 0)
+        {
+            return null;
+        }
+
+        x1 -= padPts;
+        y1 -= padPts;
+        x2 += padPts;
+        y2 += padPts;
+
+        x1 = Math.Clamp(x1, 0, pageWidthPts);
+        y1 = Math.Clamp(y1, 0, pageHeightPts);
+        x2 = Math.Clamp(x2, 0, pageWidthPts);
+        y2 = Math.Clamp(y2, 0, pageHeightPts);
+
+        if (x2 <= x1 || y2 <= y1)
+        {
+            return null;
+        }
+
+        var scaleX = pageBitmap.WidthPx / (double)pageWidthPts;
+        var scaleY = pageBitmap.HeightPx / (double)pageHeightPts;
+
+        var xPx = (int)Math.Floor(x1 * scaleX);
+        var yPx = (int)Math.Floor((pageHeightPts - y2) * scaleY);
+        var wPx = (int)Math.Ceiling((x2 - x1) * scaleX);
+        var hPx = (int)Math.Ceiling((y2 - y1) * scaleY);
+
+        xPx = Math.Clamp(xPx, 0, pageBitmap.WidthPx - 1);
+        yPx = Math.Clamp(yPx, 0, pageBitmap.HeightPx - 1);
+        wPx = Math.Clamp(wPx, 1, pageBitmap.WidthPx - xPx);
+        hPx = Math.Clamp(hPx, 1, pageBitmap.HeightPx - yPx);
+
+        if (minSizePx > 0)
+        {
+            if (wPx < minSizePx)
+            {
+                var centerX = xPx + (wPx / 2);
+                wPx = minSizePx;
+                xPx = centerX - (wPx / 2);
+            }
+
+            if (hPx < minSizePx)
+            {
+                var centerY = yPx + (hPx / 2);
+                hPx = minSizePx;
+                yPx = centerY - (hPx / 2);
+            }
+
+            xPx = Math.Clamp(xPx, 0, Math.Max(0, pageBitmap.WidthPx - 1));
+            yPx = Math.Clamp(yPx, 0, Math.Max(0, pageBitmap.HeightPx - 1));
+
+            if (xPx + wPx > pageBitmap.WidthPx)
+            {
+                xPx = Math.Max(0, pageBitmap.WidthPx - wPx);
+            }
+
+            if (yPx + hPx > pageBitmap.HeightPx)
+            {
+                yPx = Math.Max(0, pageBitmap.HeightPx - hPx);
+            }
+
+            wPx = Math.Clamp(wPx, 1, pageBitmap.WidthPx - xPx);
+            hPx = Math.Clamp(hPx, 1, pageBitmap.HeightPx - yPx);
+        }
+
+        return (wPx > 0 && hPx > 0) ? new IntRect(xPx, yPx, wPx, hPx) : null;
     }
 
     private sealed record ImageOccurrence(
@@ -735,6 +1109,13 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         PdfIndirectReference? AnnotationRef,
         Rectangle? Rect,
         string LinkText,
+        string ContextBefore,
+        string ContextAfter);
+
+    private sealed record VectorFigureOccurrence(
+        int PageNumber,
+        int Mcid,
+        Rectangle Bounds,
         string ContextBefore,
         string ContextAfter);
 
@@ -824,6 +1205,22 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             return occurrences;
         }
 
+        /// <summary>
+        /// Scans a page content stream to locate vector/text drawing operations for a target set of MCIDs, capturing
+        /// their approximate bounds and nearby text context.
+        /// </summary>
+        public static IReadOnlyList<VectorFigureOccurrence> ListVectorFigureOccurrences(PdfPage page, int pageNumber, ISet<int> targetMcids)
+        {
+            if (targetMcids.Count == 0)
+            {
+                return Array.Empty<VectorFigureOccurrence>();
+            }
+
+            var listener = new VectorFigureOccurrenceListener(pageNumber, targetMcids);
+            new PdfCanvasProcessor(listener).ProcessPageContent(page);
+            return listener.GetOccurrences();
+        }
+
         private sealed class ImageOccurrenceListener : IEventListener
         {
             private readonly List<PendingImageOccurrence> _pending = new();
@@ -888,6 +1285,189 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         }
 
         private sealed record PendingImageOccurrence(int Mcid, PdfImageXObject Image, PdfIndirectReference? ImageRef, int TextCharIndex);
+
+        private sealed class VectorFigureOccurrenceListener : IEventListener
+        {
+            private readonly Dictionary<int, PendingVectorFigure> _pendingByMcid = new();
+            private readonly TextAccumulator _pageText = new();
+            private readonly int _pageNumber;
+            private readonly ISet<int> _targetMcids;
+
+            public VectorFigureOccurrenceListener(int pageNumber, ISet<int> targetMcids)
+            {
+                _pageNumber = pageNumber;
+                _targetMcids = targetMcids;
+            }
+
+            public void EventOccurred(IEventData data, EventType type)
+            {
+                if (type == EventType.RENDER_TEXT && data is TextRenderInfo textRenderInfo)
+                {
+                    var mcid = textRenderInfo.GetMcid();
+                    if (mcid >= 0 && _targetMcids.Contains(mcid))
+                    {
+                        var textBounds = GetTextBounds(textRenderInfo);
+                        if (textBounds.GetWidth() > 0 && textBounds.GetHeight() > 0)
+                        {
+                            AddOrUnion(mcid, textBounds, _pageText.Length);
+                        }
+                    }
+
+                    _pageText.Append(textRenderInfo);
+                    return;
+                }
+
+                if (type == EventType.RENDER_PATH && data is PathRenderInfo pathRenderInfo)
+                {
+                    var mcid = pathRenderInfo.GetMcid();
+                    if (mcid < 0 || !_targetMcids.Contains(mcid))
+                    {
+                        return;
+                    }
+
+                    if (pathRenderInfo.IsPathModifiesClippingPath())
+                    {
+                        return;
+                    }
+
+                    var bounds = TryGetPathBounds(pathRenderInfo);
+                    if (bounds is null || bounds.GetWidth() <= 0 || bounds.GetHeight() <= 0)
+                    {
+                        return;
+                    }
+
+                    AddOrUnion(mcid, bounds, _pageText.Length);
+                    return;
+                }
+            }
+
+            public ICollection<EventType> GetSupportedEvents() => new[] { EventType.RENDER_TEXT, EventType.RENDER_PATH };
+
+            public IReadOnlyList<VectorFigureOccurrence> GetOccurrences()
+            {
+                var pageText = _pageText.GetText();
+                var results = new List<VectorFigureOccurrence>(_pendingByMcid.Count);
+
+                foreach (var kvp in _pendingByMcid)
+                {
+                    var pending = kvp.Value;
+                    if (pending.Bounds is null)
+                    {
+                        continue;
+                    }
+
+                    var (before, after) = TextContext.GetContextAroundCharIndex(
+                        pageText,
+                        pending.TextCharIndex,
+                        maxCharsPerSide: ContextMaxCharsPerSide);
+
+                    results.Add(
+                        new VectorFigureOccurrence(
+                            _pageNumber,
+                            kvp.Key,
+                            pending.Bounds,
+                            ContextBefore: before,
+                            ContextAfter: after));
+                }
+
+                return results;
+            }
+
+            private void AddOrUnion(int mcid, Rectangle bounds, int textCharIndex)
+            {
+                if (_pendingByMcid.TryGetValue(mcid, out var existing))
+                {
+                    existing.Bounds = Union(existing.Bounds, bounds);
+                    existing.TextCharIndex = Math.Min(existing.TextCharIndex, textCharIndex);
+                    _pendingByMcid[mcid] = existing;
+                    return;
+                }
+
+                _pendingByMcid[mcid] = new PendingVectorFigure(bounds, textCharIndex);
+            }
+
+            private static Rectangle Union(Rectangle a, Rectangle b)
+            {
+                var minX = Math.Min(a.GetX(), b.GetX());
+                var minY = Math.Min(a.GetY(), b.GetY());
+                var maxX = Math.Max(a.GetX() + a.GetWidth(), b.GetX() + b.GetWidth());
+                var maxY = Math.Max(a.GetY() + a.GetHeight(), b.GetY() + b.GetHeight());
+                return new Rectangle(minX, minY, maxX - minX, maxY - minY);
+            }
+
+            private static Rectangle? TryGetPathBounds(PathRenderInfo pathRenderInfo)
+            {
+                var path = pathRenderInfo.GetPath();
+                if (path is null || path.IsEmpty())
+                {
+                    return null;
+                }
+
+                var ctm = pathRenderInfo.GetCtm();
+
+                var any = false;
+                double minX = 0, minY = 0, maxX = 0, maxY = 0;
+
+                foreach (var subpath in path.GetSubpaths())
+                {
+                    var start = subpath.GetStartPoint();
+                    AddPoint(start, ctm, ref any, ref minX, ref minY, ref maxX, ref maxY);
+
+                    foreach (var segment in subpath.GetSegments())
+                    {
+                        foreach (var p in segment.GetBasePoints())
+                        {
+                            AddPoint(p, ctm, ref any, ref minX, ref minY, ref maxX, ref maxY);
+                        }
+                    }
+                }
+
+                if (!any)
+                {
+                    return null;
+                }
+
+                return new Rectangle((float)minX, (float)minY, (float)(maxX - minX), (float)(maxY - minY));
+            }
+
+            private static void AddPoint(
+                iText.Kernel.Geom.Point p,
+                iText.Kernel.Geom.Matrix m,
+                ref bool any,
+                ref double minX,
+                ref double minY,
+                ref double maxX,
+                ref double maxY)
+            {
+                var x = p.GetX();
+                var y = p.GetY();
+
+                var a = m.Get(iText.Kernel.Geom.Matrix.I11);
+                var b = m.Get(iText.Kernel.Geom.Matrix.I12);
+                var c = m.Get(iText.Kernel.Geom.Matrix.I21);
+                var d = m.Get(iText.Kernel.Geom.Matrix.I22);
+                var e = m.Get(iText.Kernel.Geom.Matrix.I31);
+                var f = m.Get(iText.Kernel.Geom.Matrix.I32);
+
+                var tx = (a * x) + (c * y) + e;
+                var ty = (b * x) + (d * y) + f;
+
+                if (!any)
+                {
+                    any = true;
+                    minX = maxX = tx;
+                    minY = maxY = ty;
+                    return;
+                }
+
+                minX = Math.Min(minX, tx);
+                minY = Math.Min(minY, ty);
+                maxX = Math.Max(maxX, tx);
+                maxY = Math.Max(maxY, ty);
+            }
+
+            private record struct PendingVectorFigure(Rectangle Bounds, int TextCharIndex);
+        }
 
         private sealed record TextChunk(Rectangle Bounds, int StartIndex, int EndIndex, string Text);
 

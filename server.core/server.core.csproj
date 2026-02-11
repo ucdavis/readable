@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="Adobe.PDFServicesSDK" Version="4.3.1" />
+    <PackageReference Include="Docnet.Core" Version="2.6.0" />
     <PackageReference Include="itext" Version="9.4.0" />
     <PackageReference Include="itext.bouncy-castle-adapter" Version="9.4.0" />
     <PackageReference Include="OpenAI" Version="2.7.0" />

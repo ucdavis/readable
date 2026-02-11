@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using server.core.Remediate;
 using server.core.Remediate.AltText;
+using server.core.Remediate.Rasterize;
 using server.core.Remediate.Title;
 
 namespace server.tests.Integration.Remediate;
@@ -41,6 +42,7 @@ public sealed class PdfRemediationProcessorLayoutTableDemotionTests
             var sut = new PdfRemediationProcessor(
                 new ThrowingAltTextService(),
                 new NoopPdfBookmarkService(),
+                NoopPdfPageRasterizer.Instance,
                 new ThrowingPdfTitleService(),
                 opts,
                 NullLogger<PdfRemediationProcessor>.Instance);
@@ -160,4 +162,3 @@ public sealed class PdfRemediationProcessorLayoutTableDemotionTests
             throw new InvalidOperationException("Title service should not be called for layout table demotion tests.");
     }
 }
-
