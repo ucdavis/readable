@@ -116,7 +116,7 @@ public static class PngEncoder
 
         Span<byte> hash = stackalloc byte[4];
         crc32.GetCurrentHash(hash);
-        return BinaryPrimitives.ReadUInt32BigEndian(hash);
+        // Crc32.GetCurrentHash returns bytes in little-endian order.
+        return BinaryPrimitives.ReadUInt32LittleEndian(hash);
     }
 }
-

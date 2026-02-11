@@ -312,18 +312,26 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             }
 
             var vectorFigureCandidates = 0;
-            var vectorAltSet = 0;
+            var vectorNonPlaceholderAltSet = 0;
             var vectorAltDedupeHits = 0;
+            var vectorAltFailures = 0;
+            var vectorAltPlaceholderResponses = 0;
             var vectorRasterFailures = 0;
             var vectorUniqueImages = 0;
 
-            if (_pageRasterizer.IsAvailable)
+            if (!_pageRasterizer.IsAvailable)
+            {
+                _logger.LogInformation(
+                    "Vector figure alt text generation skipped: page rasterizer unavailable (rasterizer={rasterizerType}).",
+                    _pageRasterizer.GetType().Name);
+            }
+            else
             {
                 using (LogStage.Begin(
                            _logger,
                            fileId,
                            "scan_pages_for_vector_figure_alt_text",
-                           new { dpi = 216 },
+                           new { dpi = 216, rasterizer = _pageRasterizer.GetType().Name },
                            kind: "Remediation stage"))
                 {
                     const int dpi = 216;
@@ -353,161 +361,207 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     {
                         Dictionary<string, string> altByImageHash = new(StringComparer.Ordinal);
 
+                        IPdfRasterDocument? rasterDoc = null;
                         try
                         {
-                            using var rasterDoc = _pageRasterizer.OpenDocument(inputPdfPath, dpi);
-
-                            foreach (var pageNumber in targetMcidsByPage.Keys.OrderBy(p => p))
-                            {
-                                cancellationToken.ThrowIfCancellationRequested();
-
-                                var page = pdf.GetPage(pageNumber);
-                                var targetMcids = targetMcidsByPage[pageNumber];
-
-                                var occurrences = PdfContentScanner.ListVectorFigureOccurrences(page, pageNumber, targetMcids);
-                                if (occurrences.Count == 0)
-                                {
-                                    continue;
-                                }
-
-                                var candidates = new Dictionary<PdfDictionary, VectorFigureCandidate>(PdfDictionaryReferenceComparer.Instance);
-                                foreach (var occ in occurrences)
-                                {
-                                    cancellationToken.ThrowIfCancellationRequested();
-
-                                    if (!figureIndex.StructElemByMcid.TryGetValue((pageNumber, occ.Mcid), out var figure))
-                                    {
-                                        continue;
-                                    }
-
-                                    if (!ShouldGenerateAltForFigure(figure))
-                                    {
-                                        continue;
-                                    }
-
-                                    if (candidates.TryGetValue(figure, out var existing))
-                                    {
-                                        existing.BoundsPts = Union(existing.BoundsPts, occ.Bounds);
-                                        if (string.IsNullOrWhiteSpace(existing.ContextBefore) && !string.IsNullOrWhiteSpace(occ.ContextBefore))
-                                        {
-                                            existing.ContextBefore = occ.ContextBefore;
-                                        }
-
-                                        if (string.IsNullOrWhiteSpace(existing.ContextAfter) && !string.IsNullOrWhiteSpace(occ.ContextAfter))
-                                        {
-                                            existing.ContextAfter = occ.ContextAfter;
-                                        }
-
-                                        continue;
-                                    }
-
-                                    candidates.Add(
-                                        figure,
-                                        new VectorFigureCandidate(
-                                            figure,
-                                            boundsPts: occ.Bounds,
-                                            contextBefore: occ.ContextBefore,
-                                            contextAfter: occ.ContextAfter));
-                                }
-
-                                if (candidates.Count == 0)
-                                {
-                                    continue;
-                                }
-
-                                vectorFigureCandidates += candidates.Count;
-
-                                BgraBitmap pageBitmap;
-                                try
-                                {
-                                    pageBitmap = rasterDoc.RenderPage(pageNumber, cancellationToken);
-                                }
-                                catch (Exception ex)
-                                {
-                                    vectorRasterFailures += candidates.Count;
-                                    _logger.LogWarning(ex, "Failed to rasterize page {pageNumber} for vector figure alt text generation.", pageNumber);
-                                    continue;
-                                }
-
-                                if (!pageBitmap.IsValid)
-                                {
-                                    vectorRasterFailures += candidates.Count;
-                                    continue;
-                                }
-
-                                var pageSizePts = page.GetPageSizeWithRotation();
-
-                                foreach (var candidate in candidates.Values)
-                                {
-                                    cancellationToken.ThrowIfCancellationRequested();
-
-                                    if (!ShouldGenerateAltForFigure(candidate.Figure))
-                                    {
-                                        continue;
-                                    }
-
-                                    var cropRectPx = TryComputeCropRectPx(candidate.BoundsPts, pageSizePts, pageBitmap, minSizePx: 64, padPts: 2f);
-                                    if (cropRectPx is null || cropRectPx.Value.IsEmpty)
-                                    {
-                                        vectorRasterFailures++;
-                                        continue;
-                                    }
-
-                                    BgraBitmap cropBitmap;
-                                    try
-                                    {
-                                        cropBitmap = BgraBitmapCropper.Crop(pageBitmap, cropRectPx.Value);
-                                    }
-                                    catch
-                                    {
-                                        vectorRasterFailures++;
-                                        continue;
-                                    }
-
-                                    if (!cropBitmap.IsValid)
-                                    {
-                                        vectorRasterFailures++;
-                                        continue;
-                                    }
-
-                                    byte[] pngBytes;
-                                    try
-                                    {
-                                        pngBytes = PngEncoder.EncodeBgra32(cropBitmap);
-                                    }
-                                    catch
-                                    {
-                                        vectorRasterFailures++;
-                                        continue;
-                                    }
-
-                                    var hash = Convert.ToHexString(SHA256.HashData(pngBytes));
-                                    if (altByImageHash.TryGetValue(hash, out var dedupedAlt))
-                                    {
-                                        vectorAltDedupeHits++;
-                                        SetAlt(candidate.Figure, dedupedAlt);
-                                        vectorAltSet++;
-                                        continue;
-                                    }
-
-                                    var altText = await _altTextService.GetAltTextForImageAsync(
-                                        new ImageAltTextRequest(pngBytes, "image/png", candidate.ContextBefore, candidate.ContextAfter),
-                                        cancellationToken);
-
-                                    altByImageHash[hash] = altText;
-                                    vectorUniqueImages++;
-
-                                    SetAlt(candidate.Figure, altText);
-                                    if (!string.IsNullOrWhiteSpace(altText))
-                                    {
-                                        vectorAltSet++;
-                                    }
-                                }
-                            }
+                            rasterDoc = _pageRasterizer.OpenDocument(inputPdfPath, dpi);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogWarning(ex, "Vector figure alt text generation skipped due to rasterizer error.");
+                            _logger.LogWarning(
+                                ex,
+                                "Vector figure alt text generation skipped: failed to open raster document (rasterizer={rasterizerType}).",
+                                _pageRasterizer.GetType().Name);
+                        }
+
+                        if (rasterDoc is null)
+                        {
+                            // We can't rasterize vector figures without a raster doc.
+                            // Leave placeholder alt text unchanged; this keeps the job running but the PDF will likely still fail a11y.
+                            // (We still continue with the rest of remediation.)
+                        }
+                        else
+                        {
+                            using (rasterDoc)
+                            {
+                                foreach (var pageNumber in targetMcidsByPage.Keys.OrderBy(p => p))
+                                {
+                                    cancellationToken.ThrowIfCancellationRequested();
+
+                                    var page = pdf.GetPage(pageNumber);
+                                    var targetMcids = targetMcidsByPage[pageNumber];
+
+                                    var occurrences = PdfContentScanner.ListVectorFigureOccurrences(page, pageNumber, targetMcids);
+                                    if (occurrences.Count == 0)
+                                    {
+                                        continue;
+                                    }
+
+                                    var candidates = new Dictionary<PdfDictionary, VectorFigureCandidate>(PdfDictionaryReferenceComparer.Instance);
+                                    foreach (var occ in occurrences)
+                                    {
+                                        cancellationToken.ThrowIfCancellationRequested();
+
+                                        if (!figureIndex.StructElemByMcid.TryGetValue((pageNumber, occ.Mcid), out var figure))
+                                        {
+                                            continue;
+                                        }
+
+                                        if (!ShouldGenerateAltForFigure(figure))
+                                        {
+                                            continue;
+                                        }
+
+                                        if (candidates.TryGetValue(figure, out var existing))
+                                        {
+                                            existing.BoundsPts = Union(existing.BoundsPts, occ.Bounds);
+                                            if (string.IsNullOrWhiteSpace(existing.ContextBefore) && !string.IsNullOrWhiteSpace(occ.ContextBefore))
+                                            {
+                                                existing.ContextBefore = occ.ContextBefore;
+                                            }
+
+                                            if (string.IsNullOrWhiteSpace(existing.ContextAfter) && !string.IsNullOrWhiteSpace(occ.ContextAfter))
+                                            {
+                                                existing.ContextAfter = occ.ContextAfter;
+                                            }
+
+                                            continue;
+                                        }
+
+                                        candidates.Add(
+                                            figure,
+                                            new VectorFigureCandidate(
+                                                figure,
+                                                boundsPts: occ.Bounds,
+                                                contextBefore: occ.ContextBefore,
+                                                contextAfter: occ.ContextAfter));
+                                    }
+
+                                    if (candidates.Count == 0)
+                                    {
+                                        continue;
+                                    }
+
+                                    vectorFigureCandidates += candidates.Count;
+
+                                    BgraBitmap pageBitmap;
+                                    try
+                                    {
+                                        pageBitmap = rasterDoc.RenderPage(pageNumber, cancellationToken);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        vectorRasterFailures += candidates.Count;
+                                        _logger.LogWarning(ex, "Failed to rasterize page {pageNumber} for vector figure alt text generation.", pageNumber);
+                                        continue;
+                                    }
+
+                                    if (!pageBitmap.IsValid)
+                                    {
+                                        vectorRasterFailures += candidates.Count;
+                                        continue;
+                                    }
+
+                                    var pageSizePts = page.GetPageSizeWithRotation();
+
+                                    foreach (var candidate in candidates.Values)
+                                    {
+                                        cancellationToken.ThrowIfCancellationRequested();
+
+                                        if (!ShouldGenerateAltForFigure(candidate.Figure))
+                                        {
+                                            continue;
+                                        }
+
+                                        var cropRectPx = TryComputeCropRectPx(candidate.BoundsPts, pageSizePts, pageBitmap, minSizePx: 64, padPts: 2f);
+                                        if (cropRectPx is null || cropRectPx.Value.IsEmpty)
+                                        {
+                                            vectorRasterFailures++;
+                                            continue;
+                                        }
+
+                                        BgraBitmap cropBitmap;
+                                        try
+                                        {
+                                            cropBitmap = BgraBitmapCropper.Crop(pageBitmap, cropRectPx.Value);
+                                        }
+                                        catch
+                                        {
+                                            vectorRasterFailures++;
+                                            continue;
+                                        }
+
+                                        if (!cropBitmap.IsValid)
+                                        {
+                                            vectorRasterFailures++;
+                                            continue;
+                                        }
+
+                                        byte[] pngBytes;
+                                        try
+                                        {
+                                            pngBytes = PngEncoder.EncodeBgra32(cropBitmap);
+                                        }
+                                        catch
+                                        {
+                                            vectorRasterFailures++;
+                                            continue;
+                                        }
+
+                                        var hash = Convert.ToHexString(SHA256.HashData(pngBytes));
+                                        if (altByImageHash.TryGetValue(hash, out var dedupedAlt))
+                                        {
+                                            vectorAltDedupeHits++;
+                                            SetAlt(candidate.Figure, dedupedAlt);
+                                            if (IsMeaningfulImageAltText(dedupedAlt))
+                                            {
+                                                vectorNonPlaceholderAltSet++;
+                                            }
+                                            else if (IsPlaceholderImageAltText(dedupedAlt))
+                                            {
+                                                vectorAltPlaceholderResponses++;
+                                            }
+
+                                            continue;
+                                        }
+
+                                        string altText;
+                                        try
+                                        {
+                                            altText = await _altTextService.GetAltTextForImageAsync(
+                                                new ImageAltTextRequest(pngBytes, "image/png", candidate.ContextBefore, candidate.ContextAfter),
+                                                cancellationToken);
+                                        }
+                                        catch (OperationCanceledException)
+                                        {
+                                            throw;
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            vectorAltFailures++;
+                                            _logger.LogWarning(ex, "Failed to generate vector figure alt text on page {pageNumber}.", pageNumber);
+                                            continue;
+                                        }
+
+                                        altByImageHash[hash] = altText;
+                                        vectorUniqueImages++;
+
+                                        SetAlt(candidate.Figure, altText);
+                                        if (IsMeaningfulImageAltText(altText))
+                                        {
+                                            vectorNonPlaceholderAltSet++;
+                                        }
+                                        else if (IsPlaceholderImageAltText(altText))
+                                        {
+                                            vectorAltPlaceholderResponses++;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -555,11 +609,13 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             if (vectorFigureCandidates > 0)
             {
                 _logger.LogInformation(
-                    "PDF remediation vector figure alt summary: {fileId} candidates={candidates} uniqueImages={uniqueImages} altSet={altSet} dedupeHits={dedupeHits} rasterFailures={rasterFailures}",
+                    "PDF remediation vector figure alt summary: {fileId} candidates={candidates} uniqueImages={uniqueImages} nonPlaceholderAltSet={nonPlaceholderAltSet} placeholderResponses={placeholderResponses} altFailures={altFailures} dedupeHits={dedupeHits} rasterFailures={rasterFailures}",
                     fileId,
                     vectorFigureCandidates,
                     vectorUniqueImages,
-                    vectorAltSet,
+                    vectorNonPlaceholderAltSet,
+                    vectorAltPlaceholderResponses,
+                    vectorAltFailures,
                     vectorAltDedupeHits,
                     vectorRasterFailures);
             }
@@ -948,9 +1004,17 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
     private static bool HasPlaceholderAlt(PdfDictionary structElem)
     {
         var alt = structElem.GetAsString(PdfName.Alt)?.ToUnicodeString() ?? string.Empty;
-        alt = RemediationHelpers.NormalizeWhitespace(alt);
-        return string.Equals(alt, PlaceholderImageAltText, StringComparison.OrdinalIgnoreCase);
+        return IsPlaceholderImageAltText(alt);
     }
+
+    private static bool IsPlaceholderImageAltText(string altText)
+    {
+        altText = RemediationHelpers.NormalizeWhitespace(altText);
+        return string.Equals(altText, PlaceholderImageAltText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsMeaningfulImageAltText(string altText)
+        => !string.IsNullOrWhiteSpace(altText) && !IsPlaceholderImageAltText(altText);
 
     private static bool ShouldGenerateAltForFigure(PdfDictionary figure)
         => !HasNonEmptyAlt(figure) || HasPlaceholderAlt(figure);
