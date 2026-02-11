@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using server.core.Remediate;
 using server.core.Remediate.AltText;
 using server.core.Remediate.Bookmarks;
+using server.core.Remediate.Rasterize;
 using server.core.Remediate.Title;
 
 namespace server.core.Ingest;
@@ -106,6 +107,8 @@ public static class IngestServiceCollectionExtensions
             {
                 services.AddSingleton<IPdfBookmarkService, NoopPdfBookmarkService>();
             }
+
+            services.AddSingleton<IPdfPageRasterizer, DocnetPdfPageRasterizer>();
             services.AddSingleton<IPdfRemediationProcessor, PdfRemediationProcessor>();
         }
         else
