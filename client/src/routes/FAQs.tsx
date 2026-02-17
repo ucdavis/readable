@@ -5,6 +5,7 @@ import {
   CheckCircleIcon,
   ClipboardDocumentCheckIcon,
   DocumentMagnifyingGlassIcon,
+  ExclamationTriangleIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline';
 import { Link, createFileRoute } from '@tanstack/react-router';
@@ -86,15 +87,8 @@ function FAQs() {
                     aria-hidden="true"
                     className="h-5 w-5 flex-none text-success mt-0.5"
                   />
-                  <span>Detects and adds document structure and hierarchy</span>
-                </li>
-                <li className="flex gap-3">
-                  <CheckCircleIcon
-                    aria-hidden="true"
-                    className="h-5 w-5 flex-none text-success mt-0.5"
-                  />
                   <span>
-                    Identifies headings, lists, tables, and reading order
+                    Runs an accessibility check before and after processing
                   </span>
                 </li>
                 <li className="flex gap-3">
@@ -103,8 +97,8 @@ function FAQs() {
                     className="h-5 w-5 flex-none text-success mt-0.5"
                   />
                   <span>
-                    Generates clear, context-aware descriptions for images and
-                    links using AI
+                    Auto-tags or re-tags PDFs when needed (Adobe AutoTag) so
+                    assistive technology can navigate the structure
                   </span>
                 </li>
                 <li className="flex gap-3">
@@ -112,7 +106,21 @@ function FAQs() {
                     aria-hidden="true"
                     className="h-5 w-5 flex-none text-success mt-0.5"
                   />
-                  <span>Flags remaining accessibility issues in a report</span>
+                  <span>
+                    Fixes key metadata (Title shown in the title bar, primary
+                    language, and tagged-PDF tab order)
+                  </span>
+                </li>
+                <li className="flex gap-3">
+                  <CheckCircleIcon
+                    aria-hidden="true"
+                    className="h-5 w-5 flex-none text-success mt-0.5"
+                  />
+                  <span>
+                    Fills missing alt text for tagged figures (and optionally
+                    links), adds table summaries, and generates bookmarks when
+                    possible
+                  </span>
                 </li>
               </ul>
 
@@ -121,8 +129,8 @@ function FAQs() {
                 <span className="text-base-content/80">
                   The result is a PDF that is dramatically closer to full
                   accessibility compliance—saving time, reducing manual
-                  remediation effort, and helping ensure your documents are
-                  usable by everyone.
+                  remediation effort, and clearly showing what still needs
+                  manual review.
                 </span>
               </div>
             </div>
@@ -182,11 +190,11 @@ function FAQs() {
                       Step 2
                     </div>
                     <div className="text-lg sm:text-xl font-black">
-                      Analyze structure + reading order
+                      Check accessibility baseline
                     </div>
                     <p className="mt-1 text-base-content/80">
-                      Detects headings, paragraphs, lists, tables, and a
-                      sensible order for assistive technology.
+                      Runs an accessibility checker report so you can see what
+                      passed, what failed, and what needs manual verification.
                     </p>
                   </div>
                   <hr className="bg-base-300" />
@@ -205,11 +213,11 @@ function FAQs() {
                       Step 3
                     </div>
                     <div className="text-lg sm:text-xl font-black">
-                      Add tags + metadata
+                      Auto-tag (when needed)
                     </div>
                     <p className="mt-1 text-base-content/80">
-                      Applies structure and accessibility metadata so the PDF
-                      has meaningful navigation and semantics.
+                      Uses Adobe AutoTag to create or repair the tag tree so
+                      screen readers can navigate the document structure.
                     </p>
                   </div>
                   <hr className="bg-base-300" />
@@ -228,11 +236,12 @@ function FAQs() {
                       Step 4
                     </div>
                     <div className="text-lg sm:text-xl font-black">
-                      Generate useful descriptions
+                      Apply targeted fixes
                     </div>
                     <p className="mt-1 text-base-content/80">
-                      Uses AI to draft context-aware alt text for images and
-                      links (so it’s helpful—not generic).
+                      Sets Title + primary language, improves tagged-PDF tab
+                      order, generates bookmarks, adds table summaries, and
+                      drafts alt text for tagged figures (AI-assisted).
                     </p>
                   </div>
                   <hr className="bg-base-300" />
@@ -278,11 +287,11 @@ function FAQs() {
                   />
                   <div>
                     <h3 className="font-black text-lg sm:text-xl">
-                      Tags + reading order
+                      Tags + structure
                     </h3>
                     <p className="mt-1 text-base-content/70">
-                      Headings, lists, tables, and hierarchy so assistive
-                      technology can navigate the document.
+                      A tagged PDF structure that assistive technology can
+                      navigate (when tagging is possible).
                     </p>
                   </div>
                 </div>
@@ -301,8 +310,8 @@ function FAQs() {
                       Descriptions that help
                     </h3>
                     <p className="mt-1 text-base-content/70">
-                      Context-aware alt text for images and links, drafted to be
-                      useful instead of generic.
+                      Context-aware alt text for tagged figures (and optionally
+                      links), drafted to be useful instead of generic.
                     </p>
                   </div>
                 </div>
@@ -321,8 +330,8 @@ function FAQs() {
                       Better document metadata
                     </h3>
                     <p className="mt-1 text-base-content/70">
-                      Improved document info that supports navigation,
-                      discoverability, and accessibility expectations.
+                      Title shown in the title bar, primary language, and
+                      tagged-PDF tab order—plus bookmarks when possible.
                     </p>
                   </div>
                 </div>
@@ -341,13 +350,23 @@ function FAQs() {
                       A clear remediation report
                     </h3>
                     <p className="mt-1 text-base-content/70">
-                      What was fixed automatically, what remains, and where to
-                      focus manual review for compliance.
+                      Before/after checker reports showing what changed and
+                      what still needs manual verification.
                     </p>
                   </div>
                 </div>
               </div>
             </div>
+          </div>
+
+          <div className="mt-4 alert border border-base-300 bg-base-200 text-base sm:text-lg">
+            <ExclamationTriangleIcon aria-hidden="true" className="h-5 w-5" />
+            <span className="text-base-content/80">
+              Some Acrobat checker items are inherently manual (like logical
+              reading order, color contrast, and complex tables). Readable
+              focuses on high-confidence fixes and makes the remaining work
+              obvious.
+            </span>
           </div>
         </section>
 
@@ -381,12 +400,179 @@ function FAQs() {
               </p>
             </FaqItem>
 
+            <FaqItem
+              question="What can Readable fix automatically vs. what still needs manual work?"
+            >
+              <p>
+                Think of Readable as a combination of automated tagging plus a
+                set of targeted “Fix” actions (similar to what Acrobat can do
+                quickly), followed by a report that highlights what remains.
+              </p>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div className="rounded-box border border-base-300 bg-base-200 p-4">
+                  <h3 className="font-black">Typically handled automatically</h3>
+                  <ul className="mt-3 space-y-2">
+                    <li className="flex gap-3">
+                      <CheckCircleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-success mt-0.5"
+                      />
+                      <span>
+                        Auto-tagging / re-tagging untagged or broken PDFs (Adobe
+                        AutoTag)
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <CheckCircleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-success mt-0.5"
+                      />
+                      <span>
+                        Title metadata (and “show title in title bar”) + primary
+                        language
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <CheckCircleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-success mt-0.5"
+                      />
+                      <span>
+                        Tagged-PDF tab order set to “Use Document Structure”
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <CheckCircleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-success mt-0.5"
+                      />
+                      <span>
+                        Missing alt text for tagged figures (AI-assisted; vector
+                        figures supported). Optional link alt text.
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <CheckCircleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-success mt-0.5"
+                      />
+                      <span>
+                        Bookmarks (outlines) generated when the tag structure
+                        supports it
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <CheckCircleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-success mt-0.5"
+                      />
+                      <span>
+                        Table summaries, and demotion of likely layout tables to
+                        reduce false failures
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <CheckCircleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-success mt-0.5"
+                      />
+                      <span>
+                        Cleanup of untagged annotations (may remove them if they
+                        can’t be associated with the structure tree)
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="rounded-box border border-base-300 bg-base-200 p-4">
+                  <h3 className="font-black">Usually manual (Acrobat / source)</h3>
+                  <ul className="mt-3 space-y-2">
+                    <li className="flex gap-3">
+                      <ExclamationTriangleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-warning mt-0.5"
+                      />
+                      <span>Logical reading order verification and fixes</span>
+                    </li>
+                    <li className="flex gap-3">
+                      <ExclamationTriangleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-warning mt-0.5"
+                      />
+                      <span>Color contrast and other visual design issues</span>
+                    </li>
+                    <li className="flex gap-3">
+                      <ExclamationTriangleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-warning mt-0.5"
+                      />
+                      <span>
+                        Complex tables (true headers, TR/TH/TD structure,
+                        spanning cells, regularity)
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <ExclamationTriangleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-warning mt-0.5"
+                      />
+                      <span>
+                        Lists + heading hierarchy issues that require editorial
+                        judgment
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <ExclamationTriangleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-warning mt-0.5"
+                      />
+                      <span>
+                        OCR/text recognition for scanned or image-only PDFs
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <ExclamationTriangleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-warning mt-0.5"
+                      />
+                      <span>
+                        Content QA (decorative vs. meaningful images, accuracy
+                        of alt text)
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <ExclamationTriangleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-warning mt-0.5"
+                      />
+                      <span>
+                        Security/permission flags and other locked-PDF settings
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <p className="mt-3 text-sm text-base-content/70">
+                Note: Some fixes only apply to tagged PDFs. If a document can’t
+                be reliably tagged, Readable may still improve metadata (like
+                Title and Language) but can’t fully remediate structure-based
+                issues.
+              </p>
+            </FaqItem>
+
             <FaqItem question="Does Readable guarantee full compliance?">
               <p>
                 No tool can guarantee full compliance in every case. Readable is
                 designed to get you dramatically closer, then clearly show what
                 still needs human review (especially for complex layouts,
                 tables, and meaning-dependent images).
+              </p>
+              <p className="mt-3">
+                In Acrobat terms: Readable can automate many “Fix” items, but
+                manual checks (like reading order and contrast) and nuanced
+                structural edits still require a human.
               </p>
             </FaqItem>
 
@@ -396,13 +582,23 @@ function FAQs() {
                 candidates. If your PDF is scanned (image-only), it may require
                 OCR before it can be meaningfully remediated.
               </p>
+              <p className="mt-3">
+                Many of Readable’s fixes depend on the document being tagged (or
+                being taggable). If the tag tree is missing or broken, the
+                pipeline will typically re-tag the PDF before applying targeted
+                fixes.
+              </p>
             </FaqItem>
 
             <FaqItem question="How is AI used?">
               <p>
-                AI is used to draft clear, context-aware descriptions for images
-                and links. The goal is helpful descriptions that reflect the
-                surrounding content, not generic alt text.
+                AI is used to draft clear, context-aware alt text for tagged
+                figures (and optionally links), and to suggest a reasonable
+                document title when there’s enough real text to infer one.
+              </p>
+              <p className="mt-3">
+                AI output should still be reviewed—especially for charts,
+                diagrams, and meaning-dependent images.
               </p>
             </FaqItem>
 
@@ -415,7 +611,7 @@ function FAQs() {
 
             <FaqItem question="Who is Readable for?">
               <p>
-                Readable is designed for for UC Davis by the College of
+                Readable is designed for UC Davis by the College of
                 Agricultural and Environmental Sciences Dean&apos;s Office @ UC
                 Davis
               </p>
