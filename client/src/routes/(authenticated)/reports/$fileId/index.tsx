@@ -350,47 +350,10 @@ function RouteComponent() {
 
       {beforeReport && afterReport && beforeCounts && afterCounts ? (
         <section className="space-y-4">
-          <div className="stats shadow stats-vertical lg:stats-horizontal bg-base-100 w-full border-b-4 border-primary">
-            <div className="stat">
-              <div className="uppercase text-xs">Before</div>
-              <div className="text-xl">
-                {beforeCounts.passed}/{beforeCounts.total}
-              </div>
-              <div className="text-sm text-base-content/80">
-                {beforeCounts.failed} failed • {beforeCounts.needsManual} needs
-                manual
-              </div>
-              <div className="text-sm text-base-content/80">
-                Generated {formatDateTime(beforeReport.generatedAt)}
-              </div>
-            </div>
-
-            <div className="stat">
-              <div className="uppercase text-xs">Changed</div>
-              <div className="text-xl">
-                {afterCounts.passed - beforeCounts.passed >= 0 ? '+' : ''}
-                {afterCounts.passed - beforeCounts.passed}
-              </div>
-              <div className="text-sm text-base-content/80">passed checks</div>
-            </div>
-
-            <div className="stat bg-[#EAEDF1]">
-              <div className="uppercase text-xs">After</div>
-              <div className="text-xl">
-                {afterCounts.passed}/{afterCounts.total}
-              </div>
-              <div className="text-sm text-base-content/80">
-                {afterCounts.failed} failed • {afterCounts.needsManual} needs
-                manual
-              </div>
-              <div className="text-sm text-base-content/80">
-                Generated {formatDateTime(afterReport.generatedAt)}
-              </div>
-            </div>
-          </div>
-
           <div className="card shadow bg-base-100 p-4 border-b-4 border-secondary">
-            <h2 className="card-title mb-3">Still failing (After)</h2>
+            <h2 className="card-title mb-3">
+              {afterFailed.length > 0 ? 'Still Failing' : 'Results'}
+            </h2>
             {afterFailed.length === 0 ? (
               <div className="alert alert-success">
                 <span className="text-lg">
@@ -495,6 +458,45 @@ function RouteComponent() {
                 </table>
               </div>
             )}
+          </div>
+
+          <div className="stats shadow stats-vertical lg:stats-horizontal bg-base-100 w-full border-b-4 border-primary">
+            <div className="stat">
+              <div className="uppercase text-xs">Before</div>
+              <div className="text-xl">
+                {beforeCounts.passed}/{beforeCounts.total}
+              </div>
+              <div className="text-sm text-base-content/80">
+                {beforeCounts.failed} failed • {beforeCounts.needsManual} needs
+                manual
+              </div>
+              <div className="text-sm text-base-content/80">
+                Generated {formatDateTime(beforeReport.generatedAt)}
+              </div>
+            </div>
+
+            <div className="stat">
+              <div className="uppercase text-xs">After</div>
+              <div className="text-xl">
+                {afterCounts.passed - beforeCounts.passed >= 0 ? '+' : ''}
+                {afterCounts.passed - beforeCounts.passed}
+              </div>
+              <div className="text-sm text-base-content/80">passed checks</div>
+            </div>
+
+            <div className="stat bg-[#EAEDF1]">
+              <div className="uppercase text-xs">Results</div>
+              <div className="text-xl">
+                {afterCounts.passed}/{afterCounts.total}
+              </div>
+              <div className="text-sm text-base-content/80">
+                {afterCounts.failed} failed • {afterCounts.needsManual} needs
+                manual
+              </div>
+              <div className="text-sm text-base-content/80">
+                Generated {formatDateTime(afterReport.generatedAt)}
+              </div>
+            </div>
           </div>
 
           <div className="card shadow bg-base-100">
