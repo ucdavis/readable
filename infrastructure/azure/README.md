@@ -1,6 +1,6 @@
 # Azure infrastructure
 
-Use the dev deploy script to provision the Azure resources for development.
+Use the environment-specific deploy scripts to provision Azure resources.
 
 ## Deploy (dev)
 
@@ -17,10 +17,24 @@ export SQL_ADMIN_PASSWORD='your-strong-password'
 ./infrastructure/azure/scripts/deploy_dev.sh
 ```
 
+## Deploy (test)
+
+```bash
+export SQL_ADMIN_PASSWORD='your-strong-password'
+./infrastructure/azure/scripts/deploy_test.sh
+```
+
+## Deploy (prod)
+
+```bash
+export SQL_ADMIN_PASSWORD='your-strong-password'
+./infrastructure/azure/scripts/deploy_prod.sh
+```
+
 ## Notes
 
 - The script expects Azure CLI to be installed and will fail fast if it is missing.
-- Additional environment scripts (test/prod) will be added later.
+- The wrapper scripts set defaults for subscription, resource group, and environment for each target (`dev`, `test`, `prod`).
 
 ## Deploy function code (ingest)
 
