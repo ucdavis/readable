@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { RouterProvider, createRouter } from '@tanstack/react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import './main.css';
+import { initAnalytics } from './analytics.ts';
 
 // Import the generated route tree
 import { routeTree } from './routeTree.gen.ts';
@@ -30,6 +31,8 @@ declare module '@tanstack/react-router' {
 }
 
 // Render the app
+initAnalytics();
+
 const rootElement = document.getElementById('root')!;
 if (!rootElement.innerHTML) {
   const root = ReactDOM.createRoot(rootElement);
