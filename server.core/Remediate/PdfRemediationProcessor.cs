@@ -147,14 +147,15 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
             using var pdf = new PdfDocument(new PdfReader(inputPdfPath), new PdfWriter(outputPdfPath));
 
-            using (LogStage.Begin(_logger, fileId, "ensure_title", null, kind: "Remediation stage"))
-            {
-                await EnsurePdfHasTitleAsync(pdf, cancellationToken);
-            }
-
             using (LogStage.Begin(_logger, fileId, "ensure_primary_language", null, kind: "Remediation stage"))
             {
                 EnsurePdfHasPrimaryLanguage(pdf, cancellationToken);
+            }
+            var primaryLanguage = GetPrimaryLanguage(pdf);
+
+            using (LogStage.Begin(_logger, fileId, "ensure_title", null, kind: "Remediation stage"))
+            {
+                await EnsurePdfHasTitleAsync(pdf, primaryLanguage, cancellationToken);
             }
 
             var isTagged = pdf.IsTagged();
@@ -268,7 +269,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
                         var (bytes, mimeType) = ExtractImageBytes(occ.Image);
                         var altText = await _altTextService.GetAltTextForImageAsync(
-                            new ImageAltTextRequest(bytes, mimeType, occ.ContextBefore, occ.ContextAfter),
+                            new ImageAltTextRequest(bytes, mimeType, occ.ContextBefore, occ.ContextAfter, primaryLanguage),
                             cancellationToken);
                         SetAlt(figure, altText);
                         if (!string.IsNullOrWhiteSpace(altText))
@@ -300,7 +301,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
                         var target = TryGetLinkTarget(occ.LinkAnnotation);
                         var altText = await _altTextService.GetAltTextForLinkAsync(
-                            new LinkAltTextRequest(target, occ.LinkText, occ.ContextBefore, occ.ContextAfter),
+                            new LinkAltTextRequest(target, occ.LinkText, occ.ContextBefore, occ.ContextAfter, primaryLanguage),
                             cancellationToken);
                         SetAlt(link, altText);
                         if (!string.IsNullOrWhiteSpace(altText))
@@ -533,7 +534,12 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                                         try
                                         {
                                             altText = await _altTextService.GetAltTextForImageAsync(
-                                                new ImageAltTextRequest(pngBytes, "image/png", candidate.ContextBefore, candidate.ContextAfter),
+                                                new ImageAltTextRequest(
+                                                    pngBytes,
+                                                    "image/png",
+                                                    candidate.ContextBefore,
+                                                    candidate.ContextAfter,
+                                                    primaryLanguage),
                                                 cancellationToken);
                                         }
                                         catch (OperationCanceledException)
@@ -677,7 +683,10 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
     /// <summary>
     /// Ensures the PDF metadata has a reasonable title, generating one from early-page text when possible.
     /// </summary>
-    private async Task EnsurePdfHasTitleAsync(PdfDocument pdf, CancellationToken cancellationToken)
+    private async Task EnsurePdfHasTitleAsync(
+        PdfDocument pdf,
+        string? primaryLanguage,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -701,7 +710,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         }
 
         var suggestedTitle = await _pdfTitleService.GenerateTitleAsync(
-            new PdfTitleRequest(currentTitle, extractedText),
+            new PdfTitleRequest(currentTitle, extractedText, primaryLanguage),
             cancellationToken);
 
         suggestedTitle = NormalizeTitle(suggestedTitle, fallback: currentTitle);
@@ -750,6 +759,14 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             maxPagesToScan: TitleContextMaxPages,
             minWords: LangContextMinWords,
             cancellationToken: cancellationToken);
+    }
+
+    private static string? GetPrimaryLanguage(PdfDocument pdf)
+    {
+        var language = RemediationHelpers.NormalizeWhitespace(
+            pdf.GetCatalog().GetPdfObject().GetAsString(PdfName.Lang)?.ToUnicodeString() ?? string.Empty);
+
+        return string.IsNullOrWhiteSpace(language) ? null : language;
     }
 
     /// <summary>

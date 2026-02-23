@@ -34,7 +34,7 @@ public sealed class OpenAIPdfTitleService : IPdfTitleService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var prompt = BuildPrompt(request.CurrentTitle, request.ExtractedText);
+        var prompt = BuildPrompt(request.CurrentTitle, request.ExtractedText, request.PrimaryLanguage);
 
         List<ChatMessage> messages =
         [
@@ -50,10 +50,11 @@ public sealed class OpenAIPdfTitleService : IPdfTitleService
     /// <summary>
     /// Builds a prompt that asks for a single plain-text title and includes current title and extracted context.
     /// </summary>
-    private static string BuildPrompt(string currentTitle, string extractedText)
+    private static string BuildPrompt(string currentTitle, string extractedText, string? primaryLanguage)
     {
         currentTitle = RemediationHelpers.NormalizeWhitespace(currentTitle);
         extractedText = RemediationHelpers.NormalizeWhitespace(extractedText);
+        primaryLanguage = RemediationHelpers.NormalizeWhitespace(primaryLanguage ?? string.Empty);
 
         var sb = new StringBuilder();
         sb.AppendLine(
@@ -68,6 +69,14 @@ public sealed class OpenAIPdfTitleService : IPdfTitleService
             + "If you think the current title is good enough based on the context, reply with the current title and nothing else. "
             + "Otherwise, generate a new title based on the provided context.");
         sb.AppendLine();
+        if (!string.IsNullOrWhiteSpace(primaryLanguage))
+        {
+            sb.Append("Primary Document Language: ");
+            sb.AppendLine(primaryLanguage);
+            sb.AppendLine("Write the title in this language.");
+            sb.AppendLine();
+        }
+
         sb.Append("Current File Title: ");
         sb.AppendLine(string.IsNullOrWhiteSpace(currentTitle) ? "(none)" : currentTitle);
         sb.AppendLine("Context for title generation:");

@@ -69,6 +69,51 @@ public sealed class PdfRemediationProcessorTitleTests
     }
 
     [Fact]
+    public async Task ProcessAsync_WhenLangSet_PassesLangToTitleService()
+    {
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-title-lang-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreatePdf(
+                inputPdfPath,
+                title: null,
+                pages:
+                [
+                    MakePageText("Documento", wordCount: 120),
+                ],
+                existingLang: "es-MX");
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+
+            var titleService = new CapturingPdfTitleService { TitleToReturn = "Nuevo titulo" };
+            var sut = new PdfRemediationProcessor(
+                new ThrowingAltTextService(),
+                new NoopPdfBookmarkService(),
+                titleService,
+                NullLogger<PdfRemediationProcessor>.Instance);
+
+            await sut.ProcessAsync(
+                fileId: "fixture",
+                inputPdfPath: inputPdfPath,
+                outputPdfPath: outputPdfPath,
+                cancellationToken: CancellationToken.None);
+
+            titleService.Requests.Should().ContainSingle();
+            titleService.Requests[0].PrimaryLanguage.Should().Be("es-MX");
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task ProcessAsync_WhenEnoughTextAndHasTitle_KeepsExistingTitleWithoutCallingAi()
     {
         var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-title-keep-enough-text-{Guid.NewGuid():N}");
@@ -221,13 +266,18 @@ public sealed class PdfRemediationProcessorTitleTests
         return string.Join(' ', new[] { token }.Concat(Enumerable.Repeat("word", wordCount - 1)));
     }
 
-    private static void CreatePdf(string path, string? title, IReadOnlyList<string> pages)
+    private static void CreatePdf(string path, string? title, IReadOnlyList<string> pages, string? existingLang = null)
     {
         using var writer = new PdfWriter(path);
         using var pdf = new PdfDocument(writer);
         if (!string.IsNullOrWhiteSpace(title))
         {
             pdf.GetDocumentInfo().SetTitle(title);
+        }
+
+        if (!string.IsNullOrWhiteSpace(existingLang))
+        {
+            pdf.GetCatalog().GetPdfObject().Put(PdfName.Lang, new PdfString(existingLang));
         }
 
         using var doc = new Document(pdf);
