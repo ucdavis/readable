@@ -58,6 +58,50 @@ public sealed class PdfRemediationProcessorImageExtractionTests
         }
     }
 
+    [Fact]
+    public async Task ProcessAsync_TaggedMissingAlt_PassesPrimaryLanguageToAltTextService()
+    {
+        var repoRoot = FindRepoRoot();
+        var fixturePath = Path.Combine(repoRoot, "tests", "server.tests", "Fixtures", "pdfs", "tagged-missing-alt.pdf");
+        File.Exists(fixturePath).Should().BeTrue($"fixture should exist at {fixturePath}");
+
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-img-lang-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input-with-lang.pdf");
+            using (var pdf = new PdfDocument(new PdfReader(fixturePath), new PdfWriter(inputPdfPath)))
+            {
+                pdf.GetCatalog().GetPdfObject().Put(PdfName.Lang, new PdfString("fr-CA"));
+            }
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            var altText = new CapturingAltTextService();
+            var sut = new PdfRemediationProcessor(
+                altText,
+                new NoopPdfBookmarkService(),
+                new FakePdfTitleService(),
+                NullLogger<PdfRemediationProcessor>.Instance);
+
+            await sut.ProcessAsync(
+                fileId: "fixture",
+                inputPdfPath: inputPdfPath,
+                outputPdfPath: outputPdfPath,
+                cancellationToken: CancellationToken.None);
+
+            altText.ImageRequests.Should().NotBeEmpty();
+            altText.ImageRequests.Should().OnlyContain(r => r.PrimaryLanguage == "fr-CA");
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
     private sealed class CapturingAltTextService : IAltTextService
     {
         public List<ImageAltTextRequest> ImageRequests { get; } = new();

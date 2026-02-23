@@ -4,13 +4,15 @@ public sealed record ImageAltTextRequest(
     byte[] ImageBytes,
     string MimeType,
     string ContextBefore,
-    string ContextAfter);
+    string ContextAfter,
+    string? PrimaryLanguage = null);
 
 public sealed record LinkAltTextRequest(
     string? Target,
     string LinkText,
     string ContextBefore,
-    string ContextAfter);
+    string ContextAfter,
+    string? PrimaryLanguage = null);
 
 public interface IAltTextService
 {
@@ -20,4 +22,3 @@ public interface IAltTextService
     string GetFallbackAltTextForImage();
     string GetFallbackAltTextForLink();
 }
-

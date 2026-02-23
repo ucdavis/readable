@@ -39,7 +39,7 @@ public sealed class OpenAIAltTextService : IAltTextService
 
         List<ChatMessage> messages =
         [
-            new SystemChatMessage(BuildSystemInstructions()),
+            new SystemChatMessage(BuildSystemInstructions(request.PrimaryLanguage)),
             new UserChatMessage(
                 ChatMessageContentPart.CreateTextPart(prompt),
                 ChatMessageContentPart.CreateImagePart(imageData, request.MimeType)),
@@ -59,7 +59,7 @@ public sealed class OpenAIAltTextService : IAltTextService
 
         List<ChatMessage> messages =
         [
-            new SystemChatMessage(BuildSystemInstructions()),
+            new SystemChatMessage(BuildSystemInstructions(request.PrimaryLanguage)),
             new UserChatMessage(BuildLinkPrompt(request.Target, request.LinkText, request.ContextBefore, request.ContextAfter)),
         ];
 
@@ -75,12 +75,23 @@ public sealed class OpenAIAltTextService : IAltTextService
     /// <summary>
     /// Returns the system instructions used to constrain response formatting.
     /// </summary>
-    private static string BuildSystemInstructions() =>
-        """
-        You write WCAG 2.1-compliant PDF alt text.
-        Return ONLY the alt text (no quotes, no markdown, and no extra commentary).
-        Keep it concise (short phrase or one sentence) and do not start with "Image of".
-        """;
+    private static string BuildSystemInstructions(string? primaryLanguage)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("You write WCAG 2.1-compliant PDF alt text.");
+        sb.AppendLine("Return ONLY the alt text (no quotes, no markdown, and no extra commentary).");
+        sb.AppendLine("Keep it concise (short phrase or one sentence) and do not start with \"Image of\".");
+
+        var normalizedLanguage = RemediationHelpers.NormalizeWhitespace(primaryLanguage ?? string.Empty);
+        if (!string.IsNullOrWhiteSpace(normalizedLanguage))
+        {
+            sb.Append("Write the alt text in the document's primary language (");
+            sb.Append(normalizedLanguage);
+            sb.AppendLine(").");
+        }
+
+        return sb.ToString().Trim();
+    }
 
     private static string BuildImagePrompt(string contextBefore, string contextAfter)
     {
