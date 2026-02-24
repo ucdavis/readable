@@ -65,6 +65,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
     private const int TitleMaxChars = 200;
     private const string TitlePlaceholder = "Untitled PDF document";
     private const string PlaceholderImageAltText = "alt text for image";
+    private static readonly PdfName RoleSpan = new("Span");
     private readonly IAltTextService _altTextService;
     private readonly IPdfBookmarkService _bookmarkService;
     private readonly IPdfPageRasterizer _pageRasterizer;
@@ -576,8 +577,17 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             // Fallback safety-net: ensure any remaining tagged Figures get *some* alt text.
             // This keeps remediation robust even when we can't reliably match content-stream occurrences to tag-tree elements.
             var fallbackImageAltSet = 0;
+            var contentlessFiguresDemoted = 0;
             foreach (var figure in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Figure))
             {
+                if (!StructElemHasAssociatedContent(figure))
+                {
+                    figure.Remove(PdfName.Alt);
+                    figure.Put(PdfName.S, RoleSpan);
+                    contentlessFiguresDemoted++;
+                    continue;
+                }
+
                 if (!HasNonEmptyAlt(figure))
                 {
                     SetAlt(figure, _altTextService.GetFallbackAltTextForImage());
@@ -588,8 +598,17 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             if (_options.GenerateLinkAltText)
             {
                 var fallbackLinkAltSet = 0;
+                var contentlessLinksDemoted = 0;
                 foreach (var link in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Link))
                 {
+                    if (!StructElemHasAssociatedContent(link))
+                    {
+                        link.Remove(PdfName.Alt);
+                        link.Put(PdfName.S, RoleSpan);
+                        contentlessLinksDemoted++;
+                        continue;
+                    }
+
                     if (!HasNonEmptyAlt(link))
                     {
                         SetAlt(link, _altTextService.GetFallbackAltTextForLink());
@@ -598,19 +617,21 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 }
 
                 _logger.LogInformation(
-                    "PDF remediation link alt summary: {fileId} linkOccurrences={linkOccurrences} linkAltSet={linkAltSet} fallbackLinkAltSet={fallbackLinkAltSet}",
+                    "PDF remediation link alt summary: {fileId} linkOccurrences={linkOccurrences} linkAltSet={linkAltSet} fallbackLinkAltSet={fallbackLinkAltSet} contentlessLinksDemoted={contentlessLinksDemoted}",
                     fileId,
                     linkOccurrences,
                     linkAltSet,
-                    fallbackLinkAltSet);
+                    fallbackLinkAltSet,
+                    contentlessLinksDemoted);
             }
 
             _logger.LogInformation(
-                "PDF remediation image alt summary: {fileId} imageOccurrences={imageOccurrences} imageAltSet={imageAltSet} fallbackImageAltSet={fallbackImageAltSet}",
+                "PDF remediation image alt summary: {fileId} imageOccurrences={imageOccurrences} imageAltSet={imageAltSet} fallbackImageAltSet={fallbackImageAltSet} contentlessFiguresDemoted={contentlessFiguresDemoted}",
                 fileId,
                 imageOccurrences,
                 imageAltSet,
-                fallbackImageAltSet);
+                fallbackImageAltSet,
+                contentlessFiguresDemoted);
 
             if (vectorFigureCandidates > 0)
             {
@@ -1007,6 +1028,65 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         }
 
         return null;
+    }
+
+    private static bool StructElemHasAssociatedContent(PdfDictionary structElem)
+    {
+        var kids = structElem.Get(PdfName.K);
+        if (kids is null)
+        {
+            return false;
+        }
+
+        return StructElemKidsContainAssociatedContent(kids);
+    }
+
+    private static bool StructElemKidsContainAssociatedContent(PdfObject node)
+    {
+        node = DereferenceStructTreeNode(node);
+
+        if (node is PdfNumber)
+        {
+            // Direct MCID
+            return true;
+        }
+
+        if (node is PdfArray array)
+        {
+            foreach (var item in array)
+            {
+                if (StructElemKidsContainAssociatedContent(item))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        if (node is PdfDictionary dict)
+        {
+            // MCR dictionaries include /MCID; OBJR dictionaries include /Obj.
+            if (dict.Get(PdfName.MCID) is not null || dict.Get(PdfName.Obj) is not null)
+            {
+                return true;
+            }
+
+            var kids = dict.Get(PdfName.K);
+            return kids is not null && StructElemKidsContainAssociatedContent(kids);
+        }
+
+        return false;
+    }
+
+    private static PdfObject DereferenceStructTreeNode(PdfObject obj)
+    {
+        if (obj is PdfIndirectReference reference)
+        {
+            return reference.GetRefersTo(true);
+        }
+
+        return obj;
     }
 
     /// <summary>
