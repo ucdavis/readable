@@ -578,17 +578,22 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             // This keeps remediation robust even when we can't reliably match content-stream occurrences to tag-tree elements.
             var fallbackImageAltSet = 0;
             var contentlessFiguresRemoved = 0;
+            var contentlessFiguresDemoted = 0;
             foreach (var figure in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Figure))
             {
                 if (!StructElemHasAssociatedContent(figure))
                 {
                     figure.Remove(PdfName.Alt);
-                    if (!TryRemoveStructElemFromParent(figure))
+                    if (TryRemoveStructElemFromParent(figure))
+                    {
+                        contentlessFiguresRemoved++;
+                    }
+                    else
                     {
                         figure.Put(PdfName.S, RoleSpan);
+                        contentlessFiguresDemoted++;
                     }
 
-                    contentlessFiguresRemoved++;
                     continue;
                 }
 
@@ -603,17 +608,22 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             {
                 var fallbackLinkAltSet = 0;
                 var contentlessLinksRemoved = 0;
+                var contentlessLinksDemoted = 0;
                 foreach (var link in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Link))
                 {
                     if (!StructElemHasAssociatedContent(link))
                     {
                         link.Remove(PdfName.Alt);
-                        if (!TryRemoveStructElemFromParent(link))
+                        if (TryRemoveStructElemFromParent(link))
+                        {
+                            contentlessLinksRemoved++;
+                        }
+                        else
                         {
                             link.Put(PdfName.S, RoleSpan);
+                            contentlessLinksDemoted++;
                         }
 
-                        contentlessLinksRemoved++;
                         continue;
                     }
 
@@ -625,21 +635,23 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 }
 
                 _logger.LogInformation(
-                    "PDF remediation link alt summary: {fileId} linkOccurrences={linkOccurrences} linkAltSet={linkAltSet} fallbackLinkAltSet={fallbackLinkAltSet} contentlessLinksRemoved={contentlessLinksRemoved}",
+                    "PDF remediation link alt summary: {fileId} linkOccurrences={linkOccurrences} linkAltSet={linkAltSet} fallbackLinkAltSet={fallbackLinkAltSet} contentlessLinksRemoved={contentlessLinksRemoved} contentlessLinksDemoted={contentlessLinksDemoted}",
                     fileId,
                     linkOccurrences,
                     linkAltSet,
                     fallbackLinkAltSet,
-                    contentlessLinksRemoved);
+                    contentlessLinksRemoved,
+                    contentlessLinksDemoted);
             }
 
             _logger.LogInformation(
-                "PDF remediation image alt summary: {fileId} imageOccurrences={imageOccurrences} imageAltSet={imageAltSet} fallbackImageAltSet={fallbackImageAltSet} contentlessFiguresRemoved={contentlessFiguresRemoved}",
+                "PDF remediation image alt summary: {fileId} imageOccurrences={imageOccurrences} imageAltSet={imageAltSet} fallbackImageAltSet={fallbackImageAltSet} contentlessFiguresRemoved={contentlessFiguresRemoved} contentlessFiguresDemoted={contentlessFiguresDemoted}",
                 fileId,
                 imageOccurrences,
                 imageAltSet,
                 fallbackImageAltSet,
-                contentlessFiguresRemoved);
+                contentlessFiguresRemoved,
+                contentlessFiguresDemoted);
 
             if (vectorFigureCandidates > 0)
             {
