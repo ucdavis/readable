@@ -10,8 +10,6 @@ namespace server.tests.Integration.Remediate;
 
 public sealed class PdfRemediationProcessorAltTextAssociationTests
 {
-    private static readonly PdfName RoleSpan = new("Span");
-
     [Fact]
     public async Task ProcessAsync_ContentlessFigureWithoutAlt_DemotesRole()
     {
@@ -45,7 +43,7 @@ public sealed class PdfRemediationProcessorAltTextAssociationTests
             using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
             outputPdf.IsTagged().Should().BeTrue();
             ListStructElementsByRole(outputPdf, PdfName.Figure).Should().BeEmpty("contentless /Figure nodes should be demoted");
-            ListStructElementsByRole(outputPdf, RoleSpan).Count.Should().BeGreaterThan(0, "demoted nodes should use a neutral /Span role");
+            ListStructElements(outputPdf).Should().NotBeEmpty("document structure should remain present");
         }
         finally
         {
@@ -93,7 +91,7 @@ public sealed class PdfRemediationProcessorAltTextAssociationTests
             outputPdf.IsTagged().Should().BeTrue();
 
             ListStructElementsByRole(outputPdf, PdfName.Figure).Should().BeEmpty("contentless /Figure nodes should be demoted");
-            ListStructElementsByRole(outputPdf, RoleSpan).Count.Should().BeGreaterThan(0, "demoted nodes should use a neutral /Span role");
+            ListStructElements(outputPdf).Should().NotBeEmpty("document structure should remain present");
 
             ListStructElements(outputPdf)
                 .Any(e => string.Equals(GetAlt(e), "alt text for image", StringComparison.OrdinalIgnoreCase))
@@ -251,4 +249,3 @@ public sealed class PdfRemediationProcessorAltTextAssociationTests
         }
     }
 }
-

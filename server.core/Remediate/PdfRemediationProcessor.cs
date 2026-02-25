@@ -577,14 +577,23 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             // Fallback safety-net: ensure any remaining tagged Figures get *some* alt text.
             // This keeps remediation robust even when we can't reliably match content-stream occurrences to tag-tree elements.
             var fallbackImageAltSet = 0;
+            var contentlessFiguresRemoved = 0;
             var contentlessFiguresDemoted = 0;
             foreach (var figure in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Figure))
             {
                 if (!StructElemHasAssociatedContent(figure))
                 {
                     figure.Remove(PdfName.Alt);
-                    figure.Put(PdfName.S, RoleSpan);
-                    contentlessFiguresDemoted++;
+                    if (TryRemoveStructElemFromParent(figure))
+                    {
+                        contentlessFiguresRemoved++;
+                    }
+                    else
+                    {
+                        figure.Put(PdfName.S, RoleSpan);
+                        contentlessFiguresDemoted++;
+                    }
+
                     continue;
                 }
 
@@ -598,14 +607,23 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             if (_options.GenerateLinkAltText)
             {
                 var fallbackLinkAltSet = 0;
+                var contentlessLinksRemoved = 0;
                 var contentlessLinksDemoted = 0;
                 foreach (var link in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Link))
                 {
                     if (!StructElemHasAssociatedContent(link))
                     {
                         link.Remove(PdfName.Alt);
-                        link.Put(PdfName.S, RoleSpan);
-                        contentlessLinksDemoted++;
+                        if (TryRemoveStructElemFromParent(link))
+                        {
+                            contentlessLinksRemoved++;
+                        }
+                        else
+                        {
+                            link.Put(PdfName.S, RoleSpan);
+                            contentlessLinksDemoted++;
+                        }
+
                         continue;
                     }
 
@@ -617,20 +635,22 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 }
 
                 _logger.LogInformation(
-                    "PDF remediation link alt summary: {fileId} linkOccurrences={linkOccurrences} linkAltSet={linkAltSet} fallbackLinkAltSet={fallbackLinkAltSet} contentlessLinksDemoted={contentlessLinksDemoted}",
+                    "PDF remediation link alt summary: {fileId} linkOccurrences={linkOccurrences} linkAltSet={linkAltSet} fallbackLinkAltSet={fallbackLinkAltSet} contentlessLinksRemoved={contentlessLinksRemoved} contentlessLinksDemoted={contentlessLinksDemoted}",
                     fileId,
                     linkOccurrences,
                     linkAltSet,
                     fallbackLinkAltSet,
+                    contentlessLinksRemoved,
                     contentlessLinksDemoted);
             }
 
             _logger.LogInformation(
-                "PDF remediation image alt summary: {fileId} imageOccurrences={imageOccurrences} imageAltSet={imageAltSet} fallbackImageAltSet={fallbackImageAltSet} contentlessFiguresDemoted={contentlessFiguresDemoted}",
+                "PDF remediation image alt summary: {fileId} imageOccurrences={imageOccurrences} imageAltSet={imageAltSet} fallbackImageAltSet={fallbackImageAltSet} contentlessFiguresRemoved={contentlessFiguresRemoved} contentlessFiguresDemoted={contentlessFiguresDemoted}",
                 fileId,
                 imageOccurrences,
                 imageAltSet,
                 fallbackImageAltSet,
+                contentlessFiguresRemoved,
                 contentlessFiguresDemoted);
 
             if (vectorFigureCandidates > 0)
@@ -1028,6 +1048,85 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         }
 
         return null;
+    }
+
+    private static bool TryRemoveStructElemFromParent(PdfDictionary structElem)
+    {
+        var parent = structElem.GetAsDictionary(PdfName.P);
+        if (parent is null)
+        {
+            return false;
+        }
+
+        var targetRef = structElem.GetIndirectReference();
+        var kids = parent.Get(PdfName.K);
+        if (kids is null)
+        {
+            return false;
+        }
+
+        kids = DereferenceStructTreeNode(kids);
+
+        if (kids is PdfArray array)
+        {
+            var removedAny = false;
+            for (var i = array.Size() - 1; i >= 0; i--)
+            {
+                var item = array.Get(i);
+                if (!IsSameStructElem(item, structElem, targetRef))
+                {
+                    continue;
+                }
+
+                array.Remove(i);
+                removedAny = true;
+            }
+
+            if (removedAny && array.Size() == 0)
+            {
+                parent.Remove(PdfName.K);
+            }
+
+            return removedAny;
+        }
+
+        if (IsSameStructElem(kids, structElem, targetRef))
+        {
+            parent.Remove(PdfName.K);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsSameStructElem(PdfObject candidate, PdfDictionary target, PdfIndirectReference? targetRef)
+    {
+        if (targetRef is not null && candidate is PdfIndirectReference candidateRef)
+        {
+            return candidateRef.GetObjNumber() == targetRef.GetObjNumber()
+                && candidateRef.GetGenNumber() == targetRef.GetGenNumber();
+        }
+
+        candidate = DereferenceStructTreeNode(candidate);
+        if (candidate is not PdfDictionary candidateDict)
+        {
+            return false;
+        }
+
+        if (ReferenceEquals(candidateDict, target))
+        {
+            return true;
+        }
+
+        if (targetRef is null)
+        {
+            return false;
+        }
+
+        var candidateRef2 = candidateDict.GetIndirectReference();
+        return candidateRef2 is not null
+            && candidateRef2.GetObjNumber() == targetRef.GetObjNumber()
+            && candidateRef2.GetGenNumber() == targetRef.GetGenNumber();
     }
 
     private static bool StructElemHasAssociatedContent(PdfDictionary structElem)
