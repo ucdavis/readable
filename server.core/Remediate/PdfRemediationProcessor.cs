@@ -1082,6 +1082,11 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 removedAny = true;
             }
 
+            if (removedAny && array.Size() == 0)
+            {
+                parent.Remove(PdfName.K);
+            }
+
             return removedAny;
         }
 
