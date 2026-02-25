@@ -43,7 +43,11 @@ export function PdfActivityCard({
           </div>
         </div>
 
+        <label className="sr-only" htmlFor="pdf-file-filter">
+          Filter by filename
+        </label>
         <input
+          id="pdf-file-filter"
           className="input input-bordered input-sm w-full max-w-xs"
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter by filename…"
