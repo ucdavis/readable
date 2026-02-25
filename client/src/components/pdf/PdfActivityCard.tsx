@@ -4,6 +4,7 @@ import { formatBytes, formatDateTime } from '@/lib/format.ts';
 import { Link } from '@tanstack/react-router';
 import { ArrowDownTrayIcon } from '@heroicons/react/24/solid';
 import { DocumentChartBarIcon } from '@heroicons/react/24/outline';
+import { useState } from 'react';
 
 export type PdfActivityCardProps = {
   activeUploadCount: number;
@@ -24,6 +25,11 @@ export function PdfActivityCard({
   recentlyCompletedByFileId,
   uploadsByFileId,
 }: PdfActivityCardProps) {
+  const [filter, setFilter] = useState('');
+  const filteredFiles = files?.filter((f) =>
+    f.originalFileName.toLowerCase().includes(filter.toLowerCase())
+  );
+
   return (
     <div className="card bg-base-100 shadow">
       <div className="card-body">
@@ -37,13 +43,25 @@ export function PdfActivityCard({
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <label className="sr-only" htmlFor="pdf-file-filter">
+          Filter by filename
+        </label>
+        <input
+          id="pdf-file-filter"
+          className="input input-bordered input-sm w-full max-w-xs"
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Filter by filename…"
+          type="search"
+          value={filter}
+        />
+
+        <div className="overflow-auto max-h-[60vh]">
           <table className="table">
             <thead>
               <tr>
                 <th>Status</th>
                 <th>Filename</th>
-                
+
                 <th>Report</th>
                 <th className="text-right">Action</th>
               </tr>
@@ -66,14 +84,14 @@ export function PdfActivityCard({
                     </div>
                   </td>
                 </tr>
-              ) : files.length === 0 ? (
+              ) : filteredFiles?.length === 0 ? (
                 <tr>
                   <td className="text-base-content/60" colSpan={4}>
-                    No files yet.
+                    {filter ? 'No files match your filter.' : 'No files yet.'}
                   </td>
                 </tr>
               ) : (
-                files.map((file) => {
+                (filteredFiles ?? []).map((file) => {
                   const upload = uploadsByFileId[file.fileId];
                   const reports = file.accessibilityReports ?? [];
                   const beforeReport = reports.find(
@@ -113,10 +131,13 @@ export function PdfActivityCard({
                       </td>
 
                       {/* File */}
-                      <td>{file.originalFileName}
-                        <br/>
-                        <span className="text-xs text-base-content/75">{formatBytes(file.sizeBytes)} • {formatDateTime(file.createdAt)}</span>
-                        
+                      <td>
+                        {file.originalFileName}
+                        <br />
+                        <span className="text-xs text-base-content/75">
+                          {formatBytes(file.sizeBytes)} •{' '}
+                          {formatDateTime(file.createdAt)}
+                        </span>
                       </td>
 
                       {/* Report */}
@@ -129,7 +150,8 @@ export function PdfActivityCard({
                           </span>
                         ) : afterIssues === null ? (
                           <div className="text-xs text-base-content/60">
-                            Report ready • After: {formatDateTime(afterReport.generatedAt)}
+                            Report ready • After:{' '}
+                            {formatDateTime(afterReport.generatedAt)}
                           </div>
                         ) : (
                           <div className="space-y-1">
@@ -152,7 +174,9 @@ export function PdfActivityCard({
                             </div>
                             <div className="text-xs text-base-content/60">
                               {typeof beforeIssues === 'number' ? (
-                                <>Issues: {beforeIssues} → {afterIssues}</>
+                                <>
+                                  Issues: {beforeIssues} → {afterIssues}
+                                </>
                               ) : (
                                 <>Issues remaining: {afterIssues}</>
                               )}{' '}
@@ -183,7 +207,7 @@ export function PdfActivityCard({
                                 params={{ fileId: file.fileId }}
                                 to="/reports/$fileId"
                               >
-                              <DocumentChartBarIcon className="h-4 w-4" />
+                                <DocumentChartBarIcon className="h-4 w-4" />
                                 View Report
                               </Link>
                               <a
@@ -194,7 +218,7 @@ export function PdfActivityCard({
                                 rel="noreferrer"
                                 target="_blank"
                               >
-                                <ArrowDownTrayIcon className="h-4 w-4"/>
+                                <ArrowDownTrayIcon className="h-4 w-4" />
                                 Download PDF
                               </a>
                             </>
