@@ -382,6 +382,7 @@ export function PdfActivityCard({
                           ) : null}
 
                           <button
+                            aria-label={`Delete ${file.originalFileName}`}
                             className="btn btn-sm btn-ghost btn-error"
                             disabled={archiveMutation.isPending}
                             onClick={() => archiveSingle(file.fileId)}
