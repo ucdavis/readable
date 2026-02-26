@@ -268,7 +268,6 @@ function RouteComponent() {
 
   const hasAfterFailures = afterFailed.length > 0;
 
-  // DaisyUI-friendly examples:
   const resultsCardClass = hasAfterFailures
     ? 'bg-error/10 border-b-4 border-error'
     : 'bg-success/10 border-b-4 border-success';
