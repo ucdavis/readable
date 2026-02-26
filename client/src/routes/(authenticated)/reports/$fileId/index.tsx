@@ -350,8 +350,8 @@ function RouteComponent() {
 
       {beforeReport && afterReport && beforeCounts && afterCounts ? (
         <section className="space-y-4">
-          <div className="card shadow bg-base-100 p-4 border-b-4 border-secondary">
-            <h2 className="card-title mb-3">
+          <div className="card shadow bg-base-100 p-4 border-b-4 border-primary">
+            <h2 className="mb-4">
               {afterFailed.length > 0 ? 'Still Failing' : 'Results'}
             </h2>
             {afterFailed.length === 0 ? (
@@ -406,7 +406,7 @@ function RouteComponent() {
               </div>
             )}
 
-            <h2 className="card-title mb-3 mt-6">Needs manual check</h2>
+            <h2 className="mb-2 mt-10">Needs manual check</h2>
             {afterNeedsManual.length === 0 ? (
               <div className="alert alert-success">
                 <span className="text-lg">
@@ -460,40 +460,46 @@ function RouteComponent() {
             )}
           </div>
 
-          <div className="stats shadow stats-vertical lg:stats-horizontal bg-base-100 w-full border-b-4 border-primary">
+          <div className="stats shadow stats-vertical lg:stats-horizontal w-full border-b-4 border-primary">
             <div className="stat">
-              <div className="uppercase text-xs">Before</div>
-              <div className="text-xl">
+              <div className="uppercase text-sm text-base-content/70 font-bold">
+                Before
+              </div>
+              <div className="text-2xl">
                 {beforeCounts.passed}/{beforeCounts.total}
               </div>
-              <div className="text-sm text-base-content/80">
+              <div className="text-sm">
                 {beforeCounts.failed} failed • {beforeCounts.needsManual} needs
                 manual
               </div>
-              <div className="text-sm text-base-content/80">
+              <div className="text-sm">
                 Generated {formatDateTime(beforeReport.generatedAt)}
               </div>
             </div>
 
             <div className="stat">
-              <div className="uppercase text-xs">After</div>
-              <div className="text-xl">
+              <div className="uppercase text-sm text-base-content/70 font-bold">
+                After
+              </div>
+              <div className="text-2xl">
                 {afterCounts.passed - beforeCounts.passed >= 0 ? '+' : ''}
                 {afterCounts.passed - beforeCounts.passed}
               </div>
-              <div className="text-sm text-base-content/80">passed checks</div>
+              <div className="text-sm">passed checks</div>
             </div>
 
             <div className="stat bg-[#EAEDF1]">
-              <div className="uppercase text-xs">Results</div>
-              <div className="text-xl">
+              <div className="uppercase text-sm text-base-content/70 font-bold">
+                Results
+              </div>
+              <div className="text-2xl">
                 {afterCounts.passed}/{afterCounts.total}
               </div>
-              <div className="text-sm text-base-content/80">
+              <div className="text-sm">
                 {afterCounts.failed} failed • {afterCounts.needsManual} needs
                 manual
               </div>
-              <div className="text-sm text-base-content/80">
+              <div className="text-sm">
                 Generated {formatDateTime(afterReport.generatedAt)}
               </div>
             </div>
@@ -501,7 +507,7 @@ function RouteComponent() {
 
           <div className="card shadow bg-base-100">
             <div className="card-body">
-              <h2 className="card-title">Before vs After breakdown</h2>
+              <h2>Before vs After breakdown</h2>
 
               {compareByCategory.map((c) => (
                 <div
