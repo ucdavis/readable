@@ -141,7 +141,7 @@ export function PdfActivityCard({
   return (
     <div className="card bg-base-100 shadow">
       <div className="card-body">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             {activeUploadCount > 0 ? (
               <span className="badge badge-info badge-outline">
@@ -151,7 +151,7 @@ export function PdfActivityCard({
           </div>
         </div>
 
-        <div className="flex justify-between flex-wrap items-center gap-3">
+        <div className="flex justify-between items-center gap-3">
           <label className="sr-only" htmlFor="pdf-file-filter">
             Filter by filename
           </label>
@@ -270,7 +270,7 @@ export function PdfActivityCard({
                       {/* Status */}
                       <td>
                         <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex items-center gap-2">
                             <span className="badge badge-primary badge-soft">
                               {file.status}
                             </span>
@@ -300,9 +300,9 @@ export function PdfActivityCard({
                       {/* Report */}
                       <td>
                         {file.status !== 'Completed' ? (
-                          <span className="text-base-content/60">—</span>
+                          <span className="text-base-content/70">—</span>
                         ) : !afterReport ? (
-                          <span className="text-base-content/60">
+                          <span className="text-base-content/70">
                             No report yet
                           </span>
                         ) : afterIssues === null ? (
@@ -312,7 +312,7 @@ export function PdfActivityCard({
                           </div>
                         ) : (
                           <div className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex items-center gap-2">
                               {afterIssues === 0 ? (
                                 <span className="badge badge-success badge-sm">
                                   All checks passed
@@ -324,7 +324,7 @@ export function PdfActivityCard({
                               )}
                               {typeof fixedIssues === 'number' &&
                               fixedIssues > 0 ? (
-                                <span className="badge badge-success badge-outline badge-sm">
+                                <span className="badge badge-success whitespace-nowrap badge-outline badge-sm">
                                   Fixed {fixedIssues} Issues
                                 </span>
                               ) : null}
@@ -345,7 +345,7 @@ export function PdfActivityCard({
 
                       {/* Actions */}
                       <td className="text-right">
-                        <div className="flex flex-wrap justify-end gap-2">
+                        <div className="flex justify-end gap-2">
                           {upload ? (
                             <button
                               className="btn btn-sm btn-outline btn-error"

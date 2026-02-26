@@ -279,7 +279,7 @@ function RouteComponent() {
   return (
     <div className="container">
       <header className="mt-16 mb-10 border-b border-main-border pb-8">
-        <div className="flex items-end justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-3xl font-extrabold">
               Accessibility report for <span>{file.originalFileName}</span>
@@ -290,7 +290,7 @@ function RouteComponent() {
             </div>
           </div>
           <div>
-            <div className="flex flex-wrap items-center gap-2 mb-5">
+            <div className="flex items-center gap-2 mb-5">
               {isCompleted ? (
                 <a
                   className="btn btn-lg btn-primary"
@@ -452,7 +452,7 @@ function RouteComponent() {
                         </td>
                         <td>
                           <span
-                            className={`badge ${statusBadgeClass(r.status)}`}
+                            className={`badge whitespace-nowrap ${statusBadgeClass(r.status)}`}
                           >
                             {r.status}
                           </span>
@@ -520,7 +520,7 @@ function RouteComponent() {
                   key={c.category}
                 >
                   <input defaultChecked={false} type="checkbox" />
-                  <div className="collapse-title flex flex-wrap items-center gap-2 font-bold">
+                  <div className="collapse-title flex items-center gap-2 font-bold">
                     <span className="text-base">{c.category}</span>
                     {c.afterFailedCount > 0 ? (
                       <span className="badge badge-error badge-sm">
