@@ -5,9 +5,9 @@ import {
   type AccessibilityReportJson,
 } from '@/queries/files.ts';
 import { RuleInfoLink } from '@/shared/accessibility/ruleInfoLink.tsx';
-import { ArrowDownTrayIcon } from '@heroicons/react/24/solid';
+import { ArrowDownTrayIcon, ArrowLeftIcon } from '@heroicons/react/24/solid';
 import { useQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { Link, createFileRoute } from '@tanstack/react-router';
 import { useMemo } from 'react';
 
 export const Route = createFileRoute('/(authenticated)/reports/$fileId/')({
@@ -272,6 +272,10 @@ function RouteComponent() {
   return (
     <div className="container">
       <header className="my-8">
+        <Link className="btn btn-ghost btn-sm mb-4" to="/">
+          <ArrowLeftIcon className="h-4 w-4" />
+          Back
+        </Link>
         <div className="flex items-end justify-between">
           <div>
             <h1 className="text-3xl font-extrabold">
