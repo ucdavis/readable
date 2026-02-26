@@ -272,7 +272,7 @@ function RouteComponent() {
   return (
     <div className="container">
       <header className="my-8">
-        <Link className="btn btn-ghost btn-sm mb-4" to="/">
+        <Link className="btn btn-sm mb-4" to="/">
           <ArrowLeftIcon className="h-4 w-4" />
           Back
         </Link>
