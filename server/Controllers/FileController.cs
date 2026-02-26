@@ -153,6 +153,33 @@ public class FileController : ApiControllerBase
         return Ok(archivedFileIds);
     }
 
+    [HttpPost("undelete")]
+    public async Task<ActionResult> UnDeleteFiles(
+       [FromBody] Guid[] fileIds,
+       CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+        var filesToUnDelete = await _dbContext.Files
+            .Where(f => fileIds.Contains(f.FileId) && f.OwnerUserId == userId.Value)
+            .ToListAsync(cancellationToken);
+        if (filesToUnDelete.Count == 0)
+        {
+            return NotFound("No files found to undelete.");
+        }
+        foreach (var file in filesToUnDelete)
+        {
+            file.IsArchived = false;
+        }
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        var undeletedFileIds = filesToUnDelete.Select(f => f.FileId).ToList();
+        return Ok(undeletedFileIds);
+    }
+
     private static int StageSortOrder(string stage)
     {
         return stage switch

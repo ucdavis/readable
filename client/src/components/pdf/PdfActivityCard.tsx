@@ -1,10 +1,17 @@
 import type { UserFile } from '@/queries/files.ts';
 import type { UploadRow } from '@/lib/usePdfUploads.ts';
-import { useArchiveFilesMutation } from '@/queries/files.ts';
+import {
+  useArchiveFilesMutation,
+  useUndeleteFilesMutation,
+} from '@/queries/files.ts';
 import { formatBytes, formatDateTime } from '@/lib/format.ts';
 import { Link } from '@tanstack/react-router';
 import { ArrowDownTrayIcon } from '@heroicons/react/24/solid';
-import { TrashIcon, DocumentChartBarIcon } from '@heroicons/react/24/outline';
+import {
+  ArrowUturnLeftIcon,
+  TrashIcon,
+  DocumentChartBarIcon,
+} from '@heroicons/react/24/outline';
 import { useCallback, useRef, useState } from 'react';
 
 export type PdfActivityCardProps = {
@@ -31,8 +38,10 @@ export function PdfActivityCard({
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const confirmDialogRef = useRef<HTMLDialogElement>(null);
   const [pendingBulkIds, setPendingBulkIds] = useState<string[]>([]);
+  const [recentlyDeletedIds, setRecentlyDeletedIds] = useState<string[]>([]);
 
   const archiveMutation = useArchiveFilesMutation();
+  const undeleteMutation = useUndeleteFilesMutation();
 
   const visibleFiles = files?.filter((f) => !hiddenIds.has(f.fileId));
   const filteredFiles = visibleFiles?.filter((f) =>
@@ -51,6 +60,10 @@ export function PdfActivityCard({
       }
       return next;
     });
+    setRecentlyDeletedIds((prev) => [
+      ...prev,
+      ...archivedIds.filter((id) => !prev.includes(id)),
+    ]);
     setArchiveError(null);
   }, []);
 
@@ -101,6 +114,30 @@ export function PdfActivityCard({
     setPendingBulkIds([]);
   }, []);
 
+  const handleUndelete = useCallback(() => {
+    if (recentlyDeletedIds.length === 0) {
+      return;
+    }
+    const ids = recentlyDeletedIds;
+    undeleteMutation.mutate(ids, {
+      onError: (error) => {
+        const message =
+          error instanceof Error ? error.message : 'Failed to restore files.';
+        setArchiveError(message);
+      },
+      onSuccess: () => {
+        setRecentlyDeletedIds([]);
+        setHiddenIds((prev) => {
+          const next = new Set(prev);
+          for (const id of ids) {
+            next.delete(id);
+          }
+          return next;
+        });
+      },
+    });
+  }, [recentlyDeletedIds, undeleteMutation]);
+
   return (
     <div className="card bg-base-100 shadow">
       <div className="card-body">
@@ -114,7 +151,7 @@ export function PdfActivityCard({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex justify-between flex-wrap items-center gap-3">
           <label className="sr-only" htmlFor="pdf-file-filter">
             Filter by filename
           </label>
@@ -127,21 +164,39 @@ export function PdfActivityCard({
             value={filter}
           />
 
-          {bulkCount > 0 ? (
-            <button
-              className="btn btn-sm btn-outline btn-error"
-              disabled={archiveMutation.isPending}
-              onClick={openBulkConfirmation}
-              type="button"
-            >
-              <TrashIcon className="h-4 w-4" />
-              {archiveMutation.isPending
-                ? 'Deleting…'
-                : isFiltered
-                  ? `Delete ${bulkCount} listed file${bulkCount === 1 ? '' : 's'}`
-                  : `Delete all ${bulkCount} file${bulkCount === 1 ? '' : 's'}`}
-            </button>
-          ) : null}
+          <div className="flex items-center gap-2">
+            {recentlyDeletedIds.length > 0 ? (
+              <button
+                className="btn btn-sm btn-outline"
+                disabled={undeleteMutation.isPending}
+                onClick={handleUndelete}
+                type="button"
+              >
+                <ArrowUturnLeftIcon className="h-4 w-4" />
+                {undeleteMutation.isPending
+                  ? 'Restoring…'
+                  : `Undo delete (${recentlyDeletedIds.length} file${
+                      recentlyDeletedIds.length === 1 ? '' : 's'
+                    })`}
+              </button>
+            ) : null}
+
+            {bulkCount > 0 ? (
+              <button
+                className="btn btn-sm btn-outline btn-error"
+                disabled={archiveMutation.isPending}
+                onClick={openBulkConfirmation}
+                type="button"
+              >
+                <TrashIcon className="h-4 w-4" />
+                {archiveMutation.isPending
+                  ? 'Deleting…'
+                  : isFiltered
+                    ? `Delete ${bulkCount} listed file${bulkCount === 1 ? '' : 's'}`
+                    : `Delete all ${bulkCount} file${bulkCount === 1 ? '' : 's'}`}
+              </button>
+            ) : null}
+          </div>
         </div>
 
         {archiveError ? (
@@ -354,7 +409,7 @@ export function PdfActivityCard({
             Are you sure you want to delete{' '}
             <strong>{pendingBulkIds.length}</strong> file
             {pendingBulkIds.length === 1 ? '' : 's'}? This action cannot be
-            undone.
+            undone after you leave the page or refresh.
           </p>
           <div className="modal-action">
             <button

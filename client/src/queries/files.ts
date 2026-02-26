@@ -82,3 +82,21 @@ export function useArchiveFilesMutation() {
     },
   });
 }
+
+export async function undeleteFiles(fileIds: string[]): Promise<string[]> {
+  return await fetchJson<string[]>('/api/file/undelete', {
+    body: JSON.stringify(fileIds),
+    method: 'POST',
+  });
+}
+
+export function useUndeleteFilesMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (fileIds: string[]) => undeleteFiles(fileIds),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['files'] });
+    },
+  });
+}
