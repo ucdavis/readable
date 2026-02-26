@@ -28,7 +28,7 @@ public class FileController : ApiControllerBase
 
         var files = await _dbContext.Files
             .AsNoTracking()
-            .Where(f => f.OwnerUserId == userId.Value)
+            .Where(f => f.OwnerUserId == userId.Value && !f.IsArchived)
             .OrderByDescending(f => f.CreatedAt)
             .Select(f => new FileListItemDto
             {
@@ -122,6 +122,35 @@ public class FileController : ApiControllerBase
             StatusUpdatedAt = file.StatusUpdatedAt,
             AccessibilityReports = reports,
         });
+    }
+
+    // Create an endpoint for archiving files. Pass an array if fileIds to archive, verify that they belong to the user, and set IsArchived to true. This will exclude them from the list endpoint but keep them in the database for record-keeping and potential future features like an "Archived Files" view or restore functionality.
+     [HttpPost("archive")]
+     public async Task<ActionResult> ArchiveFiles(
+        [FromBody] Guid[] fileIds,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+        var filesToArchive = await _dbContext.Files
+            .Where(f => fileIds.Contains(f.FileId) && f.OwnerUserId == userId.Value)
+            .ToListAsync(cancellationToken);
+        if (filesToArchive.Count == 0)
+        {
+            return NotFound("No files found to archive.");
+        }
+        foreach (var file in filesToArchive)
+        {
+            file.IsArchived = true;
+        }
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        //Return a list of the archived fileIds in the response body so the client can remove them from the UI immediately without needing to refetch the entire list.
+        var archivedFileIds = filesToArchive.Select(f => f.FileId).ToList();
+        return Ok(archivedFileIds);
     }
 
     private static int StageSortOrder(string stage)
