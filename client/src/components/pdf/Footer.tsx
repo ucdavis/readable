@@ -4,7 +4,7 @@ import BlueCircleSvg from '@/components/pdf/BlueCircleSvg.tsx';
 
 const Footer: React.FC = () => {
   return (
-    <footer className="relative overflow-hidden py-10">
+    <footer className="relative overflow-hidden py-10 mt-16">
       <div className="absolute -left-32 pointer-events-none">
         <GoldCircleSvg />
       </div>
