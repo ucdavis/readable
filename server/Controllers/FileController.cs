@@ -126,7 +126,7 @@ public class FileController : ApiControllerBase
 
     // Create an endpoint for archiving files. Pass an array if fileIds to archive, verify that they belong to the user, and set IsArchived to true. This will exclude them from the list endpoint but keep them in the database for record-keeping and potential future features like an "Archived Files" view or restore functionality.
     [HttpPost("archive")]
-    public async Task<ActionResult> ArchiveFiles(
+    public async Task<IActionResult> ArchiveFiles(
        [FromBody] Guid[] fileIds,
        CancellationToken cancellationToken)
     {
