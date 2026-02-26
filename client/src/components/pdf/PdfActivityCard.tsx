@@ -4,10 +4,7 @@ import { useArchiveFilesMutation } from '@/queries/files.ts';
 import { formatBytes, formatDateTime } from '@/lib/format.ts';
 import { Link } from '@tanstack/react-router';
 import { ArrowDownTrayIcon } from '@heroicons/react/24/solid';
-import {
-  ArchiveBoxIcon,
-  DocumentChartBarIcon,
-} from '@heroicons/react/24/outline';
+import { TrashIcon, DocumentChartBarIcon } from '@heroicons/react/24/outline';
 import { useCallback, useRef, useState } from 'react';
 
 export type PdfActivityCardProps = {
@@ -132,17 +129,17 @@ export function PdfActivityCard({
 
           {bulkCount > 0 ? (
             <button
-              className="btn btn-sm btn-outline btn-warning"
+              className="btn btn-sm btn-outline btn-error"
               disabled={archiveMutation.isPending}
               onClick={openBulkConfirmation}
               type="button"
             >
-              <ArchiveBoxIcon className="h-4 w-4" />
+              <TrashIcon className="h-4 w-4" />
               {archiveMutation.isPending
-                ? 'Archiving…'
+                ? 'Deleting…'
                 : isFiltered
-                  ? `Archive ${bulkCount} listed file${bulkCount === 1 ? '' : 's'}`
-                  : `Archive all ${bulkCount} file${bulkCount === 1 ? '' : 's'}`}
+                  ? `Delete ${bulkCount} listed file${bulkCount === 1 ? '' : 's'}`
+                  : `Delete all ${bulkCount} file${bulkCount === 1 ? '' : 's'}`}
             </button>
           ) : null}
         </div>
@@ -330,13 +327,13 @@ export function PdfActivityCard({
                           ) : null}
 
                           <button
-                            className="btn btn-sm btn-ghost"
+                            className="btn btn-sm btn-ghost btn-error"
                             disabled={archiveMutation.isPending}
                             onClick={() => archiveSingle(file.fileId)}
-                            title="Archive"
+                            title="Delete"
                             type="button"
                           >
-                            <ArchiveBoxIcon className="h-4 w-4" />
+                            <TrashIcon className="h-4 w-4" />
                           </button>
                         </div>
                       </td>
@@ -352,12 +349,12 @@ export function PdfActivityCard({
       {/* Bulk archive confirmation dialog */}
       <dialog className="modal" ref={confirmDialogRef}>
         <div className="modal-box">
-          <h3 className="font-bold text-lg">Confirm archive</h3>
+          <h3 className="font-bold text-lg">Confirm delete</h3>
           <p className="py-4">
-            Are you sure you want to archive{' '}
+            Are you sure you want to delete{' '}
             <strong>{pendingBulkIds.length}</strong> file
-            {pendingBulkIds.length === 1 ? '' : 's'}? Archived files will be
-            hidden from your list.
+            {pendingBulkIds.length === 1 ? '' : 's'}? This action cannot be
+            undone.
           </p>
           <div className="modal-action">
             <button
@@ -368,11 +365,11 @@ export function PdfActivityCard({
               Cancel
             </button>
             <button
-              className="btn btn-warning"
+              className="btn btn-error"
               onClick={confirmBulkArchive}
               type="button"
             >
-              Archive
+              Delete
             </button>
           </div>
         </div>
