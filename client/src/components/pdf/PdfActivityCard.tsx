@@ -126,7 +126,7 @@ export function PdfActivityCard({
         setArchiveError(message);
       },
       onSuccess: () => {
-        setRecentlyDeletedIds([]);
+        setRecentlyDeletedIds((prev) => prev.filter((id) => !ids.includes(id)));
         setHiddenIds((prev) => {
           const next = new Set(prev);
           for (const id of ids) {
