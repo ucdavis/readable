@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchJson } from '../lib/api.ts';
 
 export type AccessibilityReportListItem = {
@@ -64,3 +64,39 @@ export const myFileQueryOptions = (fileId: string) => ({
 export const useMyFileQuery = (fileId: string) => {
   return useQuery(myFileQueryOptions(fileId));
 };
+
+export async function archiveFiles(fileIds: string[]): Promise<string[]> {
+  return await fetchJson<string[]>('/api/file/archive', {
+    body: JSON.stringify(fileIds),
+    method: 'POST',
+  });
+}
+
+export function useArchiveFilesMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (fileIds: string[]) => archiveFiles(fileIds),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['files'] });
+    },
+  });
+}
+
+export async function undeleteFiles(fileIds: string[]): Promise<string[]> {
+  return await fetchJson<string[]>('/api/file/undelete', {
+    body: JSON.stringify(fileIds),
+    method: 'POST',
+  });
+}
+
+export function useUndeleteFilesMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (fileIds: string[]) => undeleteFiles(fileIds),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['files'] });
+    },
+  });
+}

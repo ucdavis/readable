@@ -1,10 +1,18 @@
 import type { UserFile } from '@/queries/files.ts';
 import type { UploadRow } from '@/lib/usePdfUploads.ts';
+import {
+  useArchiveFilesMutation,
+  useUndeleteFilesMutation,
+} from '@/queries/files.ts';
 import { formatBytes, formatDateTime } from '@/lib/format.ts';
 import { Link } from '@tanstack/react-router';
 import { ArrowDownTrayIcon } from '@heroicons/react/24/solid';
-import { DocumentChartBarIcon } from '@heroicons/react/24/outline';
-import { useState } from 'react';
+import {
+  ArrowUturnLeftIcon,
+  TrashIcon,
+  DocumentChartBarIcon,
+} from '@heroicons/react/24/outline';
+import { useCallback, useRef, useState } from 'react';
 
 export type PdfActivityCardProps = {
   activeUploadCount: number;
@@ -26,9 +34,109 @@ export function PdfActivityCard({
   uploadsByFileId,
 }: PdfActivityCardProps) {
   const [filter, setFilter] = useState('');
-  const filteredFiles = files?.filter((f) =>
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const confirmDialogRef = useRef<HTMLDialogElement>(null);
+  const [pendingBulkIds, setPendingBulkIds] = useState<string[]>([]);
+  const [recentlyDeletedIds, setRecentlyDeletedIds] = useState<string[]>([]);
+
+  const archiveMutation = useArchiveFilesMutation();
+  const undeleteMutation = useUndeleteFilesMutation();
+
+  const visibleFiles = files?.filter((f) => !hiddenIds.has(f.fileId));
+  const filteredFiles = visibleFiles?.filter((f) =>
     f.originalFileName.toLowerCase().includes(filter.toLowerCase())
   );
+
+  const isFiltered = filter.length > 0;
+  const bulkTargetFiles = isFiltered ? filteredFiles : visibleFiles;
+  const bulkCount = bulkTargetFiles?.length ?? 0;
+
+  const handleArchiveSuccess = useCallback((archivedIds: string[]) => {
+    setHiddenIds((prev) => {
+      const next = new Set(prev);
+      for (const id of archivedIds) {
+        next.add(id);
+      }
+      return next;
+    });
+    setRecentlyDeletedIds((prev) => [
+      ...prev,
+      ...archivedIds.filter((id) => !prev.includes(id)),
+    ]);
+    setArchiveError(null);
+  }, []);
+
+  const handleArchiveError = useCallback((error: unknown) => {
+    const message =
+      error instanceof Error ? error.message : 'Failed to archive files.';
+    setArchiveError(message);
+  }, []);
+
+  const archiveSingle = useCallback(
+    (fileId: string) => {
+      archiveMutation.mutate([fileId], {
+        onError: handleArchiveError,
+        onSuccess: handleArchiveSuccess,
+      });
+    },
+    [archiveMutation, handleArchiveError, handleArchiveSuccess]
+  );
+
+  const openBulkConfirmation = useCallback(() => {
+    const ids = (bulkTargetFiles ?? []).map((f) => f.fileId);
+    if (ids.length === 0) {
+      return;
+    }
+    setPendingBulkIds(ids);
+    confirmDialogRef.current?.showModal();
+  }, [bulkTargetFiles]);
+
+  const confirmBulkArchive = useCallback(() => {
+    confirmDialogRef.current?.close();
+    if (pendingBulkIds.length === 0) {
+      return;
+    }
+    archiveMutation.mutate(pendingBulkIds, {
+      onError: handleArchiveError,
+      onSuccess: handleArchiveSuccess,
+    });
+    setPendingBulkIds([]);
+  }, [
+    archiveMutation,
+    handleArchiveError,
+    handleArchiveSuccess,
+    pendingBulkIds,
+  ]);
+
+  const cancelBulkArchive = useCallback(() => {
+    confirmDialogRef.current?.close();
+    setPendingBulkIds([]);
+  }, []);
+
+  const handleUndelete = useCallback(() => {
+    if (recentlyDeletedIds.length === 0) {
+      return;
+    }
+    const ids = recentlyDeletedIds;
+    undeleteMutation.mutate(ids, {
+      onError: (error) => {
+        const message =
+          error instanceof Error ? error.message : 'Failed to restore files.';
+        setArchiveError(message);
+      },
+      onSuccess: () => {
+        setRecentlyDeletedIds((prev) => prev.filter((id) => !ids.includes(id)));
+        setHiddenIds((prev) => {
+          const next = new Set(prev);
+          for (const id of ids) {
+            next.delete(id);
+          }
+          return next;
+        });
+      },
+    });
+  }, [recentlyDeletedIds, undeleteMutation]);
 
   return (
     <div className="card bg-base-100 shadow">
@@ -43,17 +151,66 @@ export function PdfActivityCard({
           </div>
         </div>
 
-        <label className="sr-only" htmlFor="pdf-file-filter">
-          Filter by filename
-        </label>
-        <input
-          id="pdf-file-filter"
-          className="input input-bordered input-sm w-full max-w-xs"
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter by filename…"
-          type="search"
-          value={filter}
-        />
+        <div className="flex justify-between flex-wrap items-center gap-3">
+          <label className="sr-only" htmlFor="pdf-file-filter">
+            Filter by filename
+          </label>
+          <input
+            className="input input-bordered input-sm w-full max-w-xs"
+            id="pdf-file-filter"
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter by filename…"
+            type="search"
+            value={filter}
+          />
+
+          <div className="flex items-center gap-2">
+            {recentlyDeletedIds.length > 0 ? (
+              <button
+                className="btn btn-sm btn-outline"
+                disabled={undeleteMutation.isPending}
+                onClick={handleUndelete}
+                type="button"
+              >
+                <ArrowUturnLeftIcon className="h-4 w-4" />
+                {undeleteMutation.isPending
+                  ? 'Restoring…'
+                  : `Undo delete (${recentlyDeletedIds.length} file${
+                      recentlyDeletedIds.length === 1 ? '' : 's'
+                    })`}
+              </button>
+            ) : null}
+
+            {bulkCount > 0 ? (
+              <button
+                className="btn btn-sm btn-outline btn-error"
+                disabled={archiveMutation.isPending}
+                onClick={openBulkConfirmation}
+                type="button"
+              >
+                <TrashIcon className="h-4 w-4" />
+                {archiveMutation.isPending
+                  ? 'Deleting…'
+                  : isFiltered
+                    ? `Delete ${bulkCount} listed file${bulkCount === 1 ? '' : 's'}`
+                    : `Delete all ${bulkCount} file${bulkCount === 1 ? '' : 's'}`}
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {archiveError ? (
+          <div className="alert alert-error">
+            <span>{archiveError}</span>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setArchiveError(null)}
+              type="button"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
 
         <div className="overflow-auto max-h-[60vh]">
           <table className="table">
@@ -223,6 +380,17 @@ export function PdfActivityCard({
                               </a>
                             </>
                           ) : null}
+
+                          <button
+                            aria-label={`Delete ${file.originalFileName}`}
+                            className="btn btn-sm btn-ghost btn-error"
+                            disabled={archiveMutation.isPending}
+                            onClick={() => archiveSingle(file.fileId)}
+                            title="Delete"
+                            type="button"
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -233,6 +401,40 @@ export function PdfActivityCard({
           </table>
         </div>
       </div>
+
+      {/* Bulk archive confirmation dialog */}
+      <dialog className="modal" ref={confirmDialogRef}>
+        <div className="modal-box">
+          <h3 className="font-bold text-lg">Confirm delete</h3>
+          <p className="py-4">
+            Are you sure you want to delete{' '}
+            <strong>{pendingBulkIds.length}</strong> file
+            {pendingBulkIds.length === 1 ? '' : 's'}? This action cannot be
+            undone after you leave the page or refresh.
+          </p>
+          <div className="modal-action">
+            <button
+              className="btn btn-ghost"
+              onClick={cancelBulkArchive}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="btn btn-error"
+              onClick={confirmBulkArchive}
+              type="button"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+        <form className="modal-backdrop" method="dialog">
+          <button onClick={cancelBulkArchive} type="button">
+            close
+          </button>
+        </form>
+      </dialog>
     </div>
   );
 }

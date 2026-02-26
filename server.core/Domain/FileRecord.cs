@@ -52,6 +52,8 @@ public class FileRecord
 
     public int PageCount { get; set; }
 
+    public bool IsArchived { get; set; } = false;
+
     [StringLength(32)]
     public string Status { get; set; } = Statuses.Created;
 
@@ -90,6 +92,9 @@ public class FileRecord
 
             entity.HasIndex(x => new { x.OwnerUserId, x.CreatedAt });
             entity.HasIndex(x => new { x.Status, x.StatusUpdatedAt });
+
+            entity.Property(x => x.IsArchived).HasDefaultValue(false);
+            entity.HasIndex(x => x.IsArchived);
         });
     }
 }
