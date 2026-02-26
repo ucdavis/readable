@@ -213,14 +213,14 @@ export function PdfActivityCard({
         ) : null}
 
         <div className="overflow-auto max-h-[60vh]">
-          <table className="table">
+          <table className="table readable-table">
             <thead>
               <tr>
                 <th>Status</th>
                 <th>Filename</th>
 
                 <th>Report</th>
-                <th className="text-right">Action</th>
+                <th className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -243,7 +243,7 @@ export function PdfActivityCard({
                 </tr>
               ) : filteredFiles?.length === 0 ? (
                 <tr>
-                  <td className="text-base-content/60" colSpan={4}>
+                  <td className="text-base-content/80" colSpan={4}>
                     {filter ? 'No files match your filter.' : 'No files yet.'}
                   </td>
                 </tr>
@@ -306,7 +306,7 @@ export function PdfActivityCard({
                             No report yet
                           </span>
                         ) : afterIssues === null ? (
-                          <div className="text-xs text-base-content/60">
+                          <div className="text-xs text-base-content/70">
                             Report ready • After:{' '}
                             {formatDateTime(afterReport.generatedAt)}
                           </div>
@@ -329,7 +329,7 @@ export function PdfActivityCard({
                                 </span>
                               ) : null}
                             </div>
-                            <div className="text-xs text-base-content/60">
+                            <div className="text-xs text-base-content/70">
                               {typeof beforeIssues === 'number' ? (
                                 <>
                                   Issues: {beforeIssues} → {afterIssues}
@@ -383,7 +383,7 @@ export function PdfActivityCard({
 
                           <button
                             aria-label={`Delete ${file.originalFileName}`}
-                            className="btn btn-sm btn-ghost btn-error"
+                            className="btn btn-sm btn-outline btn-error"
                             disabled={archiveMutation.isPending}
                             onClick={() => archiveSingle(file.fileId)}
                             title="Delete"

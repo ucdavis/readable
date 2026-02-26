@@ -265,19 +265,26 @@ function RouteComponent() {
   const isCompleted = file.status === 'Completed';
 
   const afterFailed = afterRows.filter((r) => isFailedStatus(r.status));
+
+  const hasAfterFailures = afterFailed.length > 0;
+
+  // DaisyUI-friendly examples:
+  const resultsCardClass = hasAfterFailures
+    ? 'bg-error/10 border-b-4 border-error'
+    : 'bg-success/10 border-b-4 border-success';
   const afterNeedsManual = afterRows.filter((r) =>
     isNeedsManualStatus(r.status)
   );
 
   return (
     <div className="container">
-      <header className="my-8">
+      <header className="mt-16 mb-10 border-b border-main-border pb-8">
         <div className="flex items-end justify-between">
           <div>
             <h1 className="text-3xl font-extrabold">
               Accessibility report for <span>{file.originalFileName}</span>
             </h1>
-            <div className="mt-2 text-base-content/70">
+            <div className="mt-2">
               <span className="badge badge-primary">{file.status}</span> •
               Updated {formatDateTime(file.statusUpdatedAt)}
             </div>
@@ -349,8 +356,10 @@ function RouteComponent() {
       </header>
 
       {beforeReport && afterReport && beforeCounts && afterCounts ? (
-        <section className="space-y-4">
-          <div className="card shadow bg-base-100 p-4 border-b-4 border-primary">
+        <section className="flex flex-col gap-10 mb-10">
+          <div
+            className={`card shadow bg-base-100 p-6 border-b-4 ${resultsCardClass}`}
+          >
             <h2 className="mb-4">
               {afterFailed.length > 0 ? 'Still Failing' : 'Results'}
             </h2>
@@ -362,7 +371,7 @@ function RouteComponent() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="table">
+                <table className="table readable-table ">
                   <colgroup>
                     <col className="w-1/5" />
                     <col className="w-3/5" />
@@ -378,23 +387,21 @@ function RouteComponent() {
                   <tbody>
                     {afterFailed.map((r, idx) => (
                       <tr key={`${r.category}||${r.rule}||${idx}`}>
-                        <td className="text-base-content">{r.category}</td>
+                        <td className="text-base">{r.category}</td>
                         <td>
                           <div className="flex items-center gap-2">
-                            <div className="font-medium">{r.rule}</div>
+                            <div className="text-base">{r.rule}</div>
                             <RuleInfoLink rule={r.rule} />
                           </div>
                           {r.description ? (
-                            <div className="text-xs text-base-content/80">
+                            <div className="text-sm text-base-content/90">
                               {r.description}
                             </div>
                           ) : null}
                         </td>
                         <td>
                           <span
-                            className={`badge badge-sm ${statusBadgeClass(
-                              r.status
-                            )}`}
+                            className={`badge ${statusBadgeClass(r.status)}`}
                           >
                             {r.status}
                           </span>
@@ -415,7 +422,7 @@ function RouteComponent() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="table">
+                <table className="table readable-table">
                   <colgroup>
                     <col className="w-1/5" />
                     <col className="w-3/5" />
@@ -431,23 +438,21 @@ function RouteComponent() {
                   <tbody>
                     {afterNeedsManual.map((r, idx) => (
                       <tr key={`${r.category}||${r.rule}||${idx}`}>
-                        <td className="text-base-content">{r.category}</td>
+                        <td className="text-base">{r.category}</td>
                         <td>
                           <div className="flex items-center gap-2">
-                            <div className="font-medium">{r.rule}</div>
+                            <div className="text-base">{r.rule}</div>
                             <RuleInfoLink rule={r.rule} />
                           </div>
                           {r.description ? (
-                            <div className="text-xs text-base-content/80">
+                            <div className="text-sm text-base-content/90">
                               {r.description}
                             </div>
                           ) : null}
                         </td>
                         <td>
                           <span
-                            className={`badge badge-sm ${statusBadgeClass(
-                              r.status
-                            )}`}
+                            className={`badge ${statusBadgeClass(r.status)}`}
                           >
                             {r.status}
                           </span>
@@ -460,7 +465,7 @@ function RouteComponent() {
             )}
           </div>
 
-          <div className="stats shadow stats-vertical lg:stats-horizontal w-full border-b-4 border-primary">
+          <div className="stats shadow stats-vertical lg:stats-horizontal w-full bg-base-100 border-b-4 border-primary">
             <div className="stat">
               <div className="uppercase text-sm text-base-content/70 font-bold">
                 Before
@@ -515,7 +520,7 @@ function RouteComponent() {
                   key={c.category}
                 >
                   <input defaultChecked={false} type="checkbox" />
-                  <div className="collapse-title flex flex-wrap items-center gap-2">
+                  <div className="collapse-title flex flex-wrap items-center gap-2 font-bold">
                     <span className="text-base">{c.category}</span>
                     {c.afterFailedCount > 0 ? (
                       <span className="badge badge-error badge-sm">
@@ -534,7 +539,7 @@ function RouteComponent() {
                   </div>
                   <div className="collapse-content">
                     <div className="overflow-x-auto">
-                      <table className="table">
+                      <table className="table readable-table">
                         <thead>
                           <tr>
                             <th>Rule</th>
@@ -547,11 +552,11 @@ function RouteComponent() {
                             <tr key={`${r.category}||${r.rule}`}>
                               <td>
                                 <div className="flex items-center gap-2">
-                                  <div className="font-medium">{r.rule}</div>
+                                  <div className="text-base">{r.rule}</div>
                                   <RuleInfoLink rule={r.rule} />
                                 </div>
                                 {r.description ? (
-                                  <div className="text-xs text-base-content/80">
+                                  <div className="text-sm text-base-content/90">
                                     {r.description}
                                   </div>
                                 ) : null}
@@ -566,7 +571,7 @@ function RouteComponent() {
                                     {r.beforeStatus}
                                   </span>
                                 ) : (
-                                  <span className="text-base-content/80">
+                                  <span className="text-base-content/90">
                                     —
                                   </span>
                                 )}
@@ -581,7 +586,7 @@ function RouteComponent() {
                                     {r.afterStatus}
                                   </span>
                                 ) : (
-                                  <span className="text-base-content/80">
+                                  <span className="text-base-content/90">
                                     —
                                   </span>
                                 )}

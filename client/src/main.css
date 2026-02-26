@@ -16,7 +16,7 @@
   --color-error-color: var(--color-ucd-merlot);
   --color-info-color: var(--color-ucd-bodega);
   --color-success-color: var(--color-ucd-redwood);
-  --color-warning-color: var(--color-ucd-california);
+  --color-warning-color: #cd9400;
 }
 
 @plugin "daisyui/theme" {
@@ -96,4 +96,19 @@ html {
   100% {
     transform: translate(0px, 0px);
   }
+}
+.readable-table th {
+  @apply text-base-content uppercase font-bold text-sm;
+}
+.readable-table th:first-child {
+  padding-left: 0;
+}
+.readable-table td:first-child {
+  padding-left: 0;
+}
+.readable-table th:last-child {
+  padding-right: 0;
+}
+.readable-table td:last-child {
+  padding-right: 0;
 }
