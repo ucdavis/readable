@@ -156,7 +156,7 @@ export function PdfActivityCard({
             Filter by filename
           </label>
           <input
-            className="input input-bordered input-sm w-full max-w-xs"
+            className="input input-bordered w-full max-w-xs placeholder:text-base-content/80"
             id="pdf-file-filter"
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter by filename…"
@@ -288,17 +288,17 @@ export function PdfActivityCard({
                       </td>
 
                       {/* File */}
-                      <td>
+                      <td className="text-base">
                         {file.originalFileName}
                         <br />
-                        <span className="text-xs text-base-content/75">
+                        <span className="text-sm text-base-content/70">
                           {formatBytes(file.sizeBytes)} •{' '}
                           {formatDateTime(file.createdAt)}
                         </span>
                       </td>
 
                       {/* Report */}
-                      <td>
+                      <td className="text-base">
                         {file.status !== 'Completed' ? (
                           <span className="text-base-content/70">—</span>
                         ) : !afterReport ? (
@@ -306,7 +306,7 @@ export function PdfActivityCard({
                             No report yet
                           </span>
                         ) : afterIssues === null ? (
-                          <div className="text-xs text-base-content/70">
+                          <div className="">
                             Report ready • After:{' '}
                             {formatDateTime(afterReport.generatedAt)}
                           </div>
@@ -329,7 +329,7 @@ export function PdfActivityCard({
                                 </span>
                               ) : null}
                             </div>
-                            <div className="text-xs text-base-content/70">
+                            <div>
                               {typeof beforeIssues === 'number' ? (
                                 <>
                                   Issues: {beforeIssues} → {afterIssues}
@@ -345,7 +345,7 @@ export function PdfActivityCard({
 
                       {/* Actions */}
                       <td className="text-right">
-                        <div className="flex justify-end gap-2">
+                        <div className="flex flex-wrap justify-end gap-2">
                           {upload ? (
                             <button
                               className="btn btn-sm btn-outline btn-error"
