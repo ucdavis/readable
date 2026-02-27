@@ -306,7 +306,7 @@ export function PdfActivityCard({
 
         <div className="overflow-auto max-h-[60vh]">
           <table className="table readable-table">
-            <thead>
+            <thead className="sticky top-0 z-10 bg-base-100">
               <tr>
                 <th>Status</th>
                 <th>Filename</th>
