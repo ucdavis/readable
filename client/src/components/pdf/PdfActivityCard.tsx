@@ -15,6 +15,8 @@ import {
 } from '@heroicons/react/24/outline';
 import { useCallback, useMemo, useRef, useState } from 'react';
 
+const MAX_BATCH_SIZE = 50;
+
 export type PdfActivityCardProps = {
   activeUploadCount: number;
   canCancelUpload: (fileId: string) => boolean;
@@ -108,6 +110,12 @@ export function PdfActivityCard({
     if (ids.length === 0) {
       return;
     }
+    if (ids.length > MAX_BATCH_SIZE) {
+      setArchiveError(
+        `You can only delete up to ${MAX_BATCH_SIZE} files at a time. Please deselect some files.`
+      );
+      return;
+    }
     setPendingBulkIds(ids);
     confirmDialogRef.current?.showModal();
   }, [activeSelectedIds]);
@@ -166,6 +174,12 @@ export function PdfActivityCard({
 
   const handleZipDownload = useCallback(async () => {
     if (activeSelectedCompletedIds.size === 0) {
+      return;
+    }
+    if (activeSelectedCompletedIds.size > MAX_BATCH_SIZE) {
+      setZipError(
+        `You can only download up to ${MAX_BATCH_SIZE} files at a time. Please deselect some files.`
+      );
       return;
     }
     setZipDownloading(true);
@@ -235,28 +249,46 @@ export function PdfActivityCard({
             {completedSelectedCount > 0 ? (
               <button
                 className="btn btn-sm btn-primary"
-                disabled={zipDownloading}
+                disabled={
+                  zipDownloading || completedSelectedCount > MAX_BATCH_SIZE
+                }
                 onClick={() => void handleZipDownload()}
+                title={
+                  completedSelectedCount > MAX_BATCH_SIZE
+                    ? `Max ${MAX_BATCH_SIZE} files per download`
+                    : undefined
+                }
                 type="button"
               >
                 <ArrowDownTrayIcon className="h-4 w-4" />
                 {zipDownloading
                   ? 'Preparing zip…'
-                  : `Download ${completedSelectedCount} as ZIP`}
+                  : completedSelectedCount > MAX_BATCH_SIZE
+                    ? `Max ${MAX_BATCH_SIZE} files per ZIP`
+                    : `Download ${completedSelectedCount} as ZIP`}
               </button>
             ) : null}
 
             {selectedCount > 0 ? (
               <button
                 className="btn btn-sm btn-outline btn-error"
-                disabled={archiveMutation.isPending}
+                disabled={
+                  archiveMutation.isPending || selectedCount > MAX_BATCH_SIZE
+                }
                 onClick={openBulkConfirmation}
+                title={
+                  selectedCount > MAX_BATCH_SIZE
+                    ? `Max ${MAX_BATCH_SIZE} files per delete`
+                    : undefined
+                }
                 type="button"
               >
                 <TrashIcon className="h-4 w-4" />
                 {archiveMutation.isPending
                   ? 'Deleting…'
-                  : `Delete ${selectedCount} file${selectedCount === 1 ? '' : 's'}`}
+                  : selectedCount > MAX_BATCH_SIZE
+                    ? `Max ${MAX_BATCH_SIZE} files per delete`
+                    : `Delete ${selectedCount} file${selectedCount === 1 ? '' : 's'}`}
               </button>
             ) : null}
 
@@ -277,6 +309,17 @@ export function PdfActivityCard({
             ) : null}
           </div>
         </div>
+
+        {selectedCount > MAX_BATCH_SIZE ||
+        completedSelectedCount > MAX_BATCH_SIZE ? (
+          <div className="alert alert-warning">
+            <span>
+              You have {selectedCount} file{selectedCount === 1 ? '' : 's'}{' '}
+              selected. You can only download or delete up to {MAX_BATCH_SIZE}{' '}
+              files at a time. Please deselect some files to continue.
+            </span>
+          </div>
+        ) : null}
 
         {archiveError ? (
           <div className="alert alert-error">
