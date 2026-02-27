@@ -314,11 +314,11 @@ export function PdfActivityCard({
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
                               {afterIssues === 0 ? (
-                                <span className="badge badge-success badge-sm">
+                                <span className="badge whitespace-nowrap badge-success badge-sm">
                                   All checks passed
                                 </span>
                               ) : (
-                                <span className="badge badge-error badge-sm">
+                                <span className="badge whitespace-nowrap badge-error badge-sm">
                                   {afterIssues} failing
                                 </span>
                               )}

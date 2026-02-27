@@ -284,8 +284,10 @@ function RouteComponent() {
               Accessibility report for <span>{file.originalFileName}</span>
             </h1>
             <div className="mt-2">
-              <span className="badge badge-primary">{file.status}</span> •
-              Updated {formatDateTime(file.statusUpdatedAt)}
+              <span className="badge badge-soft badge-primary">
+                {file.status}
+              </span>{' '}
+              • Updated {formatDateTime(file.statusUpdatedAt)}
             </div>
           </div>
           <div>
