@@ -163,7 +163,7 @@ function FAQs() {
                     />
                   </div>
                   <div className="timeline-start md:text-end timeline-box text-base sm:text-lg leading-relaxed">
-                    <div className="text-sm font-mono text-base-content/60">
+                    <div className="text-sm font-mono text-base-content/70">
                       Step 1
                     </div>
                     <div className="text-lg sm:text-xl font-black">
@@ -186,7 +186,7 @@ function FAQs() {
                     />
                   </div>
                   <div className="timeline-end timeline-box text-base sm:text-lg leading-relaxed">
-                    <div className="text-sm font-mono text-base-content/60">
+                    <div className="text-sm font-mono text-base-content/70">
                       Step 2
                     </div>
                     <div className="text-lg sm:text-xl font-black">
@@ -209,7 +209,7 @@ function FAQs() {
                     />
                   </div>
                   <div className="timeline-start md:text-end timeline-box text-base sm:text-lg leading-relaxed">
-                    <div className="text-sm font-mono text-base-content/60">
+                    <div className="text-sm font-mono text-base-content/70">
                       Step 3
                     </div>
                     <div className="text-lg sm:text-xl font-black">
@@ -232,7 +232,7 @@ function FAQs() {
                     />
                   </div>
                   <div className="timeline-end timeline-box text-base sm:text-lg leading-relaxed">
-                    <div className="text-sm font-mono text-base-content/60">
+                    <div className="text-sm font-mono text-base-content/70">
                       Step 4
                     </div>
                     <div className="text-lg sm:text-xl font-black">
@@ -256,7 +256,7 @@ function FAQs() {
                     />
                   </div>
                   <div className="timeline-start md:text-end timeline-box text-base sm:text-lg leading-relaxed">
-                    <div className="text-sm font-mono text-base-content/60">
+                    <div className="text-sm font-mono text-base-content/70">
                       Step 5
                     </div>
                     <div className="text-lg sm:text-xl font-black">
@@ -350,8 +350,8 @@ function FAQs() {
                       A clear remediation report
                     </h3>
                     <p className="mt-1 text-base-content/70">
-                      Before/after checker reports showing what changed and
-                      what still needs manual verification.
+                      Before/after checker reports showing what changed and what
+                      still needs manual verification.
                     </p>
                   </div>
                 </div>
@@ -400,9 +400,7 @@ function FAQs() {
               </p>
             </FaqItem>
 
-            <FaqItem
-              question="What can Readable fix automatically vs. what still needs manual work?"
-            >
+            <FaqItem question="What can Readable fix automatically vs. what still needs manual work?">
               <p>
                 Think of Readable as a combination of automated tagging plus a
                 set of targeted “Fix” actions (similar to what Acrobat can do
@@ -411,7 +409,9 @@ function FAQs() {
 
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <div className="rounded-box border border-base-300 bg-base-200 p-4">
-                  <h3 className="font-black">Typically handled automatically</h3>
+                  <h3 className="font-black">
+                    Typically handled automatically
+                  </h3>
                   <ul className="mt-3 space-y-2">
                     <li className="flex gap-3">
                       <CheckCircleIcon
@@ -486,7 +486,9 @@ function FAQs() {
                 </div>
 
                 <div className="rounded-box border border-base-300 bg-base-200 p-4">
-                  <h3 className="font-black">Usually manual (Acrobat / source)</h3>
+                  <h3 className="font-black">
+                    Usually manual (Acrobat / source)
+                  </h3>
                   <ul className="mt-3 space-y-2">
                     <li className="flex gap-3">
                       <ExclamationTriangleIcon
@@ -611,9 +613,8 @@ function FAQs() {
 
             <FaqItem question="Who is Readable for?">
               <p>
-                Readable is designed for UC Davis by the College of
-                Agricultural and Environmental Sciences Dean&apos;s Office @ UC
-                Davis
+                Readable is designed for UC Davis by the College of Agricultural
+                and Environmental Sciences Dean&apos;s Office @ UC Davis
               </p>
             </FaqItem>
 

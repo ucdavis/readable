@@ -77,7 +77,7 @@ export function PdfUploadDropzone({
       >
         Select Files
       </label>
-      <div className="mt-3 text-xs text-base-content/60">
+      <div className="mt-3 text-xs text-base-content/70">
         PDF only · Multiple files supported
       </div>
       {isUploading ? (

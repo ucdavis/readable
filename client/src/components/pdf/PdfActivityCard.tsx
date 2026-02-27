@@ -141,7 +141,7 @@ export function PdfActivityCard({
   return (
     <div className="card bg-base-100 shadow">
       <div className="card-body">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             {activeUploadCount > 0 ? (
               <span className="badge badge-info badge-outline">
@@ -151,12 +151,12 @@ export function PdfActivityCard({
           </div>
         </div>
 
-        <div className="flex justify-between flex-wrap items-center gap-3">
+        <div className="flex justify-between items-center gap-3">
           <label className="sr-only" htmlFor="pdf-file-filter">
             Filter by filename
           </label>
           <input
-            className="input input-bordered input-sm w-full max-w-xs"
+            className="input input-bordered w-full max-w-xs placeholder:text-base-content/80"
             id="pdf-file-filter"
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter by filename…"
@@ -213,14 +213,14 @@ export function PdfActivityCard({
         ) : null}
 
         <div className="overflow-auto max-h-[60vh]">
-          <table className="table">
+          <table className="table readable-table">
             <thead>
               <tr>
                 <th>Status</th>
                 <th>Filename</th>
 
                 <th>Report</th>
-                <th className="text-right">Action</th>
+                <th className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -243,7 +243,7 @@ export function PdfActivityCard({
                 </tr>
               ) : filteredFiles?.length === 0 ? (
                 <tr>
-                  <td className="text-base-content/60" colSpan={4}>
+                  <td className="text-base-content/80" colSpan={4}>
                     {filter ? 'No files match your filter.' : 'No files yet.'}
                   </td>
                 </tr>
@@ -270,7 +270,7 @@ export function PdfActivityCard({
                       {/* Status */}
                       <td>
                         <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex items-center gap-2">
                             <span className="badge badge-primary badge-soft">
                               {file.status}
                             </span>
@@ -288,48 +288,48 @@ export function PdfActivityCard({
                       </td>
 
                       {/* File */}
-                      <td>
+                      <td className="text-base">
                         {file.originalFileName}
                         <br />
-                        <span className="text-xs text-base-content/75">
+                        <span className="text-sm text-base-content/70">
                           {formatBytes(file.sizeBytes)} •{' '}
                           {formatDateTime(file.createdAt)}
                         </span>
                       </td>
 
                       {/* Report */}
-                      <td>
+                      <td className="text-base">
                         {file.status !== 'Completed' ? (
-                          <span className="text-base-content/60">—</span>
+                          <span className="text-base-content/70">—</span>
                         ) : !afterReport ? (
-                          <span className="text-base-content/60">
+                          <span className="text-base-content/70">
                             No report yet
                           </span>
                         ) : afterIssues === null ? (
-                          <div className="text-xs text-base-content/60">
+                          <div className="">
                             Report ready • After:{' '}
                             {formatDateTime(afterReport.generatedAt)}
                           </div>
                         ) : (
                           <div className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex items-center gap-2">
                               {afterIssues === 0 ? (
-                                <span className="badge badge-success badge-sm">
+                                <span className="badge whitespace-nowrap badge-success badge-sm">
                                   All checks passed
                                 </span>
                               ) : (
-                                <span className="badge badge-error badge-sm">
+                                <span className="badge whitespace-nowrap badge-error badge-sm">
                                   {afterIssues} failing
                                 </span>
                               )}
                               {typeof fixedIssues === 'number' &&
                               fixedIssues > 0 ? (
-                                <span className="badge badge-success badge-outline badge-sm">
+                                <span className="badge badge-success whitespace-nowrap badge-outline badge-sm">
                                   Fixed {fixedIssues} Issues
                                 </span>
                               ) : null}
                             </div>
-                            <div className="text-xs text-base-content/60">
+                            <div>
                               {typeof beforeIssues === 'number' ? (
                                 <>
                                   Issues: {beforeIssues} → {afterIssues}
@@ -383,7 +383,7 @@ export function PdfActivityCard({
 
                           <button
                             aria-label={`Delete ${file.originalFileName}`}
-                            className="btn btn-sm btn-ghost btn-error"
+                            className="btn btn-sm btn-outline btn-error"
                             disabled={archiveMutation.isPending}
                             onClick={() => archiveSingle(file.fileId)}
                             title="Delete"
