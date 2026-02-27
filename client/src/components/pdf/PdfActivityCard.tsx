@@ -1,6 +1,7 @@
 import type { UserFile } from '@/queries/files.ts';
 import type { UploadRow } from '@/lib/usePdfUploads.ts';
 import {
+  downloadFilesAsZip,
   useArchiveFilesMutation,
   useUndeleteFilesMutation,
 } from '@/queries/files.ts';
@@ -12,7 +13,7 @@ import {
   TrashIcon,
   DocumentChartBarIcon,
 } from '@heroicons/react/24/outline';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 export type PdfActivityCardProps = {
   activeUploadCount: number;
@@ -39,6 +40,11 @@ export function PdfActivityCard({
   const confirmDialogRef = useRef<HTMLDialogElement>(null);
   const [pendingBulkIds, setPendingBulkIds] = useState<string[]>([]);
   const [recentlyDeletedIds, setRecentlyDeletedIds] = useState<string[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [zipDownloading, setZipDownloading] = useState(false);
+  const [zipError, setZipError] = useState<string | null>(null);
+
+  const MAX_ZIP_FILES = 50;
 
   const archiveMutation = useArchiveFilesMutation();
   const undeleteMutation = useUndeleteFilesMutation();
@@ -51,6 +57,25 @@ export function PdfActivityCard({
   const isFiltered = filter.length > 0;
   const bulkTargetFiles = isFiltered ? filteredFiles : visibleFiles;
   const bulkCount = bulkTargetFiles?.length ?? 0;
+
+  // Completed files eligible for zip download (from the currently visible/filtered list)
+  const completedFileIds = useMemo(
+    () =>
+      (filteredFiles ?? [])
+        .filter((f) => f.status === 'Completed')
+        .map((f) => f.fileId),
+    [filteredFiles]
+  );
+
+  // Only count selected IDs that are still visible in the current filtered list
+  const activeSelectedIds = useMemo(
+    () => new Set(completedFileIds.filter((id) => selectedIds.has(id))),
+    [completedFileIds, selectedIds]
+  );
+  const selectedCount = activeSelectedIds.size;
+  const allCompletedSelected =
+    completedFileIds.length > 0 &&
+    completedFileIds.every((id) => selectedIds.has(id));
 
   const handleArchiveSuccess = useCallback((archivedIds: string[]) => {
     setHiddenIds((prev) => {
@@ -114,6 +139,59 @@ export function PdfActivityCard({
     setPendingBulkIds([]);
   }, []);
 
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (completedFileIds.every((id) => prev.has(id))) {
+        // deselect all visible completed
+        for (const id of completedFileIds) {
+          next.delete(id);
+        }
+      } else {
+        // select all visible completed (respecting limit)
+        for (const id of completedFileIds) {
+          if (next.size >= MAX_ZIP_FILES) {
+            break;
+          }
+          next.add(id);
+        }
+      }
+      return next;
+    });
+  }, [completedFileIds]);
+
+  const toggleSelect = useCallback((fileId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileId)) {
+        next.delete(fileId);
+      } else {
+        if (next.size >= MAX_ZIP_FILES) {
+          return prev;
+        }
+        next.add(fileId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleZipDownload = useCallback(async () => {
+    if (activeSelectedIds.size === 0) {
+      return;
+    }
+    setZipDownloading(true);
+    setZipError(null);
+    try {
+      await downloadFilesAsZip([...activeSelectedIds]);
+    } catch (error) {
+      setZipError(
+        error instanceof Error ? error.message : 'Zip download failed.'
+      );
+    } finally {
+      setZipDownloading(false);
+    }
+  }, [activeSelectedIds]);
+
   const handleUndelete = useCallback(() => {
     if (recentlyDeletedIds.length === 0) {
       return;
@@ -165,6 +243,20 @@ export function PdfActivityCard({
           />
 
           <div className="flex items-center gap-2">
+            {selectedCount > 0 ? (
+              <button
+                className="btn btn-sm btn-primary"
+                disabled={zipDownloading}
+                onClick={() => void handleZipDownload()}
+                type="button"
+              >
+                <ArrowDownTrayIcon className="h-4 w-4" />
+                {zipDownloading
+                  ? 'Preparing zip…'
+                  : `Download ${selectedCount} as ZIP`}
+              </button>
+            ) : null}
+
             {recentlyDeletedIds.length > 0 ? (
               <button
                 className="btn btn-sm btn-outline"
@@ -212,10 +304,34 @@ export function PdfActivityCard({
           </div>
         ) : null}
 
+        {zipError ? (
+          <div className="alert alert-error">
+            <span>{zipError}</span>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setZipError(null)}
+              type="button"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+
         <div className="overflow-auto max-h-[60vh]">
           <table className="table">
             <thead>
               <tr>
+                <th>
+                  <label className="cursor-pointer">
+                    <input
+                      checked={allCompletedSelected}
+                      className="checkbox checkbox-sm"
+                      disabled={completedFileIds.length === 0}
+                      onChange={toggleSelectAll}
+                      type="checkbox"
+                    />
+                  </label>
+                </th>
                 <th>Status</th>
                 <th>Filename</th>
 
@@ -226,7 +342,7 @@ export function PdfActivityCard({
             <tbody>
               {isError ? (
                 <tr>
-                  <td colSpan={4}>
+                  <td colSpan={5}>
                     <div className="alert alert-error">
                       <span>Failed to load your files.</span>
                     </div>
@@ -234,7 +350,7 @@ export function PdfActivityCard({
                 </tr>
               ) : files === undefined ? (
                 <tr>
-                  <td className="text-base-content/70" colSpan={4}>
+                  <td className="text-base-content/70" colSpan={5}>
                     <div className="flex items-center gap-3">
                       <span className="loading loading-spinner loading-sm" />
                       <span>Loading…</span>
@@ -243,7 +359,7 @@ export function PdfActivityCard({
                 </tr>
               ) : filteredFiles?.length === 0 ? (
                 <tr>
-                  <td className="text-base-content/60" colSpan={4}>
+                  <td className="text-base-content/60" colSpan={5}>
                     {filter ? 'No files match your filter.' : 'No files yet.'}
                   </td>
                 </tr>
@@ -265,8 +381,24 @@ export function PdfActivityCard({
                       ? beforeIssues - afterIssues
                       : null;
 
+                  const isCompleted = file.status === 'Completed';
+
                   return (
                     <tr key={file.fileId}>
+                      {/* Select */}
+                      <td>
+                        {isCompleted ? (
+                          <label className="cursor-pointer">
+                            <input
+                              checked={selectedIds.has(file.fileId)}
+                              className="checkbox checkbox-sm"
+                              onChange={() => toggleSelect(file.fileId)}
+                              type="checkbox"
+                            />
+                          </label>
+                        ) : null}
+                      </td>
+
                       {/* Status */}
                       <td>
                         <div className="space-y-2">
