@@ -265,25 +265,33 @@ function RouteComponent() {
   const isCompleted = file.status === 'Completed';
 
   const afterFailed = afterRows.filter((r) => isFailedStatus(r.status));
+
+  const hasAfterFailures = afterFailed.length > 0;
+
+  const resultsCardClass = hasAfterFailures
+    ? 'bg-error/10 border-b-4 border-error'
+    : 'bg-success/10 border-b-4 border-success';
   const afterNeedsManual = afterRows.filter((r) =>
     isNeedsManualStatus(r.status)
   );
 
   return (
     <div className="container">
-      <header className="my-8">
-        <div className="flex items-end justify-between">
+      <header className="mt-16 mb-10 border-b border-main-border pb-8">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-3xl font-extrabold">
               Accessibility report for <span>{file.originalFileName}</span>
             </h1>
-            <div className="mt-2 text-base-content/70">
-              <span className="badge badge-primary">{file.status}</span> •
-              Updated {formatDateTime(file.statusUpdatedAt)}
+            <div className="mt-2">
+              <span className="badge badge-soft badge-primary">
+                {file.status}
+              </span>{' '}
+              • Updated {formatDateTime(file.statusUpdatedAt)}
             </div>
           </div>
           <div>
-            <div className="flex flex-wrap items-center gap-2 mb-5">
+            <div className="flex items-center gap-2 mb-5">
               {isCompleted ? (
                 <a
                   className="btn btn-lg btn-primary"
@@ -349,9 +357,11 @@ function RouteComponent() {
       </header>
 
       {beforeReport && afterReport && beforeCounts && afterCounts ? (
-        <section className="space-y-4">
-          <div className="card shadow bg-base-100 p-4 border-b-4 border-secondary">
-            <h2 className="card-title mb-3">
+        <section className="flex flex-col gap-10 mb-10">
+          <div
+            className={`card shadow bg-base-100 p-6 border-b-4 ${resultsCardClass}`}
+          >
+            <h2 className="mb-4">
               {afterFailed.length > 0 ? 'Still Failing' : 'Results'}
             </h2>
             {afterFailed.length === 0 ? (
@@ -362,7 +372,7 @@ function RouteComponent() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="table">
+                <table className="table readable-table ">
                   <colgroup>
                     <col className="w-1/5" />
                     <col className="w-3/5" />
@@ -378,23 +388,21 @@ function RouteComponent() {
                   <tbody>
                     {afterFailed.map((r, idx) => (
                       <tr key={`${r.category}||${r.rule}||${idx}`}>
-                        <td className="text-base-content">{r.category}</td>
+                        <td className="text-base">{r.category}</td>
                         <td>
                           <div className="flex items-center gap-2">
-                            <div className="font-medium">{r.rule}</div>
+                            <div className="text-base">{r.rule}</div>
                             <RuleInfoLink rule={r.rule} />
                           </div>
                           {r.description ? (
-                            <div className="text-xs text-base-content/80">
+                            <div className="text-sm text-base-content/90">
                               {r.description}
                             </div>
                           ) : null}
                         </td>
                         <td>
                           <span
-                            className={`badge badge-sm ${statusBadgeClass(
-                              r.status
-                            )}`}
+                            className={`badge ${statusBadgeClass(r.status)}`}
                           >
                             {r.status}
                           </span>
@@ -406,7 +414,7 @@ function RouteComponent() {
               </div>
             )}
 
-            <h2 className="card-title mb-3 mt-6">Needs manual check</h2>
+            <h2 className="mb-2 mt-10">Needs manual check</h2>
             {afterNeedsManual.length === 0 ? (
               <div className="alert alert-success">
                 <span className="text-lg">
@@ -415,7 +423,7 @@ function RouteComponent() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="table">
+                <table className="table readable-table">
                   <colgroup>
                     <col className="w-1/5" />
                     <col className="w-3/5" />
@@ -431,23 +439,21 @@ function RouteComponent() {
                   <tbody>
                     {afterNeedsManual.map((r, idx) => (
                       <tr key={`${r.category}||${r.rule}||${idx}`}>
-                        <td className="text-base-content">{r.category}</td>
+                        <td className="text-base">{r.category}</td>
                         <td>
                           <div className="flex items-center gap-2">
-                            <div className="font-medium">{r.rule}</div>
+                            <div className="text-base">{r.rule}</div>
                             <RuleInfoLink rule={r.rule} />
                           </div>
                           {r.description ? (
-                            <div className="text-xs text-base-content/80">
+                            <div className="text-sm text-base-content/90">
                               {r.description}
                             </div>
                           ) : null}
                         </td>
                         <td>
                           <span
-                            className={`badge badge-sm ${statusBadgeClass(
-                              r.status
-                            )}`}
+                            className={`badge whitespace-nowrap ${statusBadgeClass(r.status)}`}
                           >
                             {r.status}
                           </span>
@@ -460,40 +466,46 @@ function RouteComponent() {
             )}
           </div>
 
-          <div className="stats shadow stats-vertical lg:stats-horizontal bg-base-100 w-full border-b-4 border-primary">
+          <div className="stats shadow stats-vertical lg:stats-horizontal w-full bg-base-100 border-b-4 border-primary">
             <div className="stat">
-              <div className="uppercase text-xs">Before</div>
-              <div className="text-xl">
+              <div className="uppercase text-sm text-base-content/70 font-bold">
+                Before
+              </div>
+              <div className="text-2xl">
                 {beforeCounts.passed}/{beforeCounts.total}
               </div>
-              <div className="text-sm text-base-content/80">
+              <div className="text-sm">
                 {beforeCounts.failed} failed • {beforeCounts.needsManual} needs
                 manual
               </div>
-              <div className="text-sm text-base-content/80">
+              <div className="text-sm">
                 Generated {formatDateTime(beforeReport.generatedAt)}
               </div>
             </div>
 
             <div className="stat">
-              <div className="uppercase text-xs">After</div>
-              <div className="text-xl">
+              <div className="uppercase text-sm text-base-content/70 font-bold">
+                After
+              </div>
+              <div className="text-2xl">
                 {afterCounts.passed - beforeCounts.passed >= 0 ? '+' : ''}
                 {afterCounts.passed - beforeCounts.passed}
               </div>
-              <div className="text-sm text-base-content/80">passed checks</div>
+              <div className="text-sm">passed checks</div>
             </div>
 
             <div className="stat bg-[#EAEDF1]">
-              <div className="uppercase text-xs">Results</div>
-              <div className="text-xl">
+              <div className="uppercase text-sm text-base-content/70 font-bold">
+                Results
+              </div>
+              <div className="text-2xl">
                 {afterCounts.passed}/{afterCounts.total}
               </div>
-              <div className="text-sm text-base-content/80">
+              <div className="text-sm">
                 {afterCounts.failed} failed • {afterCounts.needsManual} needs
                 manual
               </div>
-              <div className="text-sm text-base-content/80">
+              <div className="text-sm">
                 Generated {formatDateTime(afterReport.generatedAt)}
               </div>
             </div>
@@ -501,7 +513,7 @@ function RouteComponent() {
 
           <div className="card shadow bg-base-100">
             <div className="card-body">
-              <h2 className="card-title">Before vs After breakdown</h2>
+              <h2>Before vs After breakdown</h2>
 
               {compareByCategory.map((c) => (
                 <div
@@ -509,7 +521,7 @@ function RouteComponent() {
                   key={c.category}
                 >
                   <input defaultChecked={false} type="checkbox" />
-                  <div className="collapse-title flex flex-wrap items-center gap-2">
+                  <div className="collapse-title flex items-center gap-2 font-bold">
                     <span className="text-base">{c.category}</span>
                     {c.afterFailedCount > 0 ? (
                       <span className="badge badge-error badge-sm">
@@ -528,7 +540,7 @@ function RouteComponent() {
                   </div>
                   <div className="collapse-content">
                     <div className="overflow-x-auto">
-                      <table className="table">
+                      <table className="table readable-table">
                         <thead>
                           <tr>
                             <th>Rule</th>
@@ -541,11 +553,11 @@ function RouteComponent() {
                             <tr key={`${r.category}||${r.rule}`}>
                               <td>
                                 <div className="flex items-center gap-2">
-                                  <div className="font-medium">{r.rule}</div>
+                                  <div className="text-base">{r.rule}</div>
                                   <RuleInfoLink rule={r.rule} />
                                 </div>
                                 {r.description ? (
-                                  <div className="text-xs text-base-content/80">
+                                  <div className="text-sm text-base-content/90">
                                     {r.description}
                                   </div>
                                 ) : null}
@@ -560,7 +572,7 @@ function RouteComponent() {
                                     {r.beforeStatus}
                                   </span>
                                 ) : (
-                                  <span className="text-base-content/80">
+                                  <span className="text-base-content/90">
                                     —
                                   </span>
                                 )}
@@ -575,7 +587,7 @@ function RouteComponent() {
                                     {r.afterStatus}
                                   </span>
                                 ) : (
-                                  <span className="text-base-content/80">
+                                  <span className="text-base-content/90">
                                     —
                                   </span>
                                 )}

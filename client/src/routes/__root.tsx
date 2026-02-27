@@ -15,13 +15,21 @@ const RootLayout = () => (
       <header className="container mb-6">
         <div className="py-2 flex justify-between items-center">
           <Link
-            className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-md"
+            className="flex gap-4 items-center focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-md"
             to="/"
           >
-            <h1 className="text-xl font-extrabold">Readable</h1>
-            <p className="text-sm text-base-content/70">
-              PDF Accessibility Conversion Tool
-            </p>
+            <img
+              alt="Readable logo"
+              className="h-10 w-auto"
+              src="/readable.svg"
+            />
+            <div>
+              {' '}
+              <h1 className="text-xl font-extrabold">Readable</h1>
+              <p className="text-sm text-base-content/70">
+                PDF Accessibility Conversion Tool
+              </p>
+            </div>
           </Link>
           <Link to="/FAQs">FAQs</Link>
         </div>

@@ -55,7 +55,7 @@ function RouteComponent() {
 
   return (
     <div className="container">
-      <div className="text-center mb-4">
+      <div className="text-center my-12">
         <h3 className="text-lg font-extrabold">Make Your PDFs Accessible</h3>
         <p className="max-w-prose mx-auto">
           Readable helps you meet modern accessibility requirements by
