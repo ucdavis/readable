@@ -308,11 +308,6 @@ export function PdfActivityCard({
           <table className="table readable-table">
             <thead className="sticky top-0 z-10 bg-base-100">
               <tr>
-                <th>Status</th>
-                <th>Filename</th>
-
-                <th>Report</th>
-                <th className="text-right">Actions</th>
                 <th className="w-10">
                   <label className="cursor-pointer">
                     <input
@@ -324,6 +319,11 @@ export function PdfActivityCard({
                     />
                   </label>
                 </th>
+                <th>Status</th>
+                <th>Filename</th>
+
+                <th>Report</th>
+                <th className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -370,6 +370,24 @@ export function PdfActivityCard({
 
                   return (
                     <tr className="group" key={file.fileId}>
+                      {/* Select (visible on hover or when checked) */}
+                      <td>
+                        <label
+                          className={`cursor-pointer transition-opacity ${
+                            selectedIds.has(file.fileId)
+                              ? 'opacity-100'
+                              : 'opacity-0 group-hover:opacity-100'
+                          }`}
+                        >
+                          <input
+                            checked={selectedIds.has(file.fileId)}
+                            className="checkbox checkbox-sm"
+                            onChange={() => toggleSelect(file.fileId)}
+                            type="checkbox"
+                          />
+                        </label>
+                      </td>
+
                       {/* Status */}
                       <td>
                         <div className="space-y-2">
@@ -484,24 +502,6 @@ export function PdfActivityCard({
                             </>
                           ) : null}
                         </div>
-                      </td>
-
-                      {/* Select (visible on hover or when checked) */}
-                      <td>
-                        <label
-                          className={`cursor-pointer transition-opacity ${
-                            selectedIds.has(file.fileId)
-                              ? 'opacity-100'
-                              : 'opacity-0 group-hover:opacity-100'
-                          }`}
-                        >
-                          <input
-                            checked={selectedIds.has(file.fileId)}
-                            className="checkbox checkbox-sm"
-                            onChange={() => toggleSelect(file.fileId)}
-                            type="checkbox"
-                          />
-                        </label>
                       </td>
                     </tr>
                   );
