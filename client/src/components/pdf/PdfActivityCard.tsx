@@ -44,8 +44,6 @@ export function PdfActivityCard({
   const [zipDownloading, setZipDownloading] = useState(false);
   const [zipError, setZipError] = useState<string | null>(null);
 
-  const MAX_ZIP_FILES = 50;
-
   const archiveMutation = useArchiveFilesMutation();
   const undeleteMutation = useUndeleteFilesMutation();
 
@@ -54,11 +52,13 @@ export function PdfActivityCard({
     f.originalFileName.toLowerCase().includes(filter.toLowerCase())
   );
 
-  const isFiltered = filter.length > 0;
-  const bulkTargetFiles = isFiltered ? filteredFiles : visibleFiles;
-  const bulkCount = bulkTargetFiles?.length ?? 0;
+  // All visible/filtered file IDs (for select-all / delete)
+  const visibleFileIds = useMemo(
+    () => (filteredFiles ?? []).map((f) => f.fileId),
+    [filteredFiles]
+  );
 
-  // Completed files eligible for zip download (from the currently visible/filtered list)
+  // Completed files eligible for zip download
   const completedFileIds = useMemo(
     () =>
       (filteredFiles ?? [])
@@ -69,13 +69,18 @@ export function PdfActivityCard({
 
   // Only count selected IDs that are still visible in the current filtered list
   const activeSelectedIds = useMemo(
+    () => new Set(visibleFileIds.filter((id) => selectedIds.has(id))),
+    [visibleFileIds, selectedIds]
+  );
+  const activeSelectedCompletedIds = useMemo(
     () => new Set(completedFileIds.filter((id) => selectedIds.has(id))),
     [completedFileIds, selectedIds]
   );
   const selectedCount = activeSelectedIds.size;
-  const allCompletedSelected =
-    completedFileIds.length > 0 &&
-    completedFileIds.every((id) => selectedIds.has(id));
+  const completedSelectedCount = activeSelectedCompletedIds.size;
+  const allVisibleSelected =
+    visibleFileIds.length > 0 &&
+    visibleFileIds.every((id) => selectedIds.has(id));
 
   const handleArchiveSuccess = useCallback((archivedIds: string[]) => {
     setHiddenIds((prev) => {
@@ -98,24 +103,14 @@ export function PdfActivityCard({
     setArchiveError(message);
   }, []);
 
-  const archiveSingle = useCallback(
-    (fileId: string) => {
-      archiveMutation.mutate([fileId], {
-        onError: handleArchiveError,
-        onSuccess: handleArchiveSuccess,
-      });
-    },
-    [archiveMutation, handleArchiveError, handleArchiveSuccess]
-  );
-
   const openBulkConfirmation = useCallback(() => {
-    const ids = (bulkTargetFiles ?? []).map((f) => f.fileId);
+    const ids = [...activeSelectedIds];
     if (ids.length === 0) {
       return;
     }
     setPendingBulkIds(ids);
     confirmDialogRef.current?.showModal();
-  }, [bulkTargetFiles]);
+  }, [activeSelectedIds]);
 
   const confirmBulkArchive = useCallback(() => {
     confirmDialogRef.current?.close();
@@ -142,23 +137,20 @@ export function PdfActivityCard({
   const toggleSelectAll = useCallback(() => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (completedFileIds.every((id) => prev.has(id))) {
-        // deselect all visible completed
-        for (const id of completedFileIds) {
+      if (visibleFileIds.every((id) => prev.has(id))) {
+        // deselect all visible
+        for (const id of visibleFileIds) {
           next.delete(id);
         }
       } else {
-        // select all visible completed (respecting limit)
-        for (const id of completedFileIds) {
-          if (next.size >= MAX_ZIP_FILES) {
-            break;
-          }
+        // select all visible
+        for (const id of visibleFileIds) {
           next.add(id);
         }
       }
       return next;
     });
-  }, [completedFileIds]);
+  }, [visibleFileIds]);
 
   const toggleSelect = useCallback((fileId: string) => {
     setSelectedIds((prev) => {
@@ -166,9 +158,6 @@ export function PdfActivityCard({
       if (next.has(fileId)) {
         next.delete(fileId);
       } else {
-        if (next.size >= MAX_ZIP_FILES) {
-          return prev;
-        }
         next.add(fileId);
       }
       return next;
@@ -176,13 +165,13 @@ export function PdfActivityCard({
   }, []);
 
   const handleZipDownload = useCallback(async () => {
-    if (activeSelectedIds.size === 0) {
+    if (activeSelectedCompletedIds.size === 0) {
       return;
     }
     setZipDownloading(true);
     setZipError(null);
     try {
-      await downloadFilesAsZip([...activeSelectedIds]);
+      await downloadFilesAsZip([...activeSelectedCompletedIds]);
     } catch (error) {
       setZipError(
         error instanceof Error ? error.message : 'Zip download failed.'
@@ -190,7 +179,7 @@ export function PdfActivityCard({
     } finally {
       setZipDownloading(false);
     }
-  }, [activeSelectedIds]);
+  }, [activeSelectedCompletedIds]);
 
   const handleUndelete = useCallback(() => {
     if (recentlyDeletedIds.length === 0) {
@@ -243,7 +232,7 @@ export function PdfActivityCard({
           />
 
           <div className="flex items-center gap-2">
-            {selectedCount > 0 ? (
+            {completedSelectedCount > 0 ? (
               <button
                 className="btn btn-sm btn-primary"
                 disabled={zipDownloading}
@@ -253,7 +242,21 @@ export function PdfActivityCard({
                 <ArrowDownTrayIcon className="h-4 w-4" />
                 {zipDownloading
                   ? 'Preparing zip…'
-                  : `Download ${selectedCount} as ZIP`}
+                  : `Download ${completedSelectedCount} as ZIP`}
+              </button>
+            ) : null}
+
+            {selectedCount > 0 ? (
+              <button
+                className="btn btn-sm btn-outline btn-error"
+                disabled={archiveMutation.isPending}
+                onClick={openBulkConfirmation}
+                type="button"
+              >
+                <TrashIcon className="h-4 w-4" />
+                {archiveMutation.isPending
+                  ? 'Deleting…'
+                  : `Delete ${selectedCount} file${selectedCount === 1 ? '' : 's'}`}
               </button>
             ) : null}
 
@@ -270,22 +273,6 @@ export function PdfActivityCard({
                   : `Undo delete (${recentlyDeletedIds.length} file${
                       recentlyDeletedIds.length === 1 ? '' : 's'
                     })`}
-              </button>
-            ) : null}
-
-            {bulkCount > 0 ? (
-              <button
-                className="btn btn-sm btn-outline btn-error"
-                disabled={archiveMutation.isPending}
-                onClick={openBulkConfirmation}
-                type="button"
-              >
-                <TrashIcon className="h-4 w-4" />
-                {archiveMutation.isPending
-                  ? 'Deleting…'
-                  : isFiltered
-                    ? `Delete ${bulkCount} listed file${bulkCount === 1 ? '' : 's'}`
-                    : `Delete all ${bulkCount} file${bulkCount === 1 ? '' : 's'}`}
               </button>
             ) : null}
           </div>
@@ -321,22 +308,22 @@ export function PdfActivityCard({
           <table className="table readable-table">
             <thead>
               <tr>
-                <th>
-                  <label className="cursor-pointer">
-                    <input
-                      checked={allCompletedSelected}
-                      className="checkbox checkbox-sm"
-                      disabled={completedFileIds.length === 0}
-                      onChange={toggleSelectAll}
-                      type="checkbox"
-                    />
-                  </label>
-                </th>
                 <th>Status</th>
                 <th>Filename</th>
 
                 <th>Report</th>
                 <th className="text-right">Actions</th>
+                <th className="w-10">
+                  <label className="cursor-pointer">
+                    <input
+                      checked={allVisibleSelected}
+                      className="checkbox checkbox-sm"
+                      disabled={visibleFileIds.length === 0}
+                      onChange={toggleSelectAll}
+                      type="checkbox"
+                    />
+                  </label>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -381,24 +368,8 @@ export function PdfActivityCard({
                       ? beforeIssues - afterIssues
                       : null;
 
-                  const isCompleted = file.status === 'Completed';
-
                   return (
-                    <tr key={file.fileId}>
-                      {/* Select */}
-                      <td>
-                        {isCompleted ? (
-                          <label className="cursor-pointer">
-                            <input
-                              checked={selectedIds.has(file.fileId)}
-                              className="checkbox checkbox-sm"
-                              onChange={() => toggleSelect(file.fileId)}
-                              type="checkbox"
-                            />
-                          </label>
-                        ) : null}
-                      </td>
-
+                    <tr className="group" key={file.fileId}>
                       {/* Status */}
                       <td>
                         <div className="space-y-2">
@@ -512,18 +483,25 @@ export function PdfActivityCard({
                               </a>
                             </>
                           ) : null}
-
-                          <button
-                            aria-label={`Delete ${file.originalFileName}`}
-                            className="btn btn-sm btn-outline btn-error"
-                            disabled={archiveMutation.isPending}
-                            onClick={() => archiveSingle(file.fileId)}
-                            title="Delete"
-                            type="button"
-                          >
-                            <TrashIcon className="h-4 w-4" />
-                          </button>
                         </div>
+                      </td>
+
+                      {/* Select (visible on hover or when checked) */}
+                      <td>
+                        <label
+                          className={`cursor-pointer transition-opacity ${
+                            selectedIds.has(file.fileId)
+                              ? 'opacity-100'
+                              : 'opacity-0 group-hover:opacity-100'
+                          }`}
+                        >
+                          <input
+                            checked={selectedIds.has(file.fileId)}
+                            className="checkbox checkbox-sm"
+                            onChange={() => toggleSelect(file.fileId)}
+                            type="checkbox"
+                          />
+                        </label>
                       </td>
                     </tr>
                   );
