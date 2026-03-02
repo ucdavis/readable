@@ -42,6 +42,7 @@ builder.Services.AddResponseCaching();
 builder.Services.AddScoped<IDbInitializer, DbInitializer>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddSingleton<IFileSasService, AzureBlobFileSasService>();
+builder.Services.AddSingleton<IProcessedPdfBlobService, AzureProcessedPdfBlobService>();
 // add auth policies here
 
 // add db context (check secrets first, then config, then default)

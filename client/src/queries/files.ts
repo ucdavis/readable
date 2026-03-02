@@ -100,3 +100,48 @@ export function useUndeleteFilesMutation() {
     },
   });
 }
+
+/**
+ * Initiates a streaming zip download containing the processed PDFs for the given file IDs.
+ * The browser will prompt a file-save dialog via the Content-Disposition header set by the server.
+ */
+async function downloadFilesAsZip(fileIds: string[]): Promise<void> {
+  const res = await fetch('/api/download/zip', {
+    body: JSON.stringify(fileIds),
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+
+  if (res.status === 401) {
+    const toRedirectParam = encodeURIComponent(
+      window.location.pathname + window.location.search
+    );
+    window.location.href = `/login?returnUrl=${toRedirectParam}`;
+    return;
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Download failed (HTTP ${res.status})`);
+  }
+
+  // Stream the response blob into a download
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'readable-files.zip';
+  document.body.append(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export function useDownloadFilesAsZipMutation() {
+  return useMutation({
+    mutationFn: (fileIds: string[]) => downloadFilesAsZip(fileIds),
+  });
+}
