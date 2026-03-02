@@ -354,6 +354,7 @@ export function PdfActivityCard({
                 <th className="w-10">
                   <label className="cursor-pointer">
                     <input
+                      aria-label="Select all visible files"
                       checked={allVisibleSelected}
                       className="checkbox checkbox-sm"
                       disabled={visibleFileIds.length === 0}
@@ -423,6 +424,7 @@ export function PdfActivityCard({
                           }`}
                         >
                           <input
+                            aria-label={`Select file ${file.originalFileName}`}
                             checked={selectedIds.has(file.fileId)}
                             className="checkbox checkbox-sm"
                             onChange={() => toggleSelect(file.fileId)}
