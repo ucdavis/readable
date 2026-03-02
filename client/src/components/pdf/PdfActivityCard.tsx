@@ -427,12 +427,13 @@ export function PdfActivityCard({
                             <span className="badge badge-primary badge-soft">
                               {file.status}
                             </span>
-                            {recentlyCompletedByFileId[file.fileId] ? (
-                              <span className="badge badge-success badge-outline">
-                                Just completed
-                              </span>
-                            ) : null}
                           </div>
+
+                          {recentlyCompletedByFileId[file.fileId] ? (
+                            <span className="badge badge-success badge-outline flex-wrap">
+                              Just completed
+                            </span>
+                          ) : null}
 
                           {upload ? (
                             <progress className="progress progress-primary w-full" />
