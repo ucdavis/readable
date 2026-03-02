@@ -105,7 +105,7 @@ export function useUndeleteFilesMutation() {
  * Initiates a streaming zip download containing the processed PDFs for the given file IDs.
  * The browser will prompt a file-save dialog via the Content-Disposition header set by the server.
  */
-export async function downloadFilesAsZip(fileIds: string[]): Promise<void> {
+async function downloadFilesAsZip(fileIds: string[]): Promise<void> {
   const res = await fetch('/api/download/zip', {
     body: JSON.stringify(fileIds),
     credentials: 'same-origin',
@@ -134,8 +134,14 @@ export async function downloadFilesAsZip(fileIds: string[]): Promise<void> {
   const a = document.createElement('a');
   a.href = url;
   a.download = 'readable-files.zip';
-  document.body.appendChild(a);
+  document.body.append(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+export function useDownloadFilesAsZipMutation() {
+  return useMutation({
+    mutationFn: (fileIds: string[]) => downloadFilesAsZip(fileIds),
+  });
 }

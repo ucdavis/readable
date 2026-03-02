@@ -1,8 +1,8 @@
 import type { UserFile } from '@/queries/files.ts';
 import type { UploadRow } from '@/lib/usePdfUploads.ts';
 import {
-  downloadFilesAsZip,
   useArchiveFilesMutation,
+  useDownloadFilesAsZipMutation,
   useUndeleteFilesMutation,
 } from '@/queries/files.ts';
 import { formatBytes, formatDateTime } from '@/lib/format.ts';
@@ -43,11 +43,9 @@ export function PdfActivityCard({
   const [pendingBulkIds, setPendingBulkIds] = useState<string[]>([]);
   const [recentlyDeletedIds, setRecentlyDeletedIds] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [zipDownloading, setZipDownloading] = useState(false);
-  const [zipError, setZipError] = useState<string | null>(null);
-
   const archiveMutation = useArchiveFilesMutation();
   const undeleteMutation = useUndeleteFilesMutation();
+  const zipMutation = useDownloadFilesAsZipMutation();
 
   const visibleFiles = files?.filter((f) => !hiddenIds.has(f.fileId));
   const filteredFiles = visibleFiles?.filter((f) =>
@@ -172,28 +170,12 @@ export function PdfActivityCard({
     });
   }, []);
 
-  const handleZipDownload = useCallback(async () => {
+  const handleZipDownload = useCallback(() => {
     if (activeSelectedCompletedIds.size === 0) {
       return;
     }
-    if (activeSelectedCompletedIds.size > MAX_BATCH_SIZE) {
-      setZipError(
-        `You can only download up to ${MAX_BATCH_SIZE} files at a time. Please deselect some files.`
-      );
-      return;
-    }
-    setZipDownloading(true);
-    setZipError(null);
-    try {
-      await downloadFilesAsZip([...activeSelectedCompletedIds]);
-    } catch (error) {
-      setZipError(
-        error instanceof Error ? error.message : 'Zip download failed.'
-      );
-    } finally {
-      setZipDownloading(false);
-    }
-  }, [activeSelectedCompletedIds]);
+    zipMutation.mutate([...activeSelectedCompletedIds]);
+  }, [activeSelectedCompletedIds, zipMutation]);
 
   const handleUndelete = useCallback(() => {
     if (recentlyDeletedIds.length === 0) {
@@ -250,9 +232,10 @@ export function PdfActivityCard({
               <button
                 className="btn btn-sm btn-primary"
                 disabled={
-                  zipDownloading || completedSelectedCount > MAX_BATCH_SIZE
+                  zipMutation.isPending ||
+                  completedSelectedCount > MAX_BATCH_SIZE
                 }
-                onClick={() => void handleZipDownload()}
+                onClick={() => handleZipDownload()}
                 title={
                   completedSelectedCount > MAX_BATCH_SIZE
                     ? `Max ${MAX_BATCH_SIZE} files per download`
@@ -261,7 +244,7 @@ export function PdfActivityCard({
                 type="button"
               >
                 <ArrowDownTrayIcon className="h-4 w-4" />
-                {zipDownloading
+                {zipMutation.isPending
                   ? 'Preparing zip…'
                   : completedSelectedCount > MAX_BATCH_SIZE
                     ? `Max ${MAX_BATCH_SIZE} files per ZIP`
@@ -334,12 +317,16 @@ export function PdfActivityCard({
           </div>
         ) : null}
 
-        {zipError ? (
+        {zipMutation.isError ? (
           <div className="alert alert-error">
-            <span>{zipError}</span>
+            <span>
+              {zipMutation.error instanceof Error
+                ? zipMutation.error.message
+                : 'Zip download failed.'}
+            </span>
             <button
               className="btn btn-ghost btn-sm"
-              onClick={() => setZipError(null)}
+              onClick={() => zipMutation.reset()}
               type="button"
             >
               Dismiss
