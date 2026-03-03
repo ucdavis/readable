@@ -78,7 +78,7 @@ function SettingsPage() {
               <div className="flex w-full gap-2">
                 <input
                   ref={inputRef}
-                  className="input input-bordered input-sm font-mono flex-1 min-w-0"
+                  className="input input-bordered input-sm font-mono flex-1 min-w-0 text-black"
                   readOnly
                   value={newRawKey}
                   onFocus={(e) => e.currentTarget.select()}
