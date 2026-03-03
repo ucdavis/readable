@@ -18,6 +18,7 @@ namespace Server.Controllers
             _context = context;
         }
 
+        [HttpGet]
         public async Task<IEnumerable<WeatherForecast>> Get()
         {
             var dbWeatherForecasts = await _context.WeatherForecasts
