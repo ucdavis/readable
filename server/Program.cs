@@ -44,6 +44,7 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IApiKeyService, ApiKeyService>();
 builder.Services.AddSingleton<IFileSasService, AzureBlobFileSasService>();
 builder.Services.AddSingleton<IProcessedPdfBlobService, AzureProcessedPdfBlobService>();
+builder.Services.AddSingleton<IIncomingBlobUploadService, AzureIncomingBlobUploadService>();
 // add auth policies here
 
 // add db context (check secrets first, then config, then default)

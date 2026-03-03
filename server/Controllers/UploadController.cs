@@ -13,14 +13,16 @@ public class UploadController : ApiControllerBase
 {
     private readonly AppDbContext _dbContext;
     private readonly IFileSasService _fileSasService;
+    private readonly IIncomingBlobUploadService _blobUploadService;
 
     // Let the SAS url be valid for 30 min to give ample time to upload.
     private static readonly TimeSpan SasTimeToLive = TimeSpan.FromMinutes(30);
 
-    public UploadController(AppDbContext dbContext, IFileSasService fileSasService)
+    public UploadController(AppDbContext dbContext, IFileSasService fileSasService, IIncomingBlobUploadService blobUploadService)
     {
         _dbContext = dbContext;
         _fileSasService = fileSasService;
+        _blobUploadService = blobUploadService;
     }
 
     /// <summary>
@@ -174,6 +176,86 @@ public class UploadController : ApiControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Uploads a PDF file directly (multipart/form-data).
+    /// The server streams the file to blob storage and queues it for processing.
+    /// This is the simplest way to upload via API key / Postman / curl.
+    /// </summary>
+    [HttpPost]
+    [RequestSizeLimit(512 * 1024 * 1024)] // 512 MB
+    public async Task<ActionResult<DirectUploadResponse>> DirectUpload(
+        IFormFile file,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest("A non-empty file is required.");
+        }
+
+        var originalFileName = file.FileName;
+        var contentType = file.ContentType;
+
+        if (!LooksLikePdf(contentType ?? string.Empty, originalFileName))
+        {
+            return BadRequest("Only PDF uploads are supported.");
+        }
+
+        if (string.IsNullOrWhiteSpace(contentType))
+        {
+            contentType = "application/pdf";
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var fileRecord = new FileRecord
+        {
+            FileId = Guid.NewGuid(),
+            OwnerUserId = userId.Value,
+            OriginalFileName = originalFileName,
+            ContentType = contentType,
+            SizeBytes = file.Length,
+            PageCount = 0,
+            Status = FileRecord.Statuses.Created,
+            CreatedAt = now,
+            StatusUpdatedAt = now,
+        };
+
+        _dbContext.Files.Add(fileRecord);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            await _blobUploadService.UploadAsync(fileRecord.FileId, stream, contentType, cancellationToken);
+        }
+        catch (Exception)
+        {
+            // Clean up the DB record if blob upload fails
+            _dbContext.Files.Remove(fileRecord);
+            await _dbContext.SaveChangesAsync(CancellationToken.None);
+            throw;
+        }
+
+        // Mark as queued for processing
+        fileRecord.Status = FileRecord.Statuses.Queued;
+        fileRecord.StatusUpdatedAt = DateTimeOffset.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(new DirectUploadResponse
+        {
+            FileId = fileRecord.FileId,
+            OriginalFileName = fileRecord.OriginalFileName,
+            SizeBytes = fileRecord.SizeBytes,
+            Status = fileRecord.Status,
+            CreatedAt = fileRecord.CreatedAt,
+        });
+    }
+
     private UploadSasResult CreateSasForUpload(Guid fileId)
     {
         return _fileSasService.CreateIncomingPdfUploadSas(fileId, SasTimeToLive);
@@ -236,5 +318,14 @@ public class UploadController : ApiControllerBase
         public string ContainerName { get; init; } = string.Empty;
         public string BlobName { get; init; } = string.Empty;
         public DateTimeOffset ExpiresAt { get; init; }
+    }
+
+    public sealed class DirectUploadResponse
+    {
+        public Guid FileId { get; init; }
+        public string OriginalFileName { get; init; } = string.Empty;
+        public long SizeBytes { get; init; }
+        public string Status { get; init; } = string.Empty;
+        public DateTimeOffset CreatedAt { get; init; }
     }
 }
