@@ -34,11 +34,18 @@ public static class AuthenticationHelper
             {
                 opts.ForwardDefaultSelector = ctx =>
                 {
+                    // Route to API-key handler when using either header format
+                    if (ctx.Request.Headers.ContainsKey(ApiKeyAuthenticationHandler.CustomHeaderName))
+                    {
+                        return ApiKeyAuthenticationHandler.SchemeName;
+                    }
+
                     var auth = ctx.Request.Headers.Authorization.ToString();
                     if (auth.StartsWith(ApiKeyAuthenticationHandler.HeaderPrefix, StringComparison.OrdinalIgnoreCase))
                     {
                         return ApiKeyAuthenticationHandler.SchemeName;
                     }
+
                     return CookieAuthenticationDefaults.AuthenticationScheme;
                 };
             })

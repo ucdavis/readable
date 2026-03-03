@@ -66,7 +66,8 @@ function SettingsPage() {
             Use an API key to upload PDFs programmatically without a browser
             session. Pass the key in the{' '}
             <kbd className="kbd kbd-sm">Authorization</kbd> header as{' '}
-            <kbd className="kbd kbd-sm">ApiKey &lt;key&gt;</kbd>.
+            <kbd className="kbd kbd-sm">ApiKey &lt;key&gt;</kbd>, or use the{' '}
+            <kbd className="kbd kbd-sm">X-Api-Key</kbd> header directly.
           </p>
 
           {/* Newly generated key — shown once */}
