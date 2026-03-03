@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as FAQsRouteImport } from './routes/FAQs'
 import { Route as authenticatedRouteRouteImport } from './routes/(authenticated)/route'
 import { Route as authenticatedIndexRouteImport } from './routes/(authenticated)/index'
+import { Route as authenticatedSettingsIndexRouteImport } from './routes/(authenticated)/settings/index'
 import { Route as authenticatedReportsFileIdIndexRouteImport } from './routes/(authenticated)/reports/$fileId/index'
 
 const FAQsRoute = FAQsRouteImport.update({
@@ -28,6 +29,12 @@ const authenticatedIndexRoute = authenticatedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => authenticatedRouteRoute,
 } as any)
+const authenticatedSettingsIndexRoute =
+  authenticatedSettingsIndexRouteImport.update({
+    id: '/settings/',
+    path: '/settings/',
+    getParentRoute: () => authenticatedRouteRoute,
+  } as any)
 const authenticatedReportsFileIdIndexRoute =
   authenticatedReportsFileIdIndexRouteImport.update({
     id: '/reports/$fileId/',
@@ -38,11 +45,13 @@ const authenticatedReportsFileIdIndexRoute =
 export interface FileRoutesByFullPath {
   '/FAQs': typeof FAQsRoute
   '/': typeof authenticatedIndexRoute
+  '/settings': typeof authenticatedSettingsIndexRoute
   '/reports/$fileId': typeof authenticatedReportsFileIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/FAQs': typeof FAQsRoute
   '/': typeof authenticatedIndexRoute
+  '/settings': typeof authenticatedSettingsIndexRoute
   '/reports/$fileId': typeof authenticatedReportsFileIdIndexRoute
 }
 export interface FileRoutesById {
@@ -50,18 +59,20 @@ export interface FileRoutesById {
   '/(authenticated)': typeof authenticatedRouteRouteWithChildren
   '/FAQs': typeof FAQsRoute
   '/(authenticated)/': typeof authenticatedIndexRoute
+  '/(authenticated)/settings/': typeof authenticatedSettingsIndexRoute
   '/(authenticated)/reports/$fileId/': typeof authenticatedReportsFileIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/FAQs' | '/' | '/reports/$fileId'
+  fullPaths: '/FAQs' | '/' | '/settings' | '/reports/$fileId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/FAQs' | '/' | '/reports/$fileId'
+  to: '/FAQs' | '/' | '/settings' | '/reports/$fileId'
   id:
     | '__root__'
     | '/(authenticated)'
     | '/FAQs'
     | '/(authenticated)/'
+    | '/(authenticated)/settings/'
     | '/(authenticated)/reports/$fileId/'
   fileRoutesById: FileRoutesById
 }
@@ -93,6 +104,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authenticatedIndexRouteImport
       parentRoute: typeof authenticatedRouteRoute
     }
+    '/(authenticated)/settings/': {
+      id: '/(authenticated)/settings/'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof authenticatedSettingsIndexRouteImport
+      parentRoute: typeof authenticatedRouteRoute
+    }
     '/(authenticated)/reports/$fileId/': {
       id: '/(authenticated)/reports/$fileId/'
       path: '/reports/$fileId'
@@ -105,11 +123,13 @@ declare module '@tanstack/react-router' {
 
 interface authenticatedRouteRouteChildren {
   authenticatedIndexRoute: typeof authenticatedIndexRoute
+  authenticatedSettingsIndexRoute: typeof authenticatedSettingsIndexRoute
   authenticatedReportsFileIdIndexRoute: typeof authenticatedReportsFileIdIndexRoute
 }
 
 const authenticatedRouteRouteChildren: authenticatedRouteRouteChildren = {
   authenticatedIndexRoute: authenticatedIndexRoute,
+  authenticatedSettingsIndexRoute: authenticatedSettingsIndexRoute,
   authenticatedReportsFileIdIndexRoute: authenticatedReportsFileIdIndexRoute,
 }
 

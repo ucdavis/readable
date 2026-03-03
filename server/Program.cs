@@ -41,6 +41,7 @@ builder.Services.AddResponseCaching();
 // add scoped services here
 builder.Services.AddScoped<IDbInitializer, DbInitializer>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IApiKeyService, ApiKeyService>();
 builder.Services.AddSingleton<IFileSasService, AzureBlobFileSasService>();
 builder.Services.AddSingleton<IProcessedPdfBlobService, AzureProcessedPdfBlobService>();
 // add auth policies here

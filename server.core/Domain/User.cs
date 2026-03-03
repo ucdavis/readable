@@ -23,6 +23,8 @@ public class User
 
     public ICollection<FileRecord> Files { get; set; } = new List<FileRecord>();
 
+    public ApiKey? ApiKey { get; set; }
+
     internal static void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<User>(entity =>

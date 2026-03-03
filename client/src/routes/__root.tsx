@@ -31,7 +31,10 @@ const RootLayout = () => (
               </p>
             </div>
           </Link>
-          <Link to="/FAQs">FAQs</Link>
+          <div className="flex gap-4 items-center">
+            <Link to="/settings">Settings</Link>
+            <Link to="/FAQs">FAQs</Link>
+          </div>
         </div>
       </header>
       <AnalyticsListener />
