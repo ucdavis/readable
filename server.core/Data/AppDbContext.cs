@@ -15,6 +15,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<WeatherForecast> WeatherForecasts => Set<WeatherForecast>();
 
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         User.OnModelCreating(modelBuilder);
@@ -23,6 +25,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         FileRecord.OnModelCreating(modelBuilder);
         FileProcessingAttempt.OnModelCreating(modelBuilder);
         AccessibilityReport.OnModelCreating(modelBuilder);
+        ApiKey.OnModelCreating(modelBuilder);
 
         base.OnModelCreating(modelBuilder);
     }

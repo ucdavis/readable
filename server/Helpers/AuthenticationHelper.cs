@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Identity.Web;
@@ -9,16 +10,49 @@ namespace server.Helpers;
 public static class AuthenticationHelper
 {
     /// <summary>
+    /// Name of the top-level "smart" policy scheme that dispatches to either the
+    /// cookie or API-key authentication handler based on the incoming request.
+    /// </summary>
+    public const string SmartSchemeName = "Smart";
+
+    /// <summary>
     /// Configures Microsoft Identity Web authentication with Azure AD/Entra ID
+    /// plus an API-key scheme for machine-to-machine calls.
     /// </summary>
     public static IServiceCollection AddAuthenticationServices(this IServiceCollection services, IConfiguration configuration)
     {
         services
             .AddAuthentication(options =>
             {
-                options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                // A policy scheme acts as a dispatcher: it inspects the request and
+                // forwards to either the cookie or API-key handler transparently,
+                // so all existing [Authorize] attributes continue to work unchanged.
+                options.DefaultScheme = SmartSchemeName;
                 options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
             })
+            .AddPolicyScheme(SmartSchemeName, SmartSchemeName, opts =>
+            {
+                opts.ForwardDefaultSelector = ctx =>
+                {
+                    // Route to API-key handler when using either header format
+                    if (ctx.Request.Headers.TryGetValue(ApiKeyAuthenticationHandler.CustomHeaderName, out var apiKeyValues)
+                        && apiKeyValues.Count > 0
+                        && !string.IsNullOrWhiteSpace(apiKeyValues[0]))
+                    {
+                        return ApiKeyAuthenticationHandler.SchemeName;
+                    }
+
+                    var auth = ctx.Request.Headers.Authorization.ToString();
+                    if (auth.StartsWith(ApiKeyAuthenticationHandler.HeaderPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return ApiKeyAuthenticationHandler.SchemeName;
+                    }
+
+                    return CookieAuthenticationDefaults.AuthenticationScheme;
+                };
+            })
+            .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
+                ApiKeyAuthenticationHandler.SchemeName, _ => { })
             .AddMicrosoftIdentityWebApp(options =>
             {
                 configuration.Bind("Auth", options);

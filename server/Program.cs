@@ -41,8 +41,10 @@ builder.Services.AddResponseCaching();
 // add scoped services here
 builder.Services.AddScoped<IDbInitializer, DbInitializer>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IApiKeyService, ApiKeyService>();
 builder.Services.AddSingleton<IFileSasService, AzureBlobFileSasService>();
 builder.Services.AddSingleton<IProcessedPdfBlobService, AzureProcessedPdfBlobService>();
+builder.Services.AddSingleton<IIncomingBlobUploadService, AzureIncomingBlobUploadService>();
 // add auth policies here
 
 // add db context (check secrets first, then config, then default)
@@ -66,7 +68,31 @@ builder.Services
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("ApiKey", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Description = "API key authentication. Paste the raw key value.",
+        Name = "X-Api-Key",
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey
+    });
+
+    options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "ApiKey"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
 // configure data protection (generated keys for auth and such)
 var keysPath = Path.Combine(builder.Environment.ContentRootPath, "..", ".aspnet", "DataProtection-Keys");
