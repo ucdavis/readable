@@ -96,8 +96,14 @@ public class ApiKeyService : IApiKeyService
         return (rawKey, keyHint, now);
     }
 
+
     public async Task<long?> ValidateApiKeyAsync(string rawKey, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(rawKey) || rawKey.Length > 128)
+        {
+            return null;
+        }
+
         byte[] secretBytes;
         try
         {
@@ -106,6 +112,11 @@ public class ApiKeyService : IApiKeyService
         catch
         {
             return null; // malformed key
+        }
+
+        if (secretBytes.Length != SecretBytes)
+        {
+            return null;
         }
 
         // Fast indexed lookup by HMAC tag
