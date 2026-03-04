@@ -59,6 +59,8 @@ public class ApiKeyService : IApiKeyService
     public async Task<(string RawKey, string KeyHint, DateTimeOffset CreatedAt)> GenerateApiKeyAsync(
         long userId, CancellationToken ct = default)
     {
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
         // 1. Generate raw secret
         var secretBytes = RandomNumberGenerator.GetBytes(SecretBytes);
         var rawKey = Base64UrlEncoder.Encode(secretBytes);
@@ -92,6 +94,8 @@ public class ApiKeyService : IApiKeyService
 
         _db.ApiKeys.Add(apiKey);
         await _db.SaveChangesAsync(ct);
+
+        await tx.CommitAsync(ct);
 
         return (rawKey, keyHint, now);
     }
