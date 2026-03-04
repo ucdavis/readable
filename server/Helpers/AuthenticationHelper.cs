@@ -35,7 +35,9 @@ public static class AuthenticationHelper
                 opts.ForwardDefaultSelector = ctx =>
                 {
                     // Route to API-key handler when using either header format
-                    if (ctx.Request.Headers.ContainsKey(ApiKeyAuthenticationHandler.CustomHeaderName))
+                    if (ctx.Request.Headers.TryGetValue(ApiKeyAuthenticationHandler.CustomHeaderName, out var apiKeyValues)
+                        && apiKeyValues.Count > 0
+                        && !string.IsNullOrWhiteSpace(apiKeyValues[0]))
                     {
                         return ApiKeyAuthenticationHandler.SchemeName;
                     }
