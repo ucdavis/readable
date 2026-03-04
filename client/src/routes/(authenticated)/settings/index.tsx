@@ -78,7 +78,7 @@ function SettingsPage() {
           {/* Newly generated key — shown once */}
           {newRawKey && (
             <div className="ps-5 py-4 border-l-5 border-primary bg-primary/10 flex flex-col items-start gap-2">
-              <p className="font-semibold texl-lg">
+              <p className="font-semibold text-lg">
                 Copy your API key now — it won&apos;t be shown again.
               </p>
               <div className="flex w-112 gap-2">
