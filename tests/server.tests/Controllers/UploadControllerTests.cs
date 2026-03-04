@@ -45,7 +45,7 @@ public class UploadControllerTests
 
         await ctx.SaveChangesAsync();
 
-        var controller = new UploadController(ctx, new UnusedFileSasService());
+        var controller = new UploadController(ctx, new UnusedFileSasService(), new UnusedBlobUploadService());
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext
@@ -76,6 +76,12 @@ public class UploadControllerTests
             throw new InvalidOperationException("Not used by this test.");
 
         public DownloadSasResult CreateProcessedPdfDownloadSas(Guid fileId, string fileName, TimeSpan timeToLive) =>
+            throw new InvalidOperationException("Not used by this test.");
+    }
+
+    private sealed class UnusedBlobUploadService : IIncomingBlobUploadService
+    {
+        public Task UploadAsync(Guid fileId, Stream content, string contentType, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Not used by this test.");
     }
 }
