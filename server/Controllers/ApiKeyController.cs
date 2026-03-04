@@ -30,6 +30,7 @@ public class ApiKeyController(IApiKeyService apiKeyService) : ApiControllerBase
     /// The raw key is returned ONLY in this response — it is never stored and cannot be retrieved again.
     /// </summary>
     [HttpPost]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<ActionResult<GenerateApiKeyResponse>> GenerateApiKey(CancellationToken ct)
     {
         var userId = User.GetUserId();
