@@ -1,18 +1,21 @@
-import { useEffect } from 'react';
 import { useRouter } from '@tanstack/react-router';
-import { trackPageView } from '@/analytics.ts';
+import { useEffect } from 'react';
 
 export function AnalyticsListener() {
   const router = useRouter();
 
   useEffect(() => {
-    trackPageView();
-
-    const unsubscribe = router.subscribe('onResolved', () => {
-      trackPageView();
+    window.gtag?.('event', 'page_view', {
+      page_path: window.location.pathname,
     });
 
-    return unsubscribe;
+    return router.subscribe('onResolved', () => {
+      const path = window.location.pathname;
+
+      window.gtag?.('event', 'page_view', {
+        page_path: path,
+      });
+    });
   }, [router]);
 
   return null;
