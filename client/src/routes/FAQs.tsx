@@ -8,23 +8,52 @@ import {
   ExclamationTriangleIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline';
-import { Link, createFileRoute } from '@tanstack/react-router';
-import type { ReactNode } from 'react';
+import {
+  Link,
+  createFileRoute,
+  useRouterState,
+} from '@tanstack/react-router';
+import { type ReactNode, useEffect, useState } from 'react';
 
 export const Route = createFileRoute('/FAQs')({
   component: FAQs,
 });
 
 type FaqItemProps = {
+  activeHash?: string;
   children: ReactNode;
   defaultOpen?: boolean;
+  id?: string;
   question: string;
 };
 
-function FaqItem({ children, defaultOpen = false, question }: FaqItemProps) {
+function FaqItem({
+  activeHash,
+  children,
+  defaultOpen = false,
+  id,
+  question,
+}: FaqItemProps) {
+  const [isOpen, setIsOpen] = useState(defaultOpen || activeHash === id);
+
+  useEffect(() => {
+    if (activeHash === id) {
+      setIsOpen(true);
+    }
+  }, [activeHash, id]);
+
   return (
-    <div className="collapse collapse-arrow bg-base-100 shadow border border-base-300">
-      <input defaultChecked={defaultOpen} type="checkbox" />
+    <div
+      className="collapse collapse-arrow scroll-mt-24 bg-base-100 shadow border border-base-300"
+      id={id}
+    >
+      <input
+        checked={isOpen}
+        onChange={(event) => {
+          setIsOpen(event.target.checked);
+        }}
+        type="checkbox"
+      />
       <div className="collapse-title text-base font-semibold">{question}</div>
       <div className="collapse-content text-base-content/80">{children}</div>
     </div>
@@ -32,6 +61,10 @@ function FaqItem({ children, defaultOpen = false, question }: FaqItemProps) {
 }
 
 function FAQs() {
+  const activeHash = useRouterState({
+    select: (state) => state.location.hash.replace(/^#/, ''),
+  });
+
   return (
     <div className="container pb-12">
       <div className="mx-auto max-w-5xl">
@@ -377,6 +410,7 @@ function FAQs() {
 
           <div className="mt-4 space-y-3">
             <FaqItem
+              activeHash={activeHash}
               defaultOpen
               question="Why does accessibility matter for PDFs?"
             >
@@ -400,7 +434,10 @@ function FAQs() {
               </p>
             </FaqItem>
 
-            <FaqItem question="What can Readable fix automatically vs. what still needs manual work?">
+            <FaqItem
+              activeHash={activeHash}
+              question="What can Readable fix automatically vs. what still needs manual work?"
+            >
               <p>
                 Think of Readable as a combination of automated tagging plus a
                 set of targeted “Fix” actions (similar to what Acrobat can do
@@ -564,7 +601,58 @@ function FAQs() {
               </p>
             </FaqItem>
 
-            <FaqItem question="Does Readable guarantee full compliance?">
+            <FaqItem
+              activeHash={activeHash}
+              id="pdf-fit"
+              question="What PDFs work best, and which ones are a poor fit?"
+            >
+              <p>
+                Readable works best on digital PDFs that already contain real,
+                selectable text.
+              </p>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div className="rounded-box border border-base-300 bg-base-200 p-4">
+                  <h3 className="font-black">Works best for</h3>
+                  <ul className="mt-3 list-disc space-y-2 pl-5">
+                    <li>
+                      PDFs exported from Word, Google Docs, InDesign, LaTeX, or
+                      similar tools
+                    </li>
+                    <li>
+                      Documents that already contain selectable text and mostly
+                      need tagging, metadata, alt text, bookmarks, or cleanup
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="rounded-box border border-base-300 bg-base-200 p-4">
+                  <h3 className="font-black">Poor fit for</h3>
+                  <ul className="mt-3 list-disc space-y-2 pl-5">
+                    <li>Scanned or image-only PDFs</li>
+                    <li>Handwriting</li>
+                    <li>
+                      Pages where equations, notation, or other critical
+                      content exist only as images
+                    </li>
+                    <li>OCR output that is incomplete or unreliable</li>
+                  </ul>
+                </div>
+              </div>
+
+              <p className="mt-3">
+                OCR can sometimes recover plain text, but it usually does not
+                recreate reliable structure or accurately interpret handwriting
+                and complex math. If the content only exists as images,
+                transcribe or recreate it as real text first, then use Readable
+                for accessibility remediation.
+              </p>
+            </FaqItem>
+
+            <FaqItem
+              activeHash={activeHash}
+              question="Does Readable guarantee full compliance?"
+            >
               <p>
                 No tool can guarantee full compliance in every case. Readable is
                 designed to get you dramatically closer, then clearly show what
@@ -578,21 +666,7 @@ function FAQs() {
               </p>
             </FaqItem>
 
-            <FaqItem question="What kinds of PDFs work best?">
-              <p>
-                Text-based PDFs with real selectable text are typically the best
-                candidates. If your PDF is scanned (image-only), it may require
-                OCR before it can be meaningfully remediated.
-              </p>
-              <p className="mt-3">
-                Many of Readable’s fixes depend on the document being tagged (or
-                being taggable). If the tag tree is missing or broken, the
-                pipeline will typically re-tag the PDF before applying targeted
-                fixes.
-              </p>
-            </FaqItem>
-
-            <FaqItem question="How is AI used?">
+            <FaqItem activeHash={activeHash} question="How is AI used?">
               <p>
                 AI is used to draft clear, context-aware alt text for tagged
                 figures (and optionally links), and to suggest a reasonable
@@ -604,14 +678,17 @@ function FAQs() {
               </p>
             </FaqItem>
 
-            <FaqItem question="What do I receive after processing?">
+            <FaqItem
+              activeHash={activeHash}
+              question="What do I receive after processing?"
+            >
               <p>
                 You’ll get an updated PDF plus a report showing what Readable
                 improved automatically and what may still require manual fixes.
               </p>
             </FaqItem>
 
-            <FaqItem question="Who is Readable for?">
+            <FaqItem activeHash={activeHash} question="Who is Readable for?">
               <p>
                 Readable is designed for UC Davis by the College of Agricultural
                 and Environmental Sciences Dean&apos;s Office @ UC Davis

@@ -4,6 +4,7 @@ import {
   useState,
 } from 'react';
 import { ArrowUpTrayIcon } from '@heroicons/react/24/solid';
+import { Link } from '@tanstack/react-router';
 
 export type PdfUploadDropzoneProps = {
   isUploading: boolean;
@@ -80,6 +81,13 @@ export function PdfUploadDropzone({
       <div className="mt-3 text-xs text-base-content/70">
         PDF only · Multiple files supported
       </div>
+      <p className="mt-2 max-w-sm text-xs text-base-content/60">
+        Best results come from text-based PDFs. Scanned, handwritten, or
+        image-only content may need manual transcription first.{' '}
+        <Link className="link link-hover" hash="pdf-fit" to="/FAQs">
+          Learn what works best.
+        </Link>
+      </p>
       {isUploading ? (
         <div className="mt-4 flex items-center gap-3 text-sm text-base-content/70">
           <span className="loading loading-spinner loading-sm" />
