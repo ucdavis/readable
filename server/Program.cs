@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
@@ -136,7 +137,7 @@ if (!app.Environment.IsDevelopment())
         {
             if (context.User?.Identity?.IsAuthenticated != true)
             {
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.ChallengeAsync();
                 return;
             }
         }
