@@ -635,6 +635,23 @@ function FAQs() {
                 </p>
               </div>
             </div>
+            <div className="card shadow bg-base-100">
+              <div className="card-body">
+                <h3 className="card-title">Still need help?</h3>
+                <p className="text-base-content/80">
+                  Submit a help ticket here{' '}
+                  <a
+                    className="link"
+                    href="https://caeshelp.ucdavis.edu/?appname=Readable"
+                    rel="noopener noreferrer"
+                    target="_blank"
+                  >
+                    CAES Help Ticket
+                  </a>{' '}
+                  for technical support, general questions, or bug reports.
+                </p>
+              </div>
+            </div>
           </div>
         </section>
       </div>
