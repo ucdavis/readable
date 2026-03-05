@@ -42,7 +42,7 @@ describe('authenticated index route', () => {
       ).toBeInTheDocument();
       expect(
         screen.getByRole('link', { name: 'Learn what works best.' })
-      ).toHaveAttribute('href', '/FAQs');
+      ).toHaveAttribute('href', '/FAQs#pdf-fit');
       expect(await screen.findByText('No files yet.')).toBeInTheDocument();
       expect(filesRequestCount).toBe(1);
       expect(userRequestCount).toBe(1);

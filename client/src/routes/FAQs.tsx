@@ -8,23 +8,52 @@ import {
   ExclamationTriangleIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline';
-import { Link, createFileRoute } from '@tanstack/react-router';
-import type { ReactNode } from 'react';
+import {
+  Link,
+  createFileRoute,
+  useRouterState,
+} from '@tanstack/react-router';
+import { type ReactNode, useEffect, useState } from 'react';
 
 export const Route = createFileRoute('/FAQs')({
   component: FAQs,
 });
 
 type FaqItemProps = {
+  activeHash?: string;
   children: ReactNode;
   defaultOpen?: boolean;
+  id?: string;
   question: string;
 };
 
-function FaqItem({ children, defaultOpen = false, question }: FaqItemProps) {
+function FaqItem({
+  activeHash,
+  children,
+  defaultOpen = false,
+  id,
+  question,
+}: FaqItemProps) {
+  const [isOpen, setIsOpen] = useState(defaultOpen || activeHash === id);
+
+  useEffect(() => {
+    if (activeHash === id) {
+      setIsOpen(true);
+    }
+  }, [activeHash, id]);
+
   return (
-    <div className="collapse collapse-arrow bg-base-100 shadow border border-base-300">
-      <input defaultChecked={defaultOpen} type="checkbox" />
+    <div
+      className="collapse collapse-arrow scroll-mt-24 bg-base-100 shadow border border-base-300"
+      id={id}
+    >
+      <input
+        checked={isOpen}
+        onChange={(event) => {
+          setIsOpen(event.target.checked);
+        }}
+        type="checkbox"
+      />
       <div className="collapse-title text-base font-semibold">{question}</div>
       <div className="collapse-content text-base-content/80">{children}</div>
     </div>
@@ -32,6 +61,10 @@ function FaqItem({ children, defaultOpen = false, question }: FaqItemProps) {
 }
 
 function FAQs() {
+  const activeHash = useRouterState({
+    select: (state) => state.location.hash.replace(/^#/, ''),
+  });
+
   return (
     <div className="container pb-12">
       <div className="mx-auto max-w-5xl">
@@ -377,6 +410,7 @@ function FAQs() {
 
           <div className="mt-4 space-y-3">
             <FaqItem
+              activeHash={activeHash}
               defaultOpen
               question="Why does accessibility matter for PDFs?"
             >
@@ -400,7 +434,10 @@ function FAQs() {
               </p>
             </FaqItem>
 
-            <FaqItem question="What can Readable fix automatically vs. what still needs manual work?">
+            <FaqItem
+              activeHash={activeHash}
+              question="What can Readable fix automatically vs. what still needs manual work?"
+            >
               <p>
                 Think of Readable as a combination of automated tagging plus a
                 set of targeted “Fix” actions (similar to what Acrobat can do
@@ -564,7 +601,11 @@ function FAQs() {
               </p>
             </FaqItem>
 
-            <FaqItem question="What PDFs work best, and which ones are a poor fit?">
+            <FaqItem
+              activeHash={activeHash}
+              id="pdf-fit"
+              question="What PDFs work best, and which ones are a poor fit?"
+            >
               <p>
                 Readable works best on digital PDFs that already contain real,
                 selectable text.
@@ -608,7 +649,10 @@ function FAQs() {
               </p>
             </FaqItem>
 
-            <FaqItem question="Does Readable guarantee full compliance?">
+            <FaqItem
+              activeHash={activeHash}
+              question="Does Readable guarantee full compliance?"
+            >
               <p>
                 No tool can guarantee full compliance in every case. Readable is
                 designed to get you dramatically closer, then clearly show what
@@ -622,7 +666,7 @@ function FAQs() {
               </p>
             </FaqItem>
 
-            <FaqItem question="How is AI used?">
+            <FaqItem activeHash={activeHash} question="How is AI used?">
               <p>
                 AI is used to draft clear, context-aware alt text for tagged
                 figures (and optionally links), and to suggest a reasonable
@@ -634,14 +678,17 @@ function FAQs() {
               </p>
             </FaqItem>
 
-            <FaqItem question="What do I receive after processing?">
+            <FaqItem
+              activeHash={activeHash}
+              question="What do I receive after processing?"
+            >
               <p>
                 You’ll get an updated PDF plus a report showing what Readable
                 improved automatically and what may still require manual fixes.
               </p>
             </FaqItem>
 
-            <FaqItem question="Who is Readable for?">
+            <FaqItem activeHash={activeHash} question="Who is Readable for?">
               <p>
                 Readable is designed for UC Davis by the College of Agricultural
                 and Environmental Sciences Dean&apos;s Office @ UC Davis

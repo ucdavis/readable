@@ -84,7 +84,7 @@ export function PdfUploadDropzone({
       <p className="mt-2 max-w-sm text-xs text-base-content/60">
         Best results come from text-based PDFs. Scanned, handwritten, or
         image-only content may need manual transcription first.{' '}
-        <Link className="link link-hover" to="/FAQs">
+        <Link className="link link-hover" hash="pdf-fit" to="/FAQs">
           Learn what works best.
         </Link>
       </p>
