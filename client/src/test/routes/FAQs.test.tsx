@@ -6,14 +6,16 @@ describe('FAQs route', () => {
   it('explains which PDFs are a good fit for remediation from the anchor link', async () => {
     const scrollIntoView = vi.fn();
     const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    let cleanup: (() => void) | undefined;
+
     HTMLElement.prototype.scrollIntoView = scrollIntoView;
 
-    const { cleanup } = renderRoute({
-      initialEntries: ['/FAQs#pdf-fit'],
-      initialPath: '/FAQs',
-    });
-
     try {
+      ({ cleanup } = renderRoute({
+        initialEntries: ['/FAQs#pdf-fit'],
+        initialPath: '/FAQs',
+      }));
+
       await screen.findByText('How it works');
 
       const pdfFitSection = document.getElementById('pdf-fit');
@@ -39,7 +41,7 @@ describe('FAQs route', () => {
       ).toBeInTheDocument();
     } finally {
       HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
-      cleanup();
+      cleanup?.();
     }
   });
 });
