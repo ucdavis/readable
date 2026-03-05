@@ -46,6 +46,10 @@ export default defineConfig({
         secure: false,
         target,
       },
+      '/swagger': {
+        secure: false,
+        target,
+      },
     },
   },
 });

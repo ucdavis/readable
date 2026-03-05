@@ -177,11 +177,7 @@ function SettingsPage() {
             <p className="text-sm text-base-content/70">
               <a
                 className="link link-primary"
-                href={
-                  import.meta.env.DEV
-                    ? 'http://localhost:5166/swagger'
-                    : '/swagger'
-                }
+                href="/swagger"
                 rel="noopener noreferrer"
                 target="_blank"
               >
