@@ -172,6 +172,19 @@ function SettingsPage() {
               Failed to revoke key. Please try again.
             </div>
           )}
+
+          {apiKeyInfo?.exists && (
+            <p className="text-sm text-base-content/70">
+              <a
+                className="link link-primary"
+                href="/swagger"
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                Open API Documentation (Swagger)
+              </a>
+            </p>
+          )}
         </div>
       </div>
 

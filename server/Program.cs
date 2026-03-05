@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
@@ -119,21 +120,34 @@ app.UseStaticFiles();
 app.UseResponseCaching();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+if (!app.Environment.IsDevelopment())
 {
-    // swagger only in development
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-else
-{
-    // only use HTTPS redirection in non-development environments
     app.UseHttpsRedirection();
 }
 
-
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Swagger: available in all environments, but require authentication outside development
+if (!app.Environment.IsDevelopment())
+{
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path.StartsWithSegments("/swagger"))
+        {
+            if (context.User?.Identity?.IsAuthenticated != true)
+            {
+                await context.ChallengeAsync();
+                return;
+            }
+        }
+
+        await next();
+    });
+}
+
+app.UseSwagger();
+app.UseSwaggerUI();
 
 // enrich every log with request context
 app.UseRequestContextLogging();
