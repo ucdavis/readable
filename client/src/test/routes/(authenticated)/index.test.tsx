@@ -35,6 +35,14 @@ describe('authenticated index route', () => {
         await screen.findByText('PDF Accessibility Conversion Tool')
       ).toBeInTheDocument();
       expect(await screen.findByText('Upload PDF Files')).toBeInTheDocument();
+      expect(
+        await screen.findByText(
+          /Best results come from text-based PDFs\. Scanned, handwritten, or image-only content may need manual transcription first\./
+        )
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('link', { name: 'Learn what works best.' })
+      ).toHaveAttribute('href', '/FAQs');
       expect(await screen.findByText('No files yet.')).toBeInTheDocument();
       expect(filesRequestCount).toBe(1);
       expect(userRequestCount).toBe(1);

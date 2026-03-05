@@ -564,6 +564,50 @@ function FAQs() {
               </p>
             </FaqItem>
 
+            <FaqItem question="What PDFs work best, and which ones are a poor fit?">
+              <p>
+                Readable works best on digital PDFs that already contain real,
+                selectable text.
+              </p>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div className="rounded-box border border-base-300 bg-base-200 p-4">
+                  <h3 className="font-black">Works best for</h3>
+                  <ul className="mt-3 list-disc space-y-2 pl-5">
+                    <li>
+                      PDFs exported from Word, Google Docs, InDesign, LaTeX, or
+                      similar tools
+                    </li>
+                    <li>
+                      Documents that already contain selectable text and mostly
+                      need tagging, metadata, alt text, bookmarks, or cleanup
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="rounded-box border border-base-300 bg-base-200 p-4">
+                  <h3 className="font-black">Poor fit for</h3>
+                  <ul className="mt-3 list-disc space-y-2 pl-5">
+                    <li>Scanned or image-only PDFs</li>
+                    <li>Handwriting</li>
+                    <li>
+                      Pages where equations, notation, or other critical
+                      content exist only as images
+                    </li>
+                    <li>OCR output that is incomplete or unreliable</li>
+                  </ul>
+                </div>
+              </div>
+
+              <p className="mt-3">
+                OCR can sometimes recover plain text, but it usually does not
+                recreate reliable structure or accurately interpret handwriting
+                and complex math. If the content only exists as images,
+                transcribe or recreate it as real text first, then use Readable
+                for accessibility remediation.
+              </p>
+            </FaqItem>
+
             <FaqItem question="Does Readable guarantee full compliance?">
               <p>
                 No tool can guarantee full compliance in every case. Readable is
@@ -575,20 +619,6 @@ function FAQs() {
                 In Acrobat terms: Readable can automate many “Fix” items, but
                 manual checks (like reading order and contrast) and nuanced
                 structural edits still require a human.
-              </p>
-            </FaqItem>
-
-            <FaqItem question="What kinds of PDFs work best?">
-              <p>
-                Text-based PDFs with real selectable text are typically the best
-                candidates. If your PDF is scanned (image-only), it may require
-                OCR before it can be meaningfully remediated.
-              </p>
-              <p className="mt-3">
-                Many of Readable’s fixes depend on the document being tagged (or
-                being taggable). If the tag tree is missing or broken, the
-                pipeline will typically re-tag the PDF before applying targeted
-                fixes.
               </p>
             </FaqItem>
 
