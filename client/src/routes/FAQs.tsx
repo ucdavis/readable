@@ -7,6 +7,7 @@ import {
   DocumentMagnifyingGlassIcon,
   ExclamationTriangleIcon,
   LinkIcon,
+  LockClosedIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline';
 import { Link, createFileRoute, useRouterState } from '@tanstack/react-router';
@@ -488,6 +489,37 @@ function FAQs() {
           </div>
         </section>
 
+        <section aria-labelledby="locked-pdfs" className="mt-10">
+          <div className="flex items-center gap-3">
+            <LockClosedIcon
+              aria-hidden="true"
+              className="h-6 w-6 flex-none text-error"
+            />
+            <h2 className="text-2xl font-extrabold" id="locked-pdfs">
+              Locked &amp; encrypted PDFs
+            </h2>
+          </div>
+          <p className="mt-1 text-base-content/70 max-w-prose">
+            Password-protected and permission-restricted PDFs cannot be
+            processed.
+          </p>
+
+          <div className="mt-4 alert alert-error border border-error/30 text-base sm:text-lg">
+            <LockClosedIcon aria-hidden="true" className="h-5 w-5 flex-none" />
+            <div>
+              <p className="font-semibold">Locked PDFs will fail to process.</p>
+              <p className="mt-1 text-sm opacity-90">
+                Readable needs to read and rewrite the document structure to
+                apply accessibility fixes. When a PDF is encrypted or
+                permissions-restricted (e.g., printing or editing disabled), the
+                underlying libraries cannot open, modify, or save the file— so
+                processing will fail. Remove the password or restrictions in
+                Acrobat (or the original authoring tool) before uploading.
+              </p>
+            </div>
+          </div>
+        </section>
+
         <section aria-labelledby="faq" className="mt-12">
           <h2 className="text-2xl font-extrabold" id="faq">
             FAQs
@@ -778,6 +810,27 @@ function FAQs() {
               <p>
                 You’ll get an updated PDF plus a report showing what Readable
                 improved automatically and what may still require manual fixes.
+              </p>
+            </FaqItem>
+
+            <FaqItem
+              activeHash={activeHash}
+              id="locked-pdf-faq"
+              question="Why do locked or encrypted PDFs fail?"
+            >
+              <p>
+                If a PDF has a password or has permissions restrictions (such as
+                "no editing" or "printing only"), it is encrypted in a way that
+                prevents the processing libraries from opening or modifying the
+                file. Because Readable must read and rewrite the document
+                structure to apply accessibility remediations—adding tags,
+                writing alt text, updating metadata—it cannot do any of that
+                work on a locked document.
+              </p>
+              <p className="mt-3">
+                To fix this, open the file in Acrobat (or the original authoring
+                tool), remove the password and any permission restrictions, save
+                the file, and then re-upload it to Readable.
               </p>
             </FaqItem>
 
