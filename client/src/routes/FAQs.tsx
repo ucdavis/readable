@@ -6,14 +6,17 @@ import {
   ClipboardDocumentCheckIcon,
   DocumentMagnifyingGlassIcon,
   ExclamationTriangleIcon,
+  LinkIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline';
+import { Link, createFileRoute, useRouterState } from '@tanstack/react-router';
 import {
-  Link,
-  createFileRoute,
-  useRouterState,
-} from '@tanstack/react-router';
-import { type ReactNode, useEffect, useState } from 'react';
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 export const Route = createFileRoute('/FAQs')({
   component: FAQs,
@@ -54,9 +57,91 @@ function FaqItem({
         }}
         type="checkbox"
       />
-      <div className="collapse-title text-base font-semibold">{question}</div>
+      <div className="collapse-title text-base font-semibold flex items-center gap-2">
+        {question}
+        {id && <CopyLinkButton fragment={id} />}
+      </div>
       <div className="collapse-content text-base-content/80">{children}</div>
     </div>
+  );
+}
+
+type CopyStatus = 'copied' | 'error' | 'idle';
+
+function CopyLinkButton({ fragment }: { fragment: string }) {
+  const [status, setStatus] = useState<CopyStatus>('idle');
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>(null);
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+
+      const url = `${window.location.origin}${window.location.pathname}#${fragment}`;
+      if (!navigator.clipboard) {
+        setStatus('error');
+        timeoutRef.current = setTimeout(() => setStatus('idle'), 2000);
+        return;
+      }
+      void navigator.clipboard.writeText(url).then(
+        () => {
+          setStatus('copied');
+          timeoutRef.current = setTimeout(() => setStatus('idle'), 2000);
+        },
+        () => {
+          setStatus('error');
+          timeoutRef.current = setTimeout(() => setStatus('idle'), 2000);
+        }
+      );
+    },
+    [fragment]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  const ariaLabel =
+    status === 'error'
+      ? 'Copy failed'
+      : status === 'copied'
+        ? 'Copied!'
+        : 'Copy link to this section';
+
+  return (
+    <>
+      <button
+        aria-label={ariaLabel}
+        className="btn btn-ghost btn-xs ml-auto opacity-50 hover:opacity-100 relative z-[1]"
+        onClick={handleClick}
+        title={
+          status === 'error'
+            ? 'Copy failed'
+            : status === 'copied'
+              ? 'Copied!'
+              : 'Copy link'
+        }
+        type="button"
+      >
+        <LinkIcon aria-hidden="true" className="h-4 w-4" />
+        {status === 'copied' && <span className="text-xs">Copied!</span>}
+        {status === 'error' && (
+          <span className="text-xs text-error">Failed</span>
+        )}
+      </button>
+      <span aria-live="polite" className="sr-only">
+        {status === 'copied' ? 'Link copied to clipboard' : ''}
+        {status === 'error' ? 'Failed to copy link' : ''}
+      </span>
+    </>
   );
 }
 
@@ -412,6 +497,7 @@ function FAQs() {
             <FaqItem
               activeHash={activeHash}
               defaultOpen
+              id="why-accessibility"
               question="Why does accessibility matter for PDFs?"
             >
               <p>
@@ -436,6 +522,7 @@ function FAQs() {
 
             <FaqItem
               activeHash={activeHash}
+              id="auto-vs-manual"
               question="What can Readable fix automatically vs. what still needs manual work?"
             >
               <p>
@@ -632,8 +719,8 @@ function FAQs() {
                     <li>Scanned or image-only PDFs</li>
                     <li>Handwriting</li>
                     <li>
-                      Pages where equations, notation, or other critical
-                      content exist only as images
+                      Pages where equations, notation, or other critical content
+                      exist only as images
                     </li>
                     <li>OCR output that is incomplete or unreliable</li>
                   </ul>
@@ -651,6 +738,7 @@ function FAQs() {
 
             <FaqItem
               activeHash={activeHash}
+              id="full-compliance"
               question="Does Readable guarantee full compliance?"
             >
               <p>
@@ -666,7 +754,11 @@ function FAQs() {
               </p>
             </FaqItem>
 
-            <FaqItem activeHash={activeHash} question="How is AI used?">
+            <FaqItem
+              activeHash={activeHash}
+              id="ai-usage"
+              question="How is AI used?"
+            >
               <p>
                 AI is used to draft clear, context-aware alt text for tagged
                 figures (and optionally links), and to suggest a reasonable
@@ -680,6 +772,7 @@ function FAQs() {
 
             <FaqItem
               activeHash={activeHash}
+              id="after-processing"
               question="What do I receive after processing?"
             >
               <p>
@@ -688,7 +781,11 @@ function FAQs() {
               </p>
             </FaqItem>
 
-            <FaqItem activeHash={activeHash} question="Who is Readable for?">
+            <FaqItem
+              activeHash={activeHash}
+              id="who-is-it-for"
+              question="Who is Readable for?"
+            >
               <p>
                 Readable is designed for UC Davis by the College of Agricultural
                 and Environmental Sciences Dean&apos;s Office @ UC Davis
