@@ -62,31 +62,56 @@ function FaqItem({
 
 function CopyLinkButton({ fragment }: { fragment: string }) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
       const url = `${window.location.origin}${window.location.pathname}#${fragment}`;
-      void navigator.clipboard.writeText(url).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      });
+      if (!navigator.clipboard) {
+        setCopyError(true);
+        setTimeout(() => setCopyError(false), 2000);
+        return;
+      }
+      void navigator.clipboard.writeText(url).then(
+        () => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        },
+        () => {
+          setCopyError(true);
+          setTimeout(() => setCopyError(false), 2000);
+        }
+      );
     },
     [fragment]
   );
 
+  const ariaLabel = copyError
+    ? 'Copy failed'
+    : copied
+      ? 'Copied!'
+      : 'Copy link to this section';
+
   return (
-    <button
-      aria-label="Copy link to this section"
-      className="btn btn-ghost btn-xs ml-auto opacity-50 hover:opacity-100 relative z-[1]"
-      onClick={handleClick}
-      title={copied ? 'Copied!' : 'Copy link'}
-      type="button"
-    >
-      <LinkIcon aria-hidden="true" className="h-4 w-4" />
-      {copied && <span className="text-xs">Copied!</span>}
-    </button>
+    <>
+      <button
+        aria-label={ariaLabel}
+        className="btn btn-ghost btn-xs ml-auto opacity-50 hover:opacity-100 relative z-[1]"
+        onClick={handleClick}
+        title={copyError ? 'Copy failed' : copied ? 'Copied!' : 'Copy link'}
+        type="button"
+      >
+        <LinkIcon aria-hidden="true" className="h-4 w-4" />
+        {copied && <span className="text-xs">Copied!</span>}
+        {copyError && <span className="text-xs text-error">Failed</span>}
+      </button>
+      <span aria-live="polite" className="sr-only">
+        {copied ? 'Link copied to clipboard' : ''}
+        {copyError ? 'Failed to copy link' : ''}
+      </span>
+    </>
   );
 }
 
