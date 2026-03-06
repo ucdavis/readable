@@ -10,7 +10,13 @@ import {
   SparklesIcon,
 } from '@heroicons/react/24/outline';
 import { Link, createFileRoute, useRouterState } from '@tanstack/react-router';
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 export const Route = createFileRoute('/FAQs')({
   component: FAQs,
@@ -60,39 +66,55 @@ function FaqItem({
   );
 }
 
+type CopyStatus = 'copied' | 'error' | 'idle';
+
 function CopyLinkButton({ fragment }: { fragment: string }) {
-  const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState(false);
+  const [status, setStatus] = useState<CopyStatus>('idle');
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
+
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+
       const url = `${window.location.origin}${window.location.pathname}#${fragment}`;
       if (!navigator.clipboard) {
-        setCopyError(true);
-        setTimeout(() => setCopyError(false), 2000);
+        setStatus('error');
+        timeoutRef.current = setTimeout(() => setStatus('idle'), 2000);
         return;
       }
       void navigator.clipboard.writeText(url).then(
         () => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
+          setStatus('copied');
+          timeoutRef.current = setTimeout(() => setStatus('idle'), 2000);
         },
         () => {
-          setCopyError(true);
-          setTimeout(() => setCopyError(false), 2000);
+          setStatus('error');
+          timeoutRef.current = setTimeout(() => setStatus('idle'), 2000);
         }
       );
     },
     [fragment]
   );
 
-  const ariaLabel = copyError
-    ? 'Copy failed'
-    : copied
-      ? 'Copied!'
-      : 'Copy link to this section';
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  const ariaLabel =
+    status === 'error'
+      ? 'Copy failed'
+      : status === 'copied'
+        ? 'Copied!'
+        : 'Copy link to this section';
 
   return (
     <>
@@ -100,16 +122,24 @@ function CopyLinkButton({ fragment }: { fragment: string }) {
         aria-label={ariaLabel}
         className="btn btn-ghost btn-xs ml-auto opacity-50 hover:opacity-100 relative z-[1]"
         onClick={handleClick}
-        title={copyError ? 'Copy failed' : copied ? 'Copied!' : 'Copy link'}
+        title={
+          status === 'error'
+            ? 'Copy failed'
+            : status === 'copied'
+              ? 'Copied!'
+              : 'Copy link'
+        }
         type="button"
       >
         <LinkIcon aria-hidden="true" className="h-4 w-4" />
-        {copied && <span className="text-xs">Copied!</span>}
-        {copyError && <span className="text-xs text-error">Failed</span>}
+        {status === 'copied' && <span className="text-xs">Copied!</span>}
+        {status === 'error' && (
+          <span className="text-xs text-error">Failed</span>
+        )}
       </button>
       <span aria-live="polite" className="sr-only">
-        {copied ? 'Link copied to clipboard' : ''}
-        {copyError ? 'Failed to copy link' : ''}
+        {status === 'copied' ? 'Link copied to clipboard' : ''}
+        {status === 'error' ? 'Failed to copy link' : ''}
       </span>
     </>
   );
