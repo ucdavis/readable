@@ -3,10 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Server.Controllers;
 
-[AllowAnonymous]
-[ApiController]
-[Route("api/[controller]")]
-public class StatusController : ControllerBase
+public class StatusController : ApiControllerBase
 {
     private readonly IConfiguration _configuration;
 
@@ -15,9 +12,10 @@ public class StatusController : ControllerBase
         _configuration = configuration;
     }
 
+    [AllowAnonymous]
     [HttpGet("banner")]
     [ResponseCache(Duration = 60)]
-    public IActionResult GetBanner()
+    public async Task<IActionResult> GetBanner()
     {
         var message = _configuration["STATUS_BANNER"];
 
@@ -26,6 +24,6 @@ public class StatusController : ControllerBase
             return NoContent();
         }
 
-        return Ok(new { message });
+        return await Task.FromResult(Ok(new { message }));
     }
 }
