@@ -9,8 +9,18 @@ import { RouterContext } from '../main.tsx';
 import Footer from '@/components/pdf/Footer.tsx';
 import { AnalyticsListener } from '@/shared/analytics/AnalyticsListener.tsx';
 
+const statusBanner = import.meta.env.VITE_STATUS_BANNER;
+
 const RootLayout = () => (
   <div className="min-h-screen bg-base-200 flex flex-col">
+    {statusBanner && (
+      <div
+        className="bg-error text-error-content text-center py-3 px-4 font-semibold text-sm"
+        role="status"
+      >
+        {statusBanner}
+      </div>
+    )}
     <main className="flex-1">
       <header className="container mb-6">
         <div className="py-2 flex justify-between items-center">
