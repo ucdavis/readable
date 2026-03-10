@@ -12,7 +12,6 @@ public class StatusController : ApiControllerBase
         _configuration = configuration;
     }
 
-    [AllowAnonymous]
     [HttpGet("banner")]
     [ResponseCache(Duration = 60)]
     public async Task<IActionResult> GetBanner()
