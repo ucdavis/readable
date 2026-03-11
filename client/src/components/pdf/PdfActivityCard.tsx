@@ -6,6 +6,7 @@ import {
   useUndeleteFilesMutation,
 } from '@/queries/files.ts';
 import { formatBytes, formatDateTime } from '@/lib/format.ts';
+import { PdfFailureStatusBadge } from '@/components/pdf/PdfFailureStatusBadge.tsx';
 import { Link } from '@tanstack/react-router';
 import { ArrowDownTrayIcon } from '@heroicons/react/24/solid';
 import {
@@ -16,6 +17,7 @@ import {
 import { useCallback, useMemo, useRef, useState } from 'react';
 
 const MAX_BATCH_SIZE = 50;
+
 
 export type PdfActivityCardProps = {
   activeUploadCount: number;
@@ -200,6 +202,7 @@ export function PdfActivityCard({
       },
     });
   }, [recentlyDeletedIds, undeleteMutation]);
+
 
   return (
     <div className="card bg-base-100 shadow">
@@ -398,6 +401,10 @@ export function PdfActivityCard({
                     typeof afterIssues === 'number'
                       ? beforeIssues - afterIssues
                       : null;
+                  const isFailed = file.status.toLowerCase() === 'failed';
+                  const failureReason =
+                    file.latestFailureReason?.trim() ||
+                    'No additional details were provided.';
 
                   return (
                     <tr className="group" key={file.fileId}>
@@ -424,9 +431,17 @@ export function PdfActivityCard({
                       <td>
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
-                            <span className="badge badge-primary badge-soft">
-                              {file.status}
-                            </span>
+                            {isFailed ? (
+                              <PdfFailureStatusBadge
+                                failureReason={failureReason}
+                                fileId={file.fileId}
+                                status={file.status}
+                              />
+                            ) : (
+                              <span className="badge badge-primary badge-soft">
+                                {file.status}
+                              </span>
+                            )}
                           </div>
 
                           {recentlyCompletedByFileId[file.fileId] ? (
@@ -453,7 +468,11 @@ export function PdfActivityCard({
 
                       {/* Report */}
                       <td className="text-base">
-                        {file.status !== 'Completed' ? (
+                        {isFailed ? (
+                          <span className="font-medium text-error">
+                            Processing failed
+                          </span>
+                        ) : file.status !== 'Completed' ? (
                           <span className="text-base-content/70">—</span>
                         ) : !afterReport ? (
                           <span className="text-base-content/70">
@@ -581,3 +600,13 @@ export function PdfActivityCard({
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
