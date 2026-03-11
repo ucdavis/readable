@@ -28,6 +28,12 @@ public sealed class PdfProcessorOptions
     public int MaxPagesPerChunk { get; set; } = 200;
 
     /// <summary>
+    /// Maximum allowed page count for uploaded PDFs.
+    /// Set to 0 or less to disable the limit.
+    /// </summary>
+    public int MaxUploadPages { get; set; }
+
+    /// <summary>
     /// Root directory for PDF ingest work. If null/empty, defaults to /tmp (when available) or <see cref="Path.GetTempPath"/>.
     /// </summary>
     public string? WorkDirRoot { get; set; }

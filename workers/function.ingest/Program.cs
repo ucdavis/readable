@@ -51,6 +51,10 @@ builder.Services.AddFileIngest(o =>
         builder.Configuration.GetValue<bool?>("Ingest:UsePdfBookmarks")
         ?? builder.Configuration.GetValue<bool?>("INGEST_USE_PDF_BOOKMARKS")
         ?? true;
+    o.MaxUploadPages =
+        builder.Configuration.GetValue<int?>("Ingest:MaxUploadPages")
+        ?? builder.Configuration.GetValue<int?>("INGEST_MAX_UPLOAD_PAGES")
+        ?? 25;
 });
 
 builder.Services.AddApplicationInsightsTelemetryWorkerService();

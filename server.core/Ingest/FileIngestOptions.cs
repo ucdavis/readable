@@ -8,6 +8,7 @@ public sealed class FileIngestOptions
     public bool AutotagTaggedPdfs { get; set; }
 
     public int PdfMaxPagesPerChunk { get; set; } = 200;
+    public int MaxUploadPages { get; set; }
     public string? PdfWorkDirRoot { get; set; }
 
     public void UseNoops()
@@ -16,5 +17,6 @@ public sealed class FileIngestOptions
         UsePdfRemediationProcessor = false;
         UsePdfBookmarks = false;
         AutotagTaggedPdfs = false;
+        MaxUploadPages = 0;
     }
 }

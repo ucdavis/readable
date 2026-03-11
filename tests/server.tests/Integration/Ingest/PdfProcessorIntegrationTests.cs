@@ -253,11 +253,101 @@ public sealed class PdfProcessorIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task ProcessAsync_WhenMaxUploadPagesExceeded_ThrowsBeforeAdobeOrRemediation()
+    {
+        var fileId = $"pdf-page-limit-test-{Guid.NewGuid():N}";
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", fileId);
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateTestPdf(inputPdfPath, pageCount: 26);
+
+            await using var inputStream = File.OpenRead(inputPdfPath);
+
+            using var loggerFactory = LoggerFactory.Create(_ => { });
+            var adobe = new CapturingAdobePdfServices();
+            var remediation = new CapturingRemediationProcessor();
+            var options = Options.Create(new PdfProcessorOptions
+            {
+                UseAdobePdfServices = true,
+                UsePdfRemediationProcessor = true,
+                MaxPagesPerChunk = 200,
+                MaxUploadPages = 25,
+                WorkDirRoot = runRoot
+            });
+
+            var sut = new PdfProcessor(adobe, remediation, options, loggerFactory.CreateLogger<PdfProcessor>());
+
+            var act = () => sut.ProcessAsync(fileId, inputStream, CancellationToken.None);
+
+            var ex = await act.Should().ThrowAsync<PdfPageLimitExceededException>();
+            ex.Which.ActualPageCount.Should().Be(26);
+            ex.Which.MaxAllowedPages.Should().Be(25);
+            adobe.AutotagCalls.Should().Be(0);
+            adobe.AccessibilityCheckCalls.Should().Be(0);
+            remediation.Calls.Should().Be(0);
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WhenMaxUploadPagesDisabled_DoesNotRejectLargePdf()
+    {
+        var fileId = $"pdf-page-limit-disabled-test-{Guid.NewGuid():N}";
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", fileId);
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateTestPdf(inputPdfPath, pageCount: 26);
+
+            await using var inputStream = File.OpenRead(inputPdfPath);
+
+            using var loggerFactory = LoggerFactory.Create(_ => { });
+            var adobe = new NoopAdobePdfServices(loggerFactory.CreateLogger<NoopAdobePdfServices>());
+            var remediation = new NoopPdfRemediationProcessor();
+            var options = Options.Create(new PdfProcessorOptions
+            {
+                UseAdobePdfServices = false,
+                UsePdfRemediationProcessor = false,
+                MaxPagesPerChunk = 200,
+                MaxUploadPages = 0,
+                WorkDirRoot = runRoot
+            });
+
+            var sut = new PdfProcessor(adobe, remediation, options, loggerFactory.CreateLogger<PdfProcessor>());
+
+            var result = await sut.ProcessAsync(fileId, inputStream, CancellationToken.None);
+
+            result.PageCount.Should().Be(26);
+            result.OutputPdfPath.Should().EndWith(".source.pdf");
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
     private sealed record AdobeCall(string InputPdfPath, string OutputTaggedPdfPath, string OutputTaggingReportPath);
 
     private sealed class CapturingAdobePdfServices : IAdobePdfServices
     {
         public List<AdobeCall> Calls { get; } = [];
+        public int AccessibilityCheckCalls { get; private set; }
+        public int AutotagCalls => Calls.Count;
 
         public async Task<AdobeAutotagOutput> AutotagPdfAsync(
             string inputPdfPath,
@@ -288,13 +378,34 @@ public sealed class PdfProcessorIntegrationTests
             int? pageEnd,
             CancellationToken cancellationToken)
         {
-            _ = inputPdfPath;
-            _ = outputPdfPath;
-            _ = outputReportPath;
-            _ = pageStart;
-            _ = pageEnd;
             cancellationToken.ThrowIfCancellationRequested();
-            throw new NotSupportedException("Not needed for this test.");
+            AccessibilityCheckCalls++;
+
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPdfPath)!);
+            File.Copy(inputPdfPath, outputPdfPath, overwrite: true);
+
+            Directory.CreateDirectory(Path.GetDirectoryName(outputReportPath)!);
+            File.WriteAllText(outputReportPath, "{\"Summary\":{\"Failed\":0}}");
+
+            return Task.FromResult(new AdobeAccessibilityCheckOutput(
+                outputPdfPath,
+                outputReportPath,
+                "{\"Summary\":{\"Failed\":0}}"));
+        }
+    }
+
+    private sealed class CapturingRemediationProcessor : IPdfRemediationProcessor
+    {
+        public int Calls { get; private set; }
+
+        public Task<PdfRemediationResult> ProcessAsync(
+            string fileId,
+            string inputPdfPath,
+            string outputPdfPath,
+            CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(new PdfRemediationResult(outputPdfPath));
         }
     }
 

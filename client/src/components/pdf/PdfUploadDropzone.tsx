@@ -81,6 +81,9 @@ export function PdfUploadDropzone({
       <div className="mt-3 text-xs text-base-content/70">
         PDF only · Multiple files supported
       </div>
+      <div className="alert alert-primary mt-4 max-w-md text-left text-sm">
+        <span>Temporary upload limit: PDFs must be 25 pages or fewer.</span>
+      </div>
       <p className="mt-2 max-w-sm text-xs text-base-content/60">
         Best results come from text-based PDFs. Scanned, handwritten, or
         image-only content may need manual transcription first.{' '}
