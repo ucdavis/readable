@@ -187,6 +187,11 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         }
         catch (Exception ex)
         {
+            if (ex is PdfPageLimitExceededException pageLimitExceededException)
+            {
+                pageCount = pageLimitExceededException.ActualPageCount;
+            }
+
             _logger.LogError(
                 ex,
                 "Ingest failed for {fileId} elapsedMs={elapsedMs}",

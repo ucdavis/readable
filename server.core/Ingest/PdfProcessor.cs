@@ -52,6 +52,14 @@ public sealed class PdfProcessor : IPdfProcessor
                 _options.MaxPagesPerChunk,
                 "MaxPagesPerChunk must be > 0.");
         }
+
+        if (_options.MaxUploadPages < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(_options.MaxUploadPages),
+                _options.MaxUploadPages,
+                "MaxUploadPages must be >= 0.");
+        }
     }
 
     /// <summary>
@@ -85,6 +93,9 @@ public sealed class PdfProcessor : IPdfProcessor
         {
             // ignore
         }
+
+        var sourcePageCount = TryReadPageCount(sourcePath);
+        EnforceMaxUploadPages(sourcePageCount);
 
         // Best-effort: generate a "before" accessibility report on the original uploaded PDF.
         AdobeAccessibilityCheckOutput? beforeAccessibilityReport = null;
@@ -342,6 +353,21 @@ public sealed class PdfProcessor : IPdfProcessor
     }
 
     private sealed record SourcePdfInfo(int PageCount, PdfTaggingState TaggingState);
+
+    private void EnforceMaxUploadPages(int pageCount)
+    {
+        if (_options.MaxUploadPages <= 0 || pageCount <= 0 || pageCount <= _options.MaxUploadPages)
+        {
+            return;
+        }
+
+        _logger.LogWarning(
+            "Rejecting PDF because it exceeds the configured page limit: actualPages={actualPages} maxAllowedPages={maxAllowedPages}",
+            pageCount,
+            _options.MaxUploadPages);
+
+        throw new PdfPageLimitExceededException(pageCount, _options.MaxUploadPages);
+    }
 
     private static int TryReadPageCount(string pdfPath)
     {

@@ -32,6 +32,7 @@ public static class IngestServiceCollectionExtensions
             o.UsePdfBookmarks = options.UsePdfBookmarks;
             o.AutotagTaggedPdfs = options.AutotagTaggedPdfs;
             o.MaxPagesPerChunk = options.PdfMaxPagesPerChunk;
+            o.MaxUploadPages = options.MaxUploadPages;
             o.WorkDirRoot = options.PdfWorkDirRoot;
         });
         services.AddSingleton<IBlobStreamOpener, AzureBlobStreamOpener>();
