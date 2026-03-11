@@ -222,7 +222,7 @@ export function PdfActivityCard({
             className="input input-bordered w-full max-w-xs placeholder:text-base-content/80"
             id="pdf-file-filter"
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter by filename…"
+            placeholder="Filter by filenameâ€¦"
             type="search"
             value={filter}
           />
@@ -245,7 +245,7 @@ export function PdfActivityCard({
               >
                 <ArrowDownTrayIcon className="h-4 w-4" />
                 {zipMutation.isPending
-                  ? 'Preparing zip…'
+                  ? 'Preparing zipâ€¦'
                   : completedSelectedCount > MAX_BATCH_SIZE
                     ? `Max ${MAX_BATCH_SIZE} files per ZIP`
                     : `Download ${completedSelectedCount} as ZIP`}
@@ -268,7 +268,7 @@ export function PdfActivityCard({
               >
                 <TrashIcon className="h-4 w-4" />
                 {archiveMutation.isPending
-                  ? 'Deleting…'
+                  ? 'Deletingâ€¦'
                   : selectedCount > MAX_BATCH_SIZE
                     ? `Max ${MAX_BATCH_SIZE} files per delete`
                     : `Delete ${selectedCount} file${selectedCount === 1 ? '' : 's'}`}
@@ -284,7 +284,7 @@ export function PdfActivityCard({
               >
                 <ArrowUturnLeftIcon className="h-4 w-4" />
                 {undeleteMutation.isPending
-                  ? 'Restoring…'
+                  ? 'Restoringâ€¦'
                   : `Undo delete (${recentlyDeletedIds.length} file${
                       recentlyDeletedIds.length === 1 ? '' : 's'
                     })`}
@@ -371,7 +371,7 @@ export function PdfActivityCard({
                   <td className="text-base-content/70" colSpan={5}>
                     <div className="flex items-center gap-3">
                       <span className="loading loading-spinner loading-sm" />
-                      <span>Loading…</span>
+                      <span>Loadingâ€¦</span>
                     </div>
                   </td>
                 </tr>
@@ -426,7 +426,15 @@ export function PdfActivityCard({
                       <td>
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
-                            <span className="badge badge-primary badge-soft">
+                            <span
+                              aria-label={
+                                failedReason
+                                  ? `Failure reason: ${failedReason}`
+                                  : undefined
+                              }
+                              className="badge badge-primary badge-soft"
+                              title={failedReason ?? undefined}
+                            >
                               {file.status}
                             </span>
                           </div>
@@ -437,11 +445,6 @@ export function PdfActivityCard({
                             </span>
                           ) : null}
 
-                          {failedReason ? (
-                            <p className="max-w-xs text-sm text-error">
-                              {failedReason}
-                            </p>
-                          ) : null}
 
                           {upload ? (
                             <progress className="progress progress-primary w-full" />
@@ -454,7 +457,7 @@ export function PdfActivityCard({
                         {file.originalFileName}
                         <br />
                         <span className="text-sm text-base-content/70">
-                          {formatBytes(file.sizeBytes)} •{' '}
+                          {formatBytes(file.sizeBytes)} â€¢{' '}
                           {formatDateTime(file.createdAt)}
                         </span>
                       </td>
@@ -464,14 +467,14 @@ export function PdfActivityCard({
                         {file.status === 'Failed' && failedReason ? (
                           <span className="text-error">Processing failed</span>
                         ) : file.status !== 'Completed' ? (
-                          <span className="text-base-content/70">—</span>
+                          <span className="text-base-content/70">â€”</span>
                         ) : !afterReport ? (
                           <span className="text-base-content/70">
                             No report yet
                           </span>
                         ) : afterIssues === null ? (
                           <div className="">
-                            Report ready • After:{' '}
+                            Report ready â€¢ After:{' '}
                             {formatDateTime(afterReport.generatedAt)}
                           </div>
                         ) : (
@@ -496,12 +499,12 @@ export function PdfActivityCard({
                             <div>
                               {typeof beforeIssues === 'number' ? (
                                 <>
-                                  Issues: {beforeIssues} → {afterIssues}
+                                  Issues: {beforeIssues} â†’ {afterIssues}
                                 </>
                               ) : (
                                 <>Issues remaining: {afterIssues}</>
                               )}{' '}
-                              • After: {formatDateTime(afterReport.generatedAt)}
+                              â€¢ After: {formatDateTime(afterReport.generatedAt)}
                             </div>
                           </div>
                         )}
@@ -591,6 +594,8 @@ export function PdfActivityCard({
     </div>
   );
 }
+
+
 
 
 

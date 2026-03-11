@@ -36,11 +36,15 @@ describe('authenticated index route', () => {
     const { cleanup } = renderRoute({ initialPath: '/' });
 
     try {
-      expect(
-        await screen.findByText(
-          'PDFs are temporarily limited to 25 pages. This file has 26 pages.'
-        )
-      ).toBeInTheDocument();
+      const failedBadge = await screen.findByText('Failed');
+      expect(failedBadge).toHaveAttribute(
+        'title',
+        'PDFs are temporarily limited to 25 pages. This file has 26 pages.'
+      );
+      expect(failedBadge).toHaveAttribute(
+        'aria-label',
+        'Failure reason: PDFs are temporarily limited to 25 pages. This file has 26 pages.'
+      );
       expect(await screen.findByText('Processing failed')).toBeInTheDocument();
     } finally {
       cleanup();
@@ -92,4 +96,6 @@ describe('authenticated index route', () => {
     }
   });
 });
+
+
 
