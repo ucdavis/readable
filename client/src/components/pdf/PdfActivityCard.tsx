@@ -6,6 +6,7 @@ import {
   useUndeleteFilesMutation,
 } from '@/queries/files.ts';
 import { formatBytes, formatDateTime } from '@/lib/format.ts';
+import { PdfFailureStatusBadge } from '@/components/pdf/PdfFailureStatusBadge.tsx';
 import { Link } from '@tanstack/react-router';
 import { ArrowDownTrayIcon } from '@heroicons/react/24/solid';
 import {
@@ -13,16 +14,9 @@ import {
   TrashIcon,
   DocumentChartBarIcon,
 } from '@heroicons/react/24/outline';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 const MAX_BATCH_SIZE = 50;
-
-type FailureTooltipState = {
-  anchor: HTMLSpanElement;
-  fileId: string;
-  message: string;
-};
 
 
 export type PdfActivityCardProps = {
@@ -48,19 +42,12 @@ export function PdfActivityCard({
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const confirmDialogRef = useRef<HTMLDialogElement>(null);
-  const failureTooltipRef = useRef<HTMLDivElement>(null);
   const [pendingBulkIds, setPendingBulkIds] = useState<string[]>([]);
   const [recentlyDeletedIds, setRecentlyDeletedIds] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const archiveMutation = useArchiveFilesMutation();
   const undeleteMutation = useUndeleteFilesMutation();
   const zipMutation = useDownloadFilesAsZipMutation();
-  const [failureTooltip, setFailureTooltip] =
-    useState<FailureTooltipState | null>(null);
-  const [failureTooltipPosition, setFailureTooltipPosition] = useState<{
-    left: number;
-    top: number;
-  } | null>(null);
 
   const visibleFiles = files?.filter((f) => !hiddenIds.has(f.fileId));
   const filteredFiles = visibleFiles?.filter((f) =>
@@ -216,60 +203,6 @@ export function PdfActivityCard({
     });
   }, [recentlyDeletedIds, undeleteMutation]);
 
-  const closeFailureTooltip = useCallback(() => {
-    setFailureTooltip(null);
-  }, []);
-
-  const openFailureTooltip = useCallback(
-    (fileId: string, message: string, anchor: HTMLSpanElement) => {
-      setFailureTooltip({ anchor, fileId, message });
-    },
-    []
-  );
-
-  useEffect(() => {
-    if (!failureTooltip) {
-      setFailureTooltipPosition(null);
-      return;
-    }
-
-    const updatePosition = () => {
-      if (!failureTooltip.anchor.isConnected) {
-        setFailureTooltip(null);
-        return;
-      }
-
-      const rect = failureTooltip.anchor.getBoundingClientRect();
-      const viewportPadding = 16;
-      const fallbackTooltipWidth = Math.min(
-        320,
-        Math.max(0, window.innerWidth - viewportPadding * 2)
-      );
-      const tooltipWidth =
-        failureTooltipRef.current?.getBoundingClientRect().width ??
-        fallbackTooltipWidth;
-      const tooltipHalfWidth = tooltipWidth / 2;
-      const left = Math.min(
-        Math.max(rect.left + rect.width / 2, viewportPadding + tooltipHalfWidth),
-        window.innerWidth - viewportPadding - tooltipHalfWidth
-      );
-
-      setFailureTooltipPosition({
-        left,
-        top: rect.bottom + 12,
-      });
-    };
-
-    updatePosition();
-
-    window.addEventListener('resize', updatePosition);
-    window.addEventListener('scroll', updatePosition, true);
-
-    return () => {
-      window.removeEventListener('resize', updatePosition);
-      window.removeEventListener('scroll', updatePosition, true);
-    };
-  }, [failureTooltip]);
 
   return (
     <div className="card bg-base-100 shadow">
@@ -499,33 +432,11 @@ export function PdfActivityCard({
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
                             {isFailed ? (
-                              <span
-                                aria-describedby={
-                                  failureTooltip?.fileId === file.fileId
-                                    ? `failure-reason-${file.fileId}`
-                                    : undefined
-                                }
-                                className="badge badge-error badge-soft cursor-help"
-                                onBlur={closeFailureTooltip}
-                                onFocus={(e) =>
-                                  openFailureTooltip(
-                                    file.fileId,
-                                    failureReason,
-                                    e.currentTarget
-                                  )
-                                }
-                                onMouseEnter={(e) =>
-                                  openFailureTooltip(
-                                    file.fileId,
-                                    failureReason,
-                                    e.currentTarget
-                                  )
-                                }
-                                onMouseLeave={closeFailureTooltip}
-                                tabIndex={0}
-                              >
-                                {file.status}
-                              </span>
+                              <PdfFailureStatusBadge
+                                failureReason={failureReason}
+                                fileId={file.fileId}
+                                status={file.status}
+                              />
                             ) : (
                               <span className="badge badge-primary badge-soft">
                                 {file.status}
@@ -686,33 +597,13 @@ export function PdfActivityCard({
           </button>
         </form>
       </dialog>
-
-      {failureTooltip && typeof document !== 'undefined'
-        ? createPortal(
-            <div
-              className="pointer-events-none fixed z-50 w-80 max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-xl border border-error/20 bg-base-100 p-4 text-left shadow-xl ring-1 ring-base-content/5"
-              id={`failure-reason-${failureTooltip.fileId}`}
-              ref={failureTooltipRef}
-              role="tooltip"
-              style={{
-                left: failureTooltipPosition?.left ?? 0,
-                top: failureTooltipPosition?.top ?? 0,
-                visibility: failureTooltipPosition ? 'visible' : 'hidden',
-              }}
-            >
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-error">
-                Failure reason
-              </p>
-              <p className="mt-2 text-sm leading-6 text-base-content/80">
-                {failureTooltip.message}
-              </p>
-            </div>,
-            document.body
-          )
-        : null}
     </div>
   );
 }
+
+
+
+
 
 
 
