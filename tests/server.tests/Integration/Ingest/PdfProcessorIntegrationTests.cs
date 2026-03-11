@@ -391,7 +391,7 @@ public sealed class PdfProcessorIntegrationTests
     public async Task NoopProcessAsync_WithDotDotFileId_NormalizesAttemptRoot()
     {
         const string normalizedFileId = "invalid-file-id";
-        string? attemptRoot = null;
+        string? workDir = null;
 
         try
         {
@@ -399,17 +399,16 @@ public sealed class PdfProcessorIntegrationTests
             var sut = new NoopPdfProcessor();
 
             var result = await sut.ProcessAsync("..", inputStream, CancellationToken.None);
-            var workDir = Path.GetDirectoryName(result.OutputPdfPath)!;
-            attemptRoot = Directory.GetParent(workDir)!.FullName;
+            workDir = Path.GetDirectoryName(result.OutputPdfPath)!;
 
             Path.GetFileName(result.OutputPdfPath).Should().Be($"{normalizedFileId}.noop.pdf");
             Directory.GetParent(workDir)!.Name.Should().Be(normalizedFileId);
         }
         finally
         {
-            if (!string.IsNullOrWhiteSpace(attemptRoot) && Directory.Exists(attemptRoot))
+            if (!string.IsNullOrWhiteSpace(workDir) && Directory.Exists(workDir))
             {
-                Directory.Delete(attemptRoot, recursive: true);
+                Directory.Delete(workDir, recursive: true);
             }
         }
     }
@@ -616,6 +615,7 @@ public sealed class PdfProcessorIntegrationTests
         return pdf.GetNumberOfPages();
     }
 }
+
 
 
 
