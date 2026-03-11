@@ -39,6 +39,11 @@ public class FileController : ApiControllerBase
                 Status = f.Status,
                 CreatedAt = f.CreatedAt,
                 StatusUpdatedAt = f.StatusUpdatedAt,
+                LatestFailureReason = f.ProcessingAttempts
+                    .Where(a => a.Outcome == FileProcessingAttempt.Outcomes.Failed)
+                    .OrderByDescending(a => a.AttemptNumber)
+                    .Select(a => a.ErrorMessage)
+                    .FirstOrDefault(),
                 AccessibilityReports = f.AccessibilityReports
                     .OrderByDescending(r => r.GeneratedAt)
                     .Select(r => new AccessibilityReportListItemDto
@@ -72,6 +77,7 @@ public class FileController : ApiControllerBase
         var file = await _dbContext.Files
             .AsNoTracking()
             .Include(f => f.AccessibilityReports)
+            .Include(f => f.ProcessingAttempts)
             .SingleOrDefaultAsync(
                 f => f.FileId == fileId && f.OwnerUserId == userId.Value,
                 cancellationToken);
@@ -120,6 +126,11 @@ public class FileController : ApiControllerBase
             Status = file.Status,
             CreatedAt = file.CreatedAt,
             StatusUpdatedAt = file.StatusUpdatedAt,
+            LatestFailureReason = file.ProcessingAttempts
+                .Where(a => a.Outcome == FileProcessingAttempt.Outcomes.Failed)
+                .OrderByDescending(a => a.AttemptNumber)
+                .Select(a => a.ErrorMessage)
+                .FirstOrDefault(),
             AccessibilityReports = reports,
         });
     }
@@ -199,6 +210,7 @@ public class FileController : ApiControllerBase
         public string Status { get; init; } = string.Empty;
         public DateTimeOffset CreatedAt { get; init; }
         public DateTimeOffset StatusUpdatedAt { get; init; }
+        public string? LatestFailureReason { get; init; }
         public List<AccessibilityReportListItemDto> AccessibilityReports { get; set; } = [];
     }
 
@@ -211,6 +223,7 @@ public class FileController : ApiControllerBase
         public string Status { get; init; } = string.Empty;
         public DateTimeOffset CreatedAt { get; init; }
         public DateTimeOffset StatusUpdatedAt { get; init; }
+        public string? LatestFailureReason { get; init; }
         public List<AccessibilityReportDetailsDto> AccessibilityReports { get; set; } = [];
     }
 
@@ -235,3 +248,4 @@ public class FileController : ApiControllerBase
         public JsonElement ReportJson { get; init; }
     }
 }
+

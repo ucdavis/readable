@@ -166,6 +166,78 @@ public class FileControllerTests
         after.ReportJson.GetProperty("Summary").GetProperty("Passed").GetInt32().Should().Be(2);
     }
 
+    [Fact]
+    public async Task List_when_file_failed_returns_latest_failure_reason()
+    {
+        using AppDbContext ctx = TestDbContextFactory.CreateInMemory();
+
+        var user = new User
+        {
+            UserId = 1,
+            EntraObjectId = Guid.NewGuid(),
+            Email = "test@example.com",
+            DisplayName = "Test User",
+        };
+        ctx.Users.Add(user);
+
+        var fileId = Guid.NewGuid();
+        ctx.Files.Add(new FileRecord
+        {
+            FileId = fileId,
+            OwnerUserId = user.UserId,
+            OwnerUser = user,
+            OriginalFileName = "failed.pdf",
+            ContentType = "application/pdf",
+            SizeBytes = 123,
+            Status = FileRecord.Statuses.Failed,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+            StatusUpdatedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+        });
+
+        ctx.FileProcessingAttempts.AddRange(
+            new FileProcessingAttempt
+            {
+                FileId = fileId,
+                AttemptNumber = 1,
+                Trigger = FileProcessingAttempt.Triggers.Upload,
+                Outcome = FileProcessingAttempt.Outcomes.Failed,
+                StartedAt = DateTimeOffset.UtcNow.AddMinutes(-4),
+                FinishedAt = DateTimeOffset.UtcNow.AddMinutes(-4),
+                ErrorMessage = "older failure",
+            },
+            new FileProcessingAttempt
+            {
+                FileId = fileId,
+                AttemptNumber = 2,
+                Trigger = FileProcessingAttempt.Triggers.Retry,
+                Outcome = FileProcessingAttempt.Outcomes.Failed,
+                StartedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+                FinishedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+                ErrorMessage = "latest failure",
+            });
+
+        await ctx.SaveChangesAsync();
+
+        var controller = new FileController(ctx);
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = BuildUser(user.UserId),
+            },
+        };
+
+        var result = await controller.List(CancellationToken.None);
+        result.Result.Should().BeOfType<OkObjectResult>();
+
+        var ok = (OkObjectResult)result.Result!;
+        ok.Value.Should().BeAssignableTo<List<FileController.FileListItemDto>>();
+
+        var dto = ((List<FileController.FileListItemDto>)ok.Value!).Single();
+        dto.FileId.Should().Be(fileId);
+        dto.LatestFailureReason.Should().Be("latest failure");
+    }
+
     private static ClaimsPrincipal BuildUser(long userId)
     {
         var identity = new ClaimsIdentity(

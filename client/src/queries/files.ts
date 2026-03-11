@@ -33,6 +33,7 @@ export type UserFile = {
   sizeBytes: number;
   status: string;
   statusUpdatedAt: string;
+  latestFailureReason?: string | null;
 };
 
 export type UserFileDetails = Omit<UserFile, 'accessibilityReports'> & {
@@ -145,3 +146,4 @@ export function useDownloadFilesAsZipMutation() {
     mutationFn: (fileIds: string[]) => downloadFilesAsZip(fileIds),
   });
 }
+
