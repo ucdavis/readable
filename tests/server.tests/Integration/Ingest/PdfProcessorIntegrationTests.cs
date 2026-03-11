@@ -342,6 +342,79 @@ public sealed class PdfProcessorIntegrationTests
     }
 
     [Fact]
+    public async Task ProcessAsync_WithDotDotFileId_NormalizesAttemptRoot()
+    {
+        const string fileId = "..";
+        const string normalizedFileId = "invalid-file-id";
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"pdf-dotdot-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateTestPdf(inputPdfPath, pageCount: 1);
+
+            await using var inputStream = File.OpenRead(inputPdfPath);
+
+            using var loggerFactory = LoggerFactory.Create(_ => { });
+            var adobe = new NoopAdobePdfServices(loggerFactory.CreateLogger<NoopAdobePdfServices>());
+            var remediation = new NoopPdfRemediationProcessor();
+            var options = Options.Create(new PdfProcessorOptions
+            {
+                UseAdobePdfServices = false,
+                UsePdfRemediationProcessor = false,
+                MaxPagesPerChunk = 200,
+                WorkDirRoot = runRoot
+            });
+
+            var sut = new PdfProcessor(adobe, remediation, options, loggerFactory.CreateLogger<PdfProcessor>());
+
+            var result = await sut.ProcessAsync(fileId, inputStream, CancellationToken.None);
+            var attemptRoot = Path.Combine(runRoot, "readable-ingest", normalizedFileId);
+            var fullOutputPath = Path.GetFullPath(result.OutputPdfPath);
+            var fullAttemptRoot = Path.GetFullPath(attemptRoot + Path.DirectorySeparatorChar);
+
+            Directory.Exists(attemptRoot).Should().BeTrue();
+            fullOutputPath.Should().StartWith(fullAttemptRoot);
+            Path.GetFileName(result.OutputPdfPath).Should().Be($"{normalizedFileId}.source.pdf");
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task NoopProcessAsync_WithDotDotFileId_NormalizesAttemptRoot()
+    {
+        const string normalizedFileId = "invalid-file-id";
+        string? attemptRoot = null;
+
+        try
+        {
+            await using var inputStream = new MemoryStream("%PDF-1.7"u8.ToArray());
+            var sut = new NoopPdfProcessor();
+
+            var result = await sut.ProcessAsync("..", inputStream, CancellationToken.None);
+            var workDir = Path.GetDirectoryName(result.OutputPdfPath)!;
+            attemptRoot = Directory.GetParent(workDir)!.FullName;
+
+            Path.GetFileName(result.OutputPdfPath).Should().Be($"{normalizedFileId}.noop.pdf");
+            Directory.GetParent(workDir)!.Name.Should().Be(normalizedFileId);
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(attemptRoot) && Directory.Exists(attemptRoot))
+            {
+                Directory.Delete(attemptRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task ProcessAsync_WhenRunTwiceForSameFileId_UsesDistinctAttemptDirectories()
     {
         var fileId = $"pdf-retry-test-{Guid.NewGuid():N}";
@@ -543,4 +616,6 @@ public sealed class PdfProcessorIntegrationTests
         return pdf.GetNumberOfPages();
     }
 }
+
+
 

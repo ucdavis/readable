@@ -27,6 +27,36 @@ public sealed record PdfChunk(int Index, int FromPage, int ToPage, string Path)
     public int PageCount => ToPage - FromPage + 1;
 }
 
+internal static class PdfPathSafeName
+{
+    private const string InvalidFileIdToken = "invalid-file-id";
+
+    public static string FromFileId(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return InvalidFileIdToken;
+        }
+
+        var invalid = Path.GetInvalidFileNameChars();
+        var sb = new StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            sb.Append(Array.IndexOf(invalid, ch) >= 0 ? '_' : ch);
+        }
+
+        var sanitized = sb.ToString().Trim();
+        if (string.IsNullOrWhiteSpace(sanitized)
+            || string.Equals(sanitized, ".", StringComparison.Ordinal)
+            || string.Equals(sanitized, "..", StringComparison.Ordinal))
+        {
+            return InvalidFileIdToken;
+        }
+
+        return sanitized;
+    }
+}
+
 public sealed class PdfProcessor : IPdfProcessor
 {
     private readonly IAdobePdfServices _adobePdfServices;
@@ -72,7 +102,7 @@ public sealed class PdfProcessor : IPdfProcessor
     public async Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
     {
         var totalSw = Stopwatch.StartNew();
-        var safeFileId = SanitizeForFileName(fileId);
+        var safeFileId = PdfPathSafeName.FromFileId(fileId);
         var runId = Guid.NewGuid().ToString("N");
         var workDir = GetWorkDir(safeFileId, runId, _options.WorkDirRoot);
         Directory.CreateDirectory(workDir);
@@ -582,25 +612,6 @@ public sealed class PdfProcessor : IPdfProcessor
         return Path.Combine(baseTmp, "readable-ingest", safeFileId, runId);
     }
 
-    /// <summary>
-    /// Produces a filesystem-safe identifier for use in temporary file names.
-    /// </summary>
-    private static string SanitizeForFileName(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return "file";
-        }
-
-        var invalid = Path.GetInvalidFileNameChars();
-        var sb = new StringBuilder(value.Length);
-        foreach (var ch in value)
-        {
-            sb.Append(Array.IndexOf(invalid, ch) >= 0 ? '_' : ch);
-        }
-
-        return sb.ToString().Trim();
-    }
 
     /// <summary>
     /// Merges PDFs into a single document, preserving the provided input order.
@@ -626,7 +637,7 @@ public sealed class NoopPdfProcessor : IPdfProcessor
 {
     public async Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
     {
-        var safeFileId = Sanitize(fileId);
+        var safeFileId = PdfPathSafeName.FromFileId(fileId);
         var tmpRoot = Directory.Exists("/tmp") ? "/tmp" : Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
         var workDir = Path.Combine(tmpRoot, "readable-ingest", safeFileId, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(workDir);
@@ -664,21 +675,6 @@ public sealed class NoopPdfProcessor : IPdfProcessor
         return new PdfProcessResult(outputPath);
     }
 
-    private static string Sanitize(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return "file";
-        }
-
-        var invalid = Path.GetInvalidFileNameChars();
-        var sb = new StringBuilder(value.Length);
-        foreach (var ch in value)
-        {
-            sb.Append(Array.IndexOf(invalid, ch) >= 0 ? '_' : ch);
-        }
-
-        return sb.ToString().Trim();
-    }
 }
+
 
