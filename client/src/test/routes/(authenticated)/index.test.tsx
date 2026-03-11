@@ -5,6 +5,47 @@ import { server } from '@/test/mswUtils.ts';
 import { renderRoute } from '@/test/routerUtils.tsx';
 
 describe('authenticated index route', () => {
+  it('renders the latest processing failure reason for failed files', async () => {
+    server.use(
+      http.get('/api/user/me', () => {
+        return HttpResponse.json({
+          email: 'user@example.com',
+          id: 'user-1',
+          name: 'Test User',
+          roles: [],
+        });
+      }),
+      http.get('/api/file', () => {
+        return HttpResponse.json([
+          {
+            accessibilityReports: [],
+            contentType: 'application/pdf',
+            createdAt: '2026-03-11T00:00:00Z',
+            fileId: 'file-1',
+            originalFileName: 'too-many-pages.pdf',
+            processingErrorMessage:
+              'PDFs are temporarily limited to 25 pages. This file has 26 pages.',
+            sizeBytes: 1024,
+            status: 'Failed',
+            statusUpdatedAt: '2026-03-11T00:01:00Z',
+          },
+        ]);
+      })
+    );
+
+    const { cleanup } = renderRoute({ initialPath: '/' });
+
+    try {
+      expect(
+        await screen.findByText(
+          'PDFs are temporarily limited to 25 pages. This file has 26 pages.'
+        )
+      ).toBeInTheDocument();
+      expect(await screen.findByText('Processing failed')).toBeInTheDocument();
+    } finally {
+      cleanup();
+    }
+  });
   it('renders the PDF upload experience', async () => {
     // arrange
     let filesRequestCount = 0;
@@ -51,3 +92,4 @@ describe('authenticated index route', () => {
     }
   });
 });
+

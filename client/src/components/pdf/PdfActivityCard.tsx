@@ -398,6 +398,8 @@ export function PdfActivityCard({
                     typeof afterIssues === 'number'
                       ? beforeIssues - afterIssues
                       : null;
+                  const failedReason =
+                    file.status === 'Failed' ? file.processingErrorMessage : null;
 
                   return (
                     <tr className="group" key={file.fileId}>
@@ -435,6 +437,12 @@ export function PdfActivityCard({
                             </span>
                           ) : null}
 
+                          {failedReason ? (
+                            <p className="max-w-xs text-sm text-error">
+                              {failedReason}
+                            </p>
+                          ) : null}
+
                           {upload ? (
                             <progress className="progress progress-primary w-full" />
                           ) : null}
@@ -453,7 +461,9 @@ export function PdfActivityCard({
 
                       {/* Report */}
                       <td className="text-base">
-                        {file.status !== 'Completed' ? (
+                        {file.status === 'Failed' && failedReason ? (
+                          <span className="text-error">Processing failed</span>
+                        ) : file.status !== 'Completed' ? (
                           <span className="text-base-content/70">—</span>
                         ) : !afterReport ? (
                           <span className="text-base-content/70">
@@ -581,3 +591,6 @@ export function PdfActivityCard({
     </div>
   );
 }
+
+
+

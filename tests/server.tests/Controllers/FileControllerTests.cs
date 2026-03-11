@@ -81,6 +81,74 @@ public class FileControllerTests
     }
 
     [Fact]
+    public async Task List_when_file_failed_returns_latest_processing_error_message()
+    {
+        using AppDbContext ctx = TestDbContextFactory.CreateInMemory();
+
+        var user = new User
+        {
+            UserId = 1,
+            EntraObjectId = Guid.NewGuid(),
+            Email = "test@example.com",
+            DisplayName = "Test User",
+        };
+        ctx.Users.Add(user);
+
+        var fileId = Guid.NewGuid();
+        ctx.Files.Add(new FileRecord
+        {
+            FileId = fileId,
+            OwnerUserId = user.UserId,
+            OwnerUser = user,
+            OriginalFileName = "test.pdf",
+            ContentType = "application/pdf",
+            SizeBytes = 123,
+            Status = FileRecord.Statuses.Failed,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+            StatusUpdatedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            ProcessingAttempts =
+            [
+                new FileProcessingAttempt
+                {
+                    AttemptNumber = 1,
+                    Trigger = FileProcessingAttempt.Triggers.Upload,
+                    Outcome = FileProcessingAttempt.Outcomes.Failed,
+                    StartedAt = DateTimeOffset.UtcNow.AddMinutes(-4),
+                    FinishedAt = DateTimeOffset.UtcNow.AddMinutes(-4),
+                    ErrorMessage = "Old failure",
+                },
+                new FileProcessingAttempt
+                {
+                    AttemptNumber = 2,
+                    Trigger = FileProcessingAttempt.Triggers.Retry,
+                    Outcome = FileProcessingAttempt.Outcomes.Failed,
+                    StartedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+                    FinishedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+                    ErrorMessage = "PDFs are temporarily limited to 25 pages.",
+                },
+            ],
+        });
+
+        await ctx.SaveChangesAsync();
+
+        var controller = new FileController(ctx);
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = BuildUser(user.UserId),
+            },
+        };
+
+        var result = await controller.List(CancellationToken.None);
+        result.Result.Should().BeOfType<OkObjectResult>();
+
+        var ok = (OkObjectResult)result.Result!;
+        var dto = ok.Value.Should().BeAssignableTo<List<FileController.FileListItemDto>>().Subject.Single();
+        dto.ProcessingErrorMessage.Should().Be("PDFs are temporarily limited to 25 pages.");
+    }
+
+    [Fact]
     public async Task GetById_when_owned_returns_file_and_reports()
     {
         using AppDbContext ctx = TestDbContextFactory.CreateInMemory();
@@ -151,6 +219,7 @@ public class FileControllerTests
         var dto = (FileController.FileDetailsDto)ok.Value!;
         dto.FileId.Should().Be(fileId);
         dto.OriginalFileName.Should().Be("test.pdf");
+        dto.ProcessingErrorMessage.Should().BeNull();
         dto.AccessibilityReports.Should().HaveCount(2);
 
         dto.AccessibilityReports.Select(r => r.Stage).Should().Contain(new[]
@@ -174,4 +243,8 @@ public class FileControllerTests
         return new ClaimsPrincipal(identity);
     }
 }
+
+
+
+
 

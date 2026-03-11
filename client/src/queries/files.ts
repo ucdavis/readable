@@ -30,6 +30,7 @@ export type UserFile = {
   createdAt: string;
   fileId: string;
   originalFileName: string;
+  processingErrorMessage?: string | null;
   sizeBytes: number;
   status: string;
   statusUpdatedAt: string;
@@ -145,3 +146,5 @@ export function useDownloadFilesAsZipMutation() {
     mutationFn: (fileIds: string[]) => downloadFilesAsZip(fileIds),
   });
 }
+
+
