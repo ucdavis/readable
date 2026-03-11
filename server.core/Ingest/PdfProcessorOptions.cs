@@ -25,6 +25,11 @@ public sealed class PdfProcessorOptions
     /// </summary>
     public bool AutotagTaggedPdfs { get; set; }
 
+    /// <summary>
+    /// Temporary hard limit to keep oversized PDFs from reaching Adobe-backed processing.
+    /// </summary>
+    public int MaxPageCount { get; set; } = 25;
+
     public int MaxPagesPerChunk { get; set; } = 200;
 
     /// <summary>
@@ -32,3 +37,4 @@ public sealed class PdfProcessorOptions
     /// </summary>
     public string? WorkDirRoot { get; set; }
 }
+

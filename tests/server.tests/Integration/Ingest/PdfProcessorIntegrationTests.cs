@@ -164,6 +164,50 @@ public sealed class PdfProcessorIntegrationTests
     }
 
     [Fact]
+    public async Task ProcessAsync_WhenPdfExceedsMaxPageCount_ThrowsBeforeAdobeRuns()
+    {
+        var fileId = $"pdf-over-limit-test-{Guid.NewGuid():N}";
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", fileId);
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateTestPdf(inputPdfPath, pageCount: 26);
+            await using var inputStream = File.OpenRead(inputPdfPath);
+
+            using var loggerFactory = LoggerFactory.Create(_ => { });
+            var adobe = new CapturingAdobePdfServices();
+            var remediation = new NoopPdfRemediationProcessor();
+            var options = Options.Create(new PdfProcessorOptions
+            {
+                UseAdobePdfServices = true,
+                UsePdfRemediationProcessor = false,
+                MaxPageCount = 25,
+                MaxPagesPerChunk = 200,
+                WorkDirRoot = runRoot
+            });
+
+            var sut = new PdfProcessor(adobe, remediation, options, loggerFactory.CreateLogger<PdfProcessor>());
+
+            var act = () => sut.ProcessAsync(fileId, inputStream, CancellationToken.None);
+            var error = await act.Should().ThrowAsync<PdfPageLimitExceededException>();
+
+            error.Which.PageCount.Should().Be(26);
+            error.Which.MaxPageCount.Should().Be(25);
+            adobe.Calls.Should().BeEmpty();
+            adobe.AccessibilityCheckCalls.Should().Be(0);
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task ProcessAsync_WithAdobeEnabledAndTaggedPdf_SkipsAutotagByDefault()
     {
         var fileId = $"pdf-tagged-adobe-skip-test-{Guid.NewGuid():N}";
@@ -258,6 +302,7 @@ public sealed class PdfProcessorIntegrationTests
     private sealed class CapturingAdobePdfServices : IAdobePdfServices
     {
         public List<AdobeCall> Calls { get; } = [];
+        public int AccessibilityCheckCalls { get; private set; }
 
         public async Task<AdobeAutotagOutput> AutotagPdfAsync(
             string inputPdfPath,
@@ -288,6 +333,7 @@ public sealed class PdfProcessorIntegrationTests
             int? pageEnd,
             CancellationToken cancellationToken)
         {
+            AccessibilityCheckCalls++;
             _ = inputPdfPath;
             _ = outputPdfPath;
             _ = outputReportPath;
@@ -368,3 +414,6 @@ public sealed class PdfProcessorIntegrationTests
         return pdf.GetNumberOfPages();
     }
 }
+
+
+

@@ -31,6 +31,7 @@ public static class IngestServiceCollectionExtensions
             o.UsePdfRemediationProcessor = options.UsePdfRemediationProcessor;
             o.UsePdfBookmarks = options.UsePdfBookmarks;
             o.AutotagTaggedPdfs = options.AutotagTaggedPdfs;
+            o.MaxPageCount = options.PdfMaxPageCount;
             o.MaxPagesPerChunk = options.PdfMaxPagesPerChunk;
             o.WorkDirRoot = options.PdfWorkDirRoot;
         });
@@ -150,3 +151,4 @@ public static class IngestServiceCollectionExtensions
 
     private sealed record OpenAiRemediationConfig(string ApiKey, string AltTextModel, string PdfTitleModel);
 }
+

@@ -1,10 +1,12 @@
 using System.ComponentModel.DataAnnotations;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using server.Helpers;
 using server.Helpers.Validation;
 using server.core.Data;
 using server.core.Domain;
+using server.core.Ingest;
 using server.core.Storage;
 
 namespace Server.Controllers;
@@ -14,15 +16,21 @@ public class UploadController : ApiControllerBase
     private readonly AppDbContext _dbContext;
     private readonly IFileSasService _fileSasService;
     private readonly IIncomingBlobUploadService _blobUploadService;
+    private readonly int _maxPdfPageCount;
 
     // Let the SAS url be valid for 30 min to give ample time to upload.
     private static readonly TimeSpan SasTimeToLive = TimeSpan.FromMinutes(30);
 
-    public UploadController(AppDbContext dbContext, IFileSasService fileSasService, IIncomingBlobUploadService blobUploadService)
+    public UploadController(
+        AppDbContext dbContext,
+        IFileSasService fileSasService,
+        IIncomingBlobUploadService blobUploadService,
+        IConfiguration configuration)
     {
         _dbContext = dbContext;
         _fileSasService = fileSasService;
         _blobUploadService = blobUploadService;
+        _maxPdfPageCount = GetMaxPdfPageCount(configuration);
     }
 
     /// <summary>
@@ -211,6 +219,22 @@ public class UploadController : ApiControllerBase
             contentType = "application/pdf";
         }
 
+        int pageCount;
+        try
+        {
+            await using var validationStream = file.OpenReadStream();
+            pageCount = PdfPageCounter.ReadPageCount(validationStream);
+        }
+        catch (Exception)
+        {
+            return BadRequest("The uploaded file could not be read as a valid PDF.");
+        }
+
+        if (pageCount > _maxPdfPageCount)
+        {
+            return BadRequest(PdfPageLimitExceededException.BuildMessage(pageCount, _maxPdfPageCount));
+        }
+
         var now = DateTimeOffset.UtcNow;
         var fileRecord = new FileRecord
         {
@@ -219,7 +243,7 @@ public class UploadController : ApiControllerBase
             OriginalFileName = originalFileName,
             ContentType = contentType,
             SizeBytes = file.Length,
-            PageCount = 0,
+            PageCount = pageCount,
             Status = FileRecord.Statuses.Created,
             CreatedAt = now,
             StatusUpdatedAt = now,
@@ -280,6 +304,21 @@ public class UploadController : ApiControllerBase
         }
 
         return fileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int GetMaxPdfPageCount(IConfiguration configuration)
+    {
+        var maxPdfPageCount =
+            configuration.GetValue<int?>("Ingest:PdfMaxPageCount")
+            ?? configuration.GetValue<int?>("INGEST_PDF_MAX_PAGE_COUNT")
+            ?? 25;
+
+        if (maxPdfPageCount <= 0)
+        {
+            throw new InvalidOperationException("Ingest:PdfMaxPageCount must be greater than 0.");
+        }
+
+        return maxPdfPageCount;
     }
 
     public sealed class CreateUploadSasRequest

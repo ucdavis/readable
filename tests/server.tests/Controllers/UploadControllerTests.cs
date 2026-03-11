@@ -1,12 +1,15 @@
 using System.Security.Claims;
 using FluentAssertions;
+using iText.Kernel.Pdf;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Server.Controllers;
 using server.Helpers;
 using server.core.Data;
 using server.core.Domain;
+using server.core.Ingest;
 using server.core.Storage;
 using Server.Tests;
 
@@ -45,7 +48,11 @@ public class UploadControllerTests
 
         await ctx.SaveChangesAsync();
 
-        var controller = new UploadController(ctx, new UnusedFileSasService(), new UnusedBlobUploadService());
+        var controller = new UploadController(
+            ctx,
+            new UnusedFileSasService(),
+            new UnusedBlobUploadService(),
+            BuildConfiguration());
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext
@@ -62,12 +69,83 @@ public class UploadControllerTests
         updated.StatusUpdatedAt.Should().BeAfter(createdAt);
     }
 
+    [Fact]
+    public async Task DirectUpload_WhenPdfExceedsConfiguredPageLimit_ReturnsBadRequest()
+    {
+        using AppDbContext ctx = TestDbContextFactory.CreateInMemory();
+
+        var user = new User
+        {
+            UserId = 1,
+            EntraObjectId = Guid.NewGuid(),
+            Email = "test@example.com",
+            DisplayName = "Test User",
+        };
+        ctx.Users.Add(user);
+        await ctx.SaveChangesAsync();
+
+        var blobUpload = new RecordingBlobUploadService();
+        var controller = new UploadController(
+            ctx,
+            new UnusedFileSasService(),
+            blobUpload,
+            BuildConfiguration(("Ingest:PdfMaxPageCount", "25")));
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = BuildUser(user.UserId),
+            },
+        };
+
+        var pdfBytes = CreatePdfBytes(pageCount: 26);
+        IFormFile file = new FormFile(new MemoryStream(pdfBytes), 0, pdfBytes.Length, "file", "too-many-pages.pdf")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "application/pdf",
+        };
+
+        var result = await controller.DirectUpload(file, CancellationToken.None);
+
+        var badRequest = result.Result.Should().BeOfType<BadRequestObjectResult>().Subject;
+        badRequest.Value.Should().Be(PdfPageLimitExceededException.BuildMessage(26, 25));
+        blobUpload.Calls.Should().Be(0);
+        ctx.Files.Count().Should().Be(0);
+    }
+
     private static ClaimsPrincipal BuildUser(long userId)
     {
         var identity = new ClaimsIdentity(
             new[] { new Claim(ClaimsPrincipalExtensions.AppUserIdClaimType, userId.ToString()) },
             authenticationType: "test");
         return new ClaimsPrincipal(identity);
+    }
+
+    private static IConfiguration BuildConfiguration(params (string Key, string Value)[] values)
+    {
+        IEnumerable<KeyValuePair<string, string?>> data = values
+            .Select(x => new KeyValuePair<string, string?>(x.Key, x.Value));
+
+        return new ConfigurationBuilder()
+            .AddInMemoryCollection(data)
+            .Build();
+    }
+
+    private static byte[] CreatePdfBytes(int pageCount)
+    {
+        using var stream = new MemoryStream();
+        var writer = new PdfWriter(stream);
+        writer.SetCloseStream(false);
+
+        using (var pdf = new PdfDocument(writer))
+        {
+            for (var i = 0; i < pageCount; i++)
+            {
+                pdf.AddNewPage();
+            }
+        }
+
+        return stream.ToArray();
     }
 
     private sealed class UnusedFileSasService : IFileSasService
@@ -84,4 +162,17 @@ public class UploadControllerTests
         public Task UploadAsync(Guid fileId, Stream content, string contentType, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Not used by this test.");
     }
+
+    private sealed class RecordingBlobUploadService : IIncomingBlobUploadService
+    {
+        public int Calls { get; private set; }
+
+        public Task UploadAsync(Guid fileId, Stream content, string contentType, CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.CompletedTask;
+        }
+    }
 }
+
+

@@ -52,6 +52,14 @@ public sealed class PdfProcessor : IPdfProcessor
                 _options.MaxPagesPerChunk,
                 "MaxPagesPerChunk must be > 0.");
         }
+
+        if (_options.MaxPageCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(_options.MaxPageCount),
+                _options.MaxPageCount,
+                "MaxPageCount must be > 0.");
+        }
     }
 
     /// <summary>
@@ -86,6 +94,9 @@ public sealed class PdfProcessor : IPdfProcessor
             // ignore
         }
 
+        var pageCount = ReadPageCount(sourcePath);
+        EnsurePageCountWithinLimit(fileId, pageCount);
+
         // Best-effort: generate a "before" accessibility report on the original uploaded PDF.
         AdobeAccessibilityCheckOutput? beforeAccessibilityReport = null;
         try
@@ -116,8 +127,6 @@ public sealed class PdfProcessor : IPdfProcessor
         {
             _logger.LogWarning(ex, "Failed to generate BEFORE accessibility report for {fileId}", fileId);
         }
-
-        var pageCount = 0;
         string taggedPdfPath;
         if (_options.UseAdobePdfServices)
         {
@@ -135,7 +144,7 @@ public sealed class PdfProcessor : IPdfProcessor
                 beforeAccessibilityReport?.ReportJson,
                 out var retagTriggers,
                 out var retagDecisionError);
-            pageCount = sourceInfo.PageCount > 0 ? sourceInfo.PageCount : 0;
+            pageCount = sourceInfo.PageCount > 0 ? sourceInfo.PageCount : pageCount;
             if (!string.IsNullOrWhiteSpace(retagDecisionError))
             {
                 _logger.LogDebug(
@@ -258,7 +267,6 @@ public sealed class PdfProcessor : IPdfProcessor
         {
             // When Adobe autotagging is disabled, avoid splitting/merging with iText.
             taggedPdfPath = sourcePath;
-            pageCount = TryReadPageCount(sourcePath);
         }
 
         string finalPdfPath;
@@ -343,18 +351,33 @@ public sealed class PdfProcessor : IPdfProcessor
 
     private sealed record SourcePdfInfo(int PageCount, PdfTaggingState TaggingState);
 
-    private static int TryReadPageCount(string pdfPath)
+    private int ReadPageCount(string pdfPath)
     {
         try
         {
-            using var pdf = new PdfDocument(new PdfReader(pdfPath));
-            var pageCount = pdf.GetNumberOfPages();
+            var pageCount = PdfPageCounter.ReadPageCount(pdfPath);
             return pageCount > 0 ? pageCount : 0;
         }
-        catch
+        catch (Exception ex)
         {
-            return 0;
+            throw new InvalidOperationException("Unable to read the uploaded PDF page count.", ex);
         }
+    }
+
+    private void EnsurePageCountWithinLimit(string fileId, int pageCount)
+    {
+        if (pageCount <= _options.MaxPageCount)
+        {
+            return;
+        }
+
+        _logger.LogWarning(
+            "Rejecting {fileId} before Adobe processing: pageCount={pageCount} maxPageCount={maxPageCount}",
+            fileId,
+            pageCount,
+            _options.MaxPageCount);
+
+        throw new PdfPageLimitExceededException(pageCount, _options.MaxPageCount);
     }
 
     private static SourcePdfInfo ReadSourcePdfInfo(
@@ -654,3 +677,5 @@ public sealed class NoopPdfProcessor : IPdfProcessor
         return sb.ToString().Trim();
     }
 }
+
+

@@ -193,6 +193,76 @@ public class FileIngestProcessorTests
     }
 
     [Fact]
+    public async Task ProcessAsync_WhenPdfProcessorThrowsPageLimitExceeded_MarksAttemptAndFileFailed()
+    {
+        var fileId = Guid.NewGuid();
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"ingest_{Guid.NewGuid():N}")
+            .EnableSensitiveDataLogging()
+            .Options;
+
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.Database.EnsureCreated();
+
+            var user = new User
+            {
+                UserId = 1,
+                EntraObjectId = Guid.NewGuid(),
+            };
+
+            seed.Users.Add(user);
+            seed.Files.Add(new FileRecord
+            {
+                FileId = fileId,
+                OwnerUserId = user.UserId,
+                OwnerUser = user,
+                OriginalFileName = "abc123.pdf",
+                ContentType = "application/pdf",
+                SizeBytes = 123,
+                Status = FileRecord.Statuses.Queued,
+                CreatedAt = DateTimeOffset.UtcNow,
+                StatusUpdatedAt = DateTimeOffset.UtcNow,
+            });
+
+            await seed.SaveChangesAsync();
+        }
+
+        var dbContextFactory = new InMemoryDbContextFactory(options);
+        var opener = new FakeBlobStreamOpener();
+        var pdf = new ThrowingPdfProcessor(new PdfPageLimitExceededException(26, 25));
+        var blobStorage = new FakeBlobStorage();
+        var configuration = new ConfigurationBuilder().Build();
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+
+        var sut = new FileIngestProcessor(
+            dbContextFactory,
+            opener,
+            pdf,
+            blobStorage,
+            configuration,
+            loggerFactory.CreateLogger<FileIngestProcessor>());
+
+        var request = new BlobIngestRequest(
+            new Uri("https://example.blob.core.windows.net/incoming/abc123.pdf"),
+            "incoming",
+            "abc123.pdf",
+            fileId.ToString());
+
+        Func<Task> act = () => sut.ProcessAsync(request, CancellationToken.None);
+        await act.Should().ThrowAsync<PdfPageLimitExceededException>();
+
+        await using var verify = new AppDbContext(options);
+        var file = await verify.Files.SingleAsync(x => x.FileId == fileId);
+        file.Status.Should().Be(FileRecord.Statuses.Failed);
+
+        var attempt = await verify.FileProcessingAttempts.SingleAsync(x => x.FileId == fileId);
+        attempt.Outcome.Should().Be(FileProcessingAttempt.Outcomes.Failed);
+        attempt.ErrorCode.Should().Be(nameof(PdfPageLimitExceededException));
+        attempt.ErrorMessage.Should().Contain("temporarily limited to 25 pages");
+    }
+
+    [Fact]
     public async Task ProcessAsync_WhenFileRecordMissing_ThrowsBeforeOpeningBlob()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -324,9 +394,21 @@ public class FileIngestProcessorTests
 
     private sealed class ThrowingPdfProcessor : IPdfProcessor
     {
+        private readonly Exception _exception;
+
+        public ThrowingPdfProcessor()
+            : this(new InvalidOperationException("boom"))
+        {
+        }
+
+        public ThrowingPdfProcessor(Exception exception)
+        {
+            _exception = exception;
+        }
+
         public Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
         {
-            throw new InvalidOperationException("boom");
+            throw _exception;
         }
     }
 
@@ -352,3 +434,5 @@ public class FileIngestProcessorTests
         }
     }
 }
+
+

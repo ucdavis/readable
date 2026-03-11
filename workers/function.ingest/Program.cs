@@ -42,6 +42,10 @@ builder.Services.AddFileIngest(o =>
 
     o.UseAdobePdfServices = true;
     o.UsePdfRemediationProcessor = true;
+    o.PdfMaxPageCount =
+        builder.Configuration.GetValue<int?>("Ingest:PdfMaxPageCount")
+        ?? builder.Configuration.GetValue<int?>("INGEST_PDF_MAX_PAGE_COUNT")
+        ?? 25;
     // Default: skip autotagging for already-tagged PDFs (e.g., Office exports) unless explicitly enabled.
     o.AutotagTaggedPdfs =
         builder.Configuration.GetValue<bool>("Ingest:AutotagTaggedPdfs")
@@ -57,3 +61,4 @@ builder.Services.AddApplicationInsightsTelemetryWorkerService();
 builder.Services.ConfigureFunctionsApplicationInsights();
 
 builder.Build().Run();
+
