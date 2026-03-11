@@ -48,6 +48,7 @@ export function PdfActivityCard({
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const confirmDialogRef = useRef<HTMLDialogElement>(null);
+  const failureTooltipRef = useRef<HTMLDivElement>(null);
   const [pendingBulkIds, setPendingBulkIds] = useState<string[]>([]);
   const [recentlyDeletedIds, setRecentlyDeletedIds] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -239,8 +240,15 @@ export function PdfActivityCard({
       }
 
       const rect = failureTooltip.anchor.getBoundingClientRect();
-      const tooltipHalfWidth = 192;
       const viewportPadding = 16;
+      const fallbackTooltipWidth = Math.min(
+        320,
+        Math.max(0, window.innerWidth - viewportPadding * 2)
+      );
+      const tooltipWidth =
+        failureTooltipRef.current?.getBoundingClientRect().width ??
+        fallbackTooltipWidth;
+      const tooltipHalfWidth = tooltipWidth / 2;
       const left = Math.min(
         Math.max(rect.left + rect.width / 2, viewportPadding + tooltipHalfWidth),
         window.innerWidth - viewportPadding - tooltipHalfWidth
@@ -679,17 +687,17 @@ export function PdfActivityCard({
         </form>
       </dialog>
 
-      {failureTooltip &&
-      failureTooltipPosition &&
-      typeof document !== 'undefined'
+      {failureTooltip && typeof document !== 'undefined'
         ? createPortal(
             <div
               className="pointer-events-none fixed z-50 w-80 max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-xl border border-error/20 bg-base-100 p-4 text-left shadow-xl ring-1 ring-base-content/5"
               id={`failure-reason-${failureTooltip.fileId}`}
+              ref={failureTooltipRef}
               role="tooltip"
               style={{
-                left: failureTooltipPosition.left,
-                top: failureTooltipPosition.top,
+                left: failureTooltipPosition?.left ?? 0,
+                top: failureTooltipPosition?.top ?? 0,
+                visibility: failureTooltipPosition ? 'visible' : 'hidden',
               }}
             >
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-error">
@@ -705,6 +713,9 @@ export function PdfActivityCard({
     </div>
   );
 }
+
+
+
 
 
 
