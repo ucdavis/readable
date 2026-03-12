@@ -27,6 +27,36 @@ public sealed record PdfChunk(int Index, int FromPage, int ToPage, string Path)
     public int PageCount => ToPage - FromPage + 1;
 }
 
+internal static class PdfPathSafeName
+{
+    private const string InvalidFileIdToken = "invalid-file-id";
+
+    public static string FromFileId(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return InvalidFileIdToken;
+        }
+
+        var invalid = Path.GetInvalidFileNameChars();
+        var sb = new StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            sb.Append(Array.IndexOf(invalid, ch) >= 0 ? '_' : ch);
+        }
+
+        var sanitized = sb.ToString().Trim();
+        if (string.IsNullOrWhiteSpace(sanitized)
+            || string.Equals(sanitized, ".", StringComparison.Ordinal)
+            || string.Equals(sanitized, "..", StringComparison.Ordinal))
+        {
+            return InvalidFileIdToken;
+        }
+
+        return sanitized;
+    }
+}
+
 public sealed class PdfProcessor : IPdfProcessor
 {
     private readonly IAdobePdfServices _adobePdfServices;
@@ -66,14 +96,15 @@ public sealed class PdfProcessor : IPdfProcessor
     /// Runs the PDF ingest pipeline: chunking, autotagging, merging, and remediation.
     /// </summary>
     /// <remarks>
-    /// This method writes intermediate artifacts to a per-file working directory under <c>/tmp</c> (or a configured
+    /// This method writes intermediate artifacts to a per-attempt working directory under <c>/tmp</c> (or a configured
     /// root), and expects <see cref="IAdobePdfServices" /> to produce tagged PDFs for each chunk.
     /// </remarks>
     public async Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
     {
         var totalSw = Stopwatch.StartNew();
-        var safeFileId = SanitizeForFileName(fileId);
-        var workDir = GetWorkDir(safeFileId, _options.WorkDirRoot);
+        var safeFileId = PdfPathSafeName.FromFileId(fileId);
+        var runId = Guid.NewGuid().ToString("N");
+        var workDir = GetWorkDir(safeFileId, runId, _options.WorkDirRoot);
         Directory.CreateDirectory(workDir);
 
         // persist the incoming stream locally so we can reliably split it.
@@ -570,7 +601,7 @@ public sealed class PdfProcessor : IPdfProcessor
     /// Prefers <c>/tmp</c> when available to avoid filling application directories, and falls back to the platform
     /// temp directory when needed.
     /// </remarks>
-    private static string GetWorkDir(string safeFileId, string? workDirRoot)
+    private static string GetWorkDir(string safeFileId, string runId, string? workDirRoot)
     {
         // Prefer `/tmp`; fall back to platform temp if unavailable.
         var baseTmp =
@@ -578,28 +609,9 @@ public sealed class PdfProcessor : IPdfProcessor
                 ? (Directory.Exists("/tmp") ? "/tmp" : Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar))
                 : workDirRoot.TrimEnd(Path.DirectorySeparatorChar);
 
-        return Path.Combine(baseTmp, "readable-ingest", safeFileId);
+        return Path.Combine(baseTmp, "readable-ingest", safeFileId, runId);
     }
 
-    /// <summary>
-    /// Produces a filesystem-safe identifier for use in temporary file names.
-    /// </summary>
-    private static string SanitizeForFileName(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return "file";
-        }
-
-        var invalid = Path.GetInvalidFileNameChars();
-        var sb = new StringBuilder(value.Length);
-        foreach (var ch in value)
-        {
-            sb.Append(Array.IndexOf(invalid, ch) >= 0 ? '_' : ch);
-        }
-
-        return sb.ToString().Trim();
-    }
 
     /// <summary>
     /// Merges PDFs into a single document, preserving the provided input order.
@@ -625,9 +637,9 @@ public sealed class NoopPdfProcessor : IPdfProcessor
 {
     public async Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
     {
-        var safeFileId = Sanitize(fileId);
+        var safeFileId = PdfPathSafeName.FromFileId(fileId);
         var tmpRoot = Directory.Exists("/tmp") ? "/tmp" : Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
-        var workDir = Path.Combine(tmpRoot, "readable-ingest", safeFileId);
+        var workDir = Path.Combine(tmpRoot, "readable-ingest", safeFileId, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(workDir);
 
         var outputPath = Path.Combine(workDir, $"{safeFileId}.noop.pdf");
@@ -663,20 +675,6 @@ public sealed class NoopPdfProcessor : IPdfProcessor
         return new PdfProcessResult(outputPath);
     }
 
-    private static string Sanitize(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return "file";
-        }
-
-        var invalid = Path.GetInvalidFileNameChars();
-        var sb = new StringBuilder(value.Length);
-        foreach (var ch in value)
-        {
-            sb.Append(Array.IndexOf(invalid, ch) >= 0 ? '_' : ch);
-        }
-
-        return sb.ToString().Trim();
-    }
 }
+
+

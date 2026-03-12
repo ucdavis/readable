@@ -195,7 +195,9 @@ public sealed class AdobePdfServices : IAdobePdfServices
             Directory.CreateDirectory(dir);
         }
 
+        await using var input = streamAsset.Stream;
         await using var output = File.Open(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        await streamAsset.Stream.CopyToAsync(output, cancellationToken);
+        await input.CopyToAsync(output, cancellationToken);
     }
 }
+
