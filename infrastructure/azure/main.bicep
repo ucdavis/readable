@@ -41,6 +41,35 @@ param deployEventGridSubscription bool = true
 @description('Application Insights retention in days.')
 param appInsightsRetentionInDays int = 30
 
+@description('OpenDataLoader container image reference. Leave empty to skip deploying the container app.')
+param openDataLoaderImage string = ''
+
+@secure()
+@description('Shared secret expected in the OpenDataLoader X-Api-Key header. Leave empty to skip deploying the container app.')
+param openDataLoaderSharedSecret string = ''
+
+@minValue(1)
+@description('Max request body size for the OpenDataLoader API in MB.')
+param openDataLoaderMaxRequestBodySizeMb int = 50
+
+@minValue(1)
+@description('OpenDataLoader process timeout in seconds.')
+param openDataLoaderProcessTimeoutSeconds int = 210
+
+@description('CPU allocation for the OpenDataLoader Container App.')
+param openDataLoaderCpu string = '2.0'
+
+@description('Memory allocation for the OpenDataLoader Container App.')
+param openDataLoaderMemory string = '4Gi'
+
+@minValue(0)
+@description('Minimum replicas for the OpenDataLoader Container App.')
+param openDataLoaderMinReplicas int = 1
+
+@minValue(1)
+@description('Maximum replicas for the OpenDataLoader Container App.')
+param openDataLoaderMaxReplicas int = 3
+
 var appSlug = toLower(replace(replace(replace(appName, '-', ''), '_', ''), ' ', ''))
 var appNameSafe = toLower(replace(replace(appName, ' ', ''), '_', ''))
 var envSlug = toLower(replace(replace(env, '-', ''), ' ', ''))
@@ -61,8 +90,13 @@ var functionPlanName = toLower('func-${appNameSafe}-${env}-${nameToken}')
 var functionAppName = toLower('fn-${appNameSafe}-${env}-${nameToken}')
 var appInsightsName = toLower('appi-${appNameSafe}-${env}-${nameToken}')
 var logAnalyticsWorkspaceName = toLower('log-${appNameSafe}-${env}-${nameToken}')
+var containerRegistryPrefix = take('acr${appSlug}${envSlug}', 50 - length(nameToken))
+var containerRegistryName = '${containerRegistryPrefix}${nameToken}'
+var containerAppsEnvironmentName = toLower('cae-${appNameSafe}-${env}-${nameToken}')
+var openDataLoaderContainerAppName = toLower('ca-odl-${appNameSafe}-${env}-${nameToken}')
 var sqlSkuName = env == 'prod' ? 'S0' : 'Basic'
 var sqlSkuTier = env == 'prod' ? 'Standard' : 'Basic'
+var deployOpenDataLoaderContainerApp = !empty(openDataLoaderImage) && !empty(openDataLoaderSharedSecret)
 
 var baseQueueName = serviceBusQueueBaseName == '' ? 'files' : serviceBusQueueBaseName
 var fileQueueNames = [
@@ -173,6 +207,26 @@ module sql 'modules/sql.bicep' = {
   }
 }
 
+module containerRegistry 'modules/acr.bicep' = {
+  name: 'containerRegistry'
+  params: {
+    name: containerRegistryName
+    location: location
+    tags: resourceTags
+  }
+}
+
+module containerAppsEnvironment 'modules/container-apps-environment.bicep' = {
+  name: 'containerAppsEnvironment'
+  params: {
+    name: containerAppsEnvironmentName
+    location: location
+    tags: resourceTags
+    logAnalyticsCustomerId: logAnalyticsWorkspace.properties.customerId
+    logAnalyticsSharedKey: logAnalyticsWorkspace.listKeys().primarySharedKey
+  }
+}
+
 var sqlServerHostnameSuffix = environment().suffixes.sqlServerHostname
 var sqlServerFqdn = '${sqlServerName}${startsWith(sqlServerHostnameSuffix, '.') ? '' : '.'}${sqlServerHostnameSuffix}'
 var sqlConnectionString = 'Server=tcp:${sqlServerFqdn},1433;Initial Catalog=${sqlDatabaseName};Persist Security Info=False;User ID=${sqlAdminLogin};Password=${sqlAdminPassword};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
@@ -237,6 +291,27 @@ module computeRbac 'modules/rbac-compute.bicep' = {
   }
 }
 
+module openDataLoaderContainerApp 'modules/opendataloader-container-app.bicep' = if (deployOpenDataLoaderContainerApp) {
+  name: 'openDataLoaderContainerApp'
+  params: {
+    name: openDataLoaderContainerAppName
+    location: location
+    tags: resourceTags
+    environmentId: containerAppsEnvironment.outputs.id
+    image: openDataLoaderImage
+    registryServer: containerRegistry.outputs.loginServer
+    registryUsername: containerRegistry.outputs.username
+    registryPassword: containerRegistry.outputs.password
+    apiKey: openDataLoaderSharedSecret
+    maxRequestBodySizeMb: openDataLoaderMaxRequestBodySizeMb
+    processTimeoutSeconds: openDataLoaderProcessTimeoutSeconds
+    cpu: openDataLoaderCpu
+    memory: openDataLoaderMemory
+    minReplicas: openDataLoaderMinReplicas
+    maxReplicas: openDataLoaderMaxReplicas
+  }
+}
+
 output storageAccountName string = storage.outputs.accountName
 output storageBlobEndpoint string = storage.outputs.blobEndpoint
 output functionStorageAccountName string = functionStorageName
@@ -247,3 +322,8 @@ output sqlServerName string = sql.outputs.serverName
 output sqlDatabaseName string = sqlDatabaseName
 output webAppName string = webAppName
 output functionAppName string = functionAppName
+output containerRegistryName string = containerRegistry.outputs.name
+output containerRegistryLoginServer string = containerRegistry.outputs.loginServer
+output containerAppsEnvironmentName string = containerAppsEnvironment.outputs.name
+output openDataLoaderContainerAppName string = deployOpenDataLoaderContainerApp ? openDataLoaderContainerApp!.outputs.name : ''
+output openDataLoaderContainerAppUrl string = deployOpenDataLoaderContainerApp ? 'https://${openDataLoaderContainerApp!.outputs.fqdn}' : ''

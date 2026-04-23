@@ -53,6 +53,53 @@ cd workers/function.ingest
 func azure functionapp publish <FUNCTION_APP_NAME> --dotnet-isolated --nozip
 ```
 
+## Deploy OpenDataLoader Container App
+
+The base Bicep deployment now provisions:
+
+- an Azure Container Registry,
+- a Container Apps environment,
+- and, once an image + secret are supplied, the `opendataloader` Container App itself.
+
+After the base infra exists, build and push the worker image:
+
+```bash
+az acr login --name <ACR_NAME>
+docker build -f workers/opendataloader.api/Dockerfile -t <ACR_LOGIN_SERVER>/opendataloader-api:<TAG> .
+docker push <ACR_LOGIN_SERVER>/opendataloader-api:<TAG>
+```
+
+Then rerun the deploy script with the image reference and API key:
+
+```bash
+export ODL_SHARED_SECRET='your-shared-secret'
+export OPEN_DATA_LOADER_IMAGE='<ACR_LOGIN_SERVER>/opendataloader-api:<TAG>'
+export OPEN_DATA_LOADER_SHARED_SECRET="$ODL_SHARED_SECRET"
+export DEPLOY_EVENTGRID_SUBSCRIPTION=false
+./infrastructure/azure/scripts/deploy_dev.sh
+```
+
+Get the URL from deployment outputs:
+
+```bash
+az deployment group show \
+  --resource-group <RESOURCE_GROUP> \
+  --name <DEPLOYMENT_NAME> \
+  --query "properties.outputs.openDataLoaderContainerAppUrl.value" \
+  -o tsv
+```
+
+Call the API:
+
+```bash
+curl -X POST \
+  https://<CONTAINER_APP_FQDN>/convert \
+  -H 'Content-Type: application/pdf' \
+  -H 'X-Api-Key: <ODL_SHARED_SECRET>' \
+  --data-binary @./sample.pdf \
+  --output ./sample.tagged.pdf
+```
+
 ## Tail logs (no Application Insights)
 
 ```bash

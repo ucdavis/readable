@@ -21,6 +21,8 @@ DEPLOY_EVENTGRID_SUBSCRIPTION=${DEPLOY_EVENTGRID_SUBSCRIPTION:-true}
 EVENTGRID_SUBSCRIPTION_WAIT_SECONDS=${EVENTGRID_SUBSCRIPTION_WAIT_SECONDS:-60}
 EVENTGRID_SUBSCRIPTION_RETRY_WAIT_SECONDS=${EVENTGRID_SUBSCRIPTION_RETRY_WAIT_SECONDS:-30}
 EVENTGRID_SUBSCRIPTION_MAX_ATTEMPTS=${EVENTGRID_SUBSCRIPTION_MAX_ATTEMPTS:-5}
+OPEN_DATA_LOADER_IMAGE=${OPEN_DATA_LOADER_IMAGE:-}
+OPEN_DATA_LOADER_SHARED_SECRET=${OPEN_DATA_LOADER_SHARED_SECRET:-}
 
 required_vars=(
   DEPLOYMENT_NAME
@@ -69,14 +71,25 @@ az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
 echo "Deploying base resources in $RESOURCE_GROUP..."
 
 deployment_name_args=(--name "$DEPLOYMENT_NAME")
+template_params=(
+  --parameters appName="$APP_NAME" env="$ENVIRONMENT"
+  --parameters corsAllowedOrigins="$CORS_ALLOWED_ORIGINS"
+  --parameters sqlAdminLogin="$SQL_ADMIN_LOGIN" sqlAdminPassword="$SQL_ADMIN_PASSWORD"
+)
+
+if [[ -n "$OPEN_DATA_LOADER_IMAGE" ]]; then
+  template_params+=(--parameters openDataLoaderImage="$OPEN_DATA_LOADER_IMAGE")
+fi
+
+if [[ -n "$OPEN_DATA_LOADER_SHARED_SECRET" ]]; then
+  template_params+=(--parameters openDataLoaderSharedSecret="$OPEN_DATA_LOADER_SHARED_SECRET")
+fi
 
 az deployment group create \
   --resource-group "$RESOURCE_GROUP" \
   "${deployment_name_args[@]}" \
   --template-file "$BICEP_FILE" \
-  --parameters appName="$APP_NAME" env="$ENVIRONMENT" \
-  --parameters corsAllowedOrigins="$CORS_ALLOWED_ORIGINS" \
-  --parameters sqlAdminLogin="$SQL_ADMIN_LOGIN" sqlAdminPassword="$SQL_ADMIN_PASSWORD" \
+  "${template_params[@]}" \
   --parameters deployEventGridSubscription=false
 
 deploy_eventgrid_subscription=$(printf '%s' "$DEPLOY_EVENTGRID_SUBSCRIPTION" | tr '[:upper:]' '[:lower:]')
@@ -97,9 +110,7 @@ while (( attempt <= max_attempts )); do
     --resource-group "$RESOURCE_GROUP" \
     "${deployment_name_args[@]}" \
     --template-file "$BICEP_FILE" \
-    --parameters appName="$APP_NAME" env="$ENVIRONMENT" \
-    --parameters corsAllowedOrigins="$CORS_ALLOWED_ORIGINS" \
-    --parameters sqlAdminLogin="$SQL_ADMIN_LOGIN" sqlAdminPassword="$SQL_ADMIN_PASSWORD" \
+    "${template_params[@]}" \
     --parameters deployEventGridSubscription=true; then
     echo "Deployment complete."
     exit 0

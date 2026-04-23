@@ -14,6 +14,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "workers", "workers", "{CD71
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "function_ingest", "workers\function.ingest\function_ingest.csproj", "{9391347D-9B19-4318-8999-769D42AF0097}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "opendataloader.api", "workers\opendataloader.api\opendataloader.api.csproj", "{D8ECC883-7934-41FF-913E-9CE070682659}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -40,6 +42,10 @@ Global
 		{9391347D-9B19-4318-8999-769D42AF0097}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9391347D-9B19-4318-8999-769D42AF0097}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9391347D-9B19-4318-8999-769D42AF0097}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D8ECC883-7934-41FF-913E-9CE070682659}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D8ECC883-7934-41FF-913E-9CE070682659}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D8ECC883-7934-41FF-913E-9CE070682659}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D8ECC883-7934-41FF-913E-9CE070682659}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -49,5 +55,6 @@ Global
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{9391347D-9B19-4318-8999-769D42AF0097} = {CD71F8F9-CD26-4CC7-99CD-41BDC66BD0AF}
+		{D8ECC883-7934-41FF-913E-9CE070682659} = {CD71F8F9-CD26-4CC7-99CD-41BDC66BD0AF}
 	EndGlobalSection
 EndGlobal
