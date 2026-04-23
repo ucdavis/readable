@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "15948240028131685856"
+      "templateHash": "15010229786984717556"
     }
   },
   "parameters": {
@@ -212,6 +212,7 @@
     "sqlSkuName": "[if(equals(parameters('env'), 'prod'), 'S0', 'Basic')]",
     "sqlSkuTier": "[if(equals(parameters('env'), 'prod'), 'Standard', 'Basic')]",
     "deployOpenDataLoaderContainerApp": "[and(not(empty(parameters('openDataLoaderImage'))), not(empty(parameters('openDataLoaderSharedSecret'))))]",
+    "ingestAutotagProvider": "[if(variables('deployOpenDataLoaderContainerApp'), 'OpenDataLoader', 'Adobe')]",
     "baseQueueName": "[if(equals(parameters('serviceBusQueueBaseName'), ''), 'files', parameters('serviceBusQueueBaseName'))]",
     "fileQueueNames": [
       "[variables('baseQueueName')]"
@@ -1283,6 +1284,13 @@
           },
           "appInsightsInstrumentationKey": {
             "value": "[reference('appInsights').InstrumentationKey]"
+          },
+          "ingestAutotagProvider": {
+            "value": "[variables('ingestAutotagProvider')]"
+          },
+          "openDataLoaderBaseUrl": "[if(variables('deployOpenDataLoaderContainerApp'), createObject('value', format('https://{0}.{1}', variables('openDataLoaderContainerAppName'), reference('containerAppsEnvironment').outputs.defaultDomain.value)), createObject('value', ''))]",
+          "openDataLoaderApiKey": {
+            "value": "[parameters('openDataLoaderSharedSecret')]"
           }
         },
         "template": {
@@ -1292,7 +1300,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "3641762542133038562"
+              "templateHash": "8643893122086647394"
             }
           },
           "parameters": {
@@ -1431,6 +1439,27 @@
                 "description": "Application Insights instrumentation key (optional)."
               }
             },
+            "ingestAutotagProvider": {
+              "type": "string",
+              "defaultValue": "Adobe",
+              "metadata": {
+                "description": "Autotag provider for the ingest function. Use Adobe or OpenDataLoader."
+              }
+            },
+            "openDataLoaderBaseUrl": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "OpenDataLoader API base URL for ingest autotagging."
+              }
+            },
+            "openDataLoaderApiKey": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "OpenDataLoader API key for ingest autotagging."
+              }
+            },
             "functionInstanceMemoryMB": {
               "type": "int",
               "defaultValue": 2048,
@@ -1555,7 +1584,7 @@
                 "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('functionPlanName'))]",
                 "httpsOnly": true,
                 "siteConfig": {
-                  "appSettings": "[concat(createArray(createObject('name', 'AzureWebJobsStorage', 'value', parameters('functionStorageConnectionString')), createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'DB_CONNECTION', 'value', parameters('sqlConnectionString')), createObject('name', 'ServiceBus__FullyQualifiedNamespace', 'value', parameters('serviceBusFullyQualifiedNamespace')), createObject('name', 'ServiceBus', 'value', parameters('serviceBusConnectionString')), createObject('name', 'Storage__AccountName', 'value', parameters('dataStorageAccountName')), createObject('name', 'Storage__ConnectionString', 'value', parameters('dataStorageConnectionString')), createObject('name', 'Storage__IncomingContainer', 'value', parameters('incomingContainerName')), createObject('name', 'Storage__ProcessedContainer', 'value', parameters('processedContainerName')), createObject('name', 'Storage__TempContainer', 'value', parameters('tempContainerName')), createObject('name', 'Storage__ReportsContainer', 'value', parameters('reportsContainerName')), createObject('name', 'Pipeline__ChunkSizePages', 'value', string(parameters('pipelineChunkSizePages')))), if(not(equals(parameters('appInsightsConnectionString'), '')), createArray(createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', parameters('appInsightsConnectionString')), createObject('name', 'APPINSIGHTS_INSTRUMENTATIONKEY', 'value', parameters('appInsightsInstrumentationKey')), createObject('name', 'APPLICATIONINSIGHTS_AGENT_EXTENSION_VERSION', 'value', '~3')), createArray()))]"
+                  "appSettings": "[concat(createArray(createObject('name', 'AzureWebJobsStorage', 'value', parameters('functionStorageConnectionString')), createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'DB_CONNECTION', 'value', parameters('sqlConnectionString')), createObject('name', 'ServiceBus__FullyQualifiedNamespace', 'value', parameters('serviceBusFullyQualifiedNamespace')), createObject('name', 'ServiceBus', 'value', parameters('serviceBusConnectionString')), createObject('name', 'Storage__AccountName', 'value', parameters('dataStorageAccountName')), createObject('name', 'Storage__ConnectionString', 'value', parameters('dataStorageConnectionString')), createObject('name', 'Storage__IncomingContainer', 'value', parameters('incomingContainerName')), createObject('name', 'Storage__ProcessedContainer', 'value', parameters('processedContainerName')), createObject('name', 'Storage__TempContainer', 'value', parameters('tempContainerName')), createObject('name', 'Storage__ReportsContainer', 'value', parameters('reportsContainerName')), createObject('name', 'Pipeline__ChunkSizePages', 'value', string(parameters('pipelineChunkSizePages'))), createObject('name', 'INGEST_AUTOTAG_PROVIDER', 'value', parameters('ingestAutotagProvider')), createObject('name', 'ODL_BASE_URL', 'value', parameters('openDataLoaderBaseUrl')), createObject('name', 'ODL_API_KEY', 'value', parameters('openDataLoaderApiKey'))), if(not(equals(parameters('appInsightsConnectionString'), '')), createArray(createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', parameters('appInsightsConnectionString')), createObject('name', 'APPINSIGHTS_INSTRUMENTATIONKEY', 'value', parameters('appInsightsInstrumentationKey')), createObject('name', 'APPLICATIONINSIGHTS_AGENT_EXTENSION_VERSION', 'value', '~3')), createArray()))]"
                 },
                 "functionAppConfig": {
                   "deployment": {
@@ -1605,6 +1634,7 @@
       },
       "dependsOn": [
         "appInsights",
+        "containerAppsEnvironment",
         "functionStorage",
         "serviceBus",
         "storage"

@@ -41,6 +41,10 @@ builder.Services.AddFileIngest(o =>
     }
 
     o.UseAdobePdfServices = true;
+    o.AutotagProvider =
+        builder.Configuration["Ingest:AutotagProvider"]
+        ?? builder.Configuration["INGEST_AUTOTAG_PROVIDER"]
+        ?? FileIngestOptions.AutotagProviders.Adobe;
     o.UsePdfRemediationProcessor = true;
     // Default: skip autotagging for already-tagged PDFs (e.g., Office exports) unless explicitly enabled.
     o.AutotagTaggedPdfs =

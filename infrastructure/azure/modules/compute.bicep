@@ -68,6 +68,16 @@ param appInsightsConnectionString string = ''
 @description('Application Insights instrumentation key (optional).')
 param appInsightsInstrumentationKey string = ''
 
+@description('Autotag provider for the ingest function. Use Adobe or OpenDataLoader.')
+param ingestAutotagProvider string = 'Adobe'
+
+@description('OpenDataLoader API base URL for ingest autotagging.')
+param openDataLoaderBaseUrl string = ''
+
+@secure()
+@description('OpenDataLoader API key for ingest autotagging.')
+param openDataLoaderApiKey string = ''
+
 @allowed([
   512
   2048
@@ -222,6 +232,18 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
         {
           name: 'Pipeline__ChunkSizePages'
           value: string(pipelineChunkSizePages)
+        }
+        {
+          name: 'INGEST_AUTOTAG_PROVIDER'
+          value: ingestAutotagProvider
+        }
+        {
+          name: 'ODL_BASE_URL'
+          value: openDataLoaderBaseUrl
+        }
+        {
+          name: 'ODL_API_KEY'
+          value: openDataLoaderApiKey
         }
       ], appInsightsConnectionString != '' ? [
         {

@@ -113,6 +113,8 @@ var openDataLoaderContainerAppName = toLower('ca-odl-${appNameSafe}-${env}-${nam
 var sqlSkuName = env == 'prod' ? 'S0' : 'Basic'
 var sqlSkuTier = env == 'prod' ? 'Standard' : 'Basic'
 var deployOpenDataLoaderContainerApp = !empty(openDataLoaderImage) && !empty(openDataLoaderSharedSecret)
+var openDataLoaderBaseUrl = deployOpenDataLoaderContainerApp ? 'https://${openDataLoaderContainerAppName}.${containerAppsEnvironment.outputs.defaultDomain}' : ''
+var ingestAutotagProvider = deployOpenDataLoaderContainerApp ? 'OpenDataLoader' : 'Adobe'
 
 var baseQueueName = serviceBusQueueBaseName == '' ? 'files' : serviceBusQueueBaseName
 var fileQueueNames = [
@@ -271,6 +273,9 @@ module compute 'modules/compute.bicep' = {
     environmentName: env
     appInsightsConnectionString: appInsights.properties.ConnectionString
     appInsightsInstrumentationKey: appInsights.properties.InstrumentationKey
+    ingestAutotagProvider: ingestAutotagProvider
+    openDataLoaderBaseUrl: openDataLoaderBaseUrl
+    openDataLoaderApiKey: openDataLoaderSharedSecret
   }
 }
 

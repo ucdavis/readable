@@ -98,6 +98,11 @@ stages:
                         --name "$(DEPLOYMENT_NAME)" \
                         --query "properties.outputs.openDataLoaderContainerAppName.value" -o tsv)
 
+                      openDataLoaderContainerAppUrl=$(az deployment group show \
+                        --resource-group "$(RESOURCE_GROUP)" \
+                        --name "$(DEPLOYMENT_NAME)" \
+                        --query "properties.outputs.openDataLoaderContainerAppUrl.value" -o tsv)
+
                       echo "Resolved web app: $webAppName"
                       echo "Resolved function app: $functionAppName"
                       echo "Resolved ACR: $acrName ($acrLoginServer)"
@@ -108,6 +113,7 @@ stages:
                       echo "##vso[task.setvariable variable=acrName]$acrName"
                       echo "##vso[task.setvariable variable=acrLoginServer]$acrLoginServer"
                       echo "##vso[task.setvariable variable=odlContainerAppName]$odlContainerAppName"
+                      echo "##vso[task.setvariable variable=openDataLoaderContainerAppUrl]$openDataLoaderContainerAppUrl"
 
                 - task: AzureCLI@2
                   name: buildOpenDataLoaderImage
@@ -187,6 +193,9 @@ stages:
                         { "name": "OTEL_EXPORTER_OTLP_PROTOCOL", "value": "grpc", "slotSetting": false },
                         { "name": "OTEL_SERVICE_NAME", "value": "readable.worker", "slotSetting": false },
                         { "name": "OTEL_RESOURCE_ATTRIBUTES", "value": "service.name=readable.worker,service.environment=$(ENVIRONMENT),deployment.environment.name=$(ENVIRONMENT)", "slotSetting": false },
+                        { "name": "INGEST_AUTOTAG_PROVIDER", "value": "OpenDataLoader", "slotSetting": false },
+                        { "name": "ODL_BASE_URL", "value": "$(openDataLoaderContainerAppUrl)", "slotSetting": false },
+                        { "name": "ODL_API_KEY", "value": "$(ODL_SHARED_SECRET)", "slotSetting": false },
                         { "name": "PDF_SERVICES_CLIENT_ID", "value": "$(PDF_SERVICES_CLIENT_ID)", "slotSetting": false },
                         { "name": "PDF_SERVICES_CLIENT_SECRET", "value": "$(PDF_SERVICES_CLIENT_SECRET)", "slotSetting": false }
                       ]

@@ -32,4 +32,3 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
 output id string = environment.id
 output name string = environment.name
 output defaultDomain string = environment.properties.defaultDomain
-
