@@ -53,6 +53,7 @@ stages:
                     inlineScript: |
                       set -euo pipefail
                       cd "$(Build.SourcesDirectory)"
+
                       env \
                         RESOURCE_GROUP="$(RESOURCE_GROUP)" \
                         LOCATION="$(LOCATION)" \
@@ -148,6 +149,12 @@ stages:
                     inlineScript: |
                       set -euo pipefail
                       cd "$(Build.SourcesDirectory)"
+
+                      if [[ -z "$(ODL_SHARED_SECRET)" ]]; then
+                        echo "ODL_SHARED_SECRET is required to deploy the OpenDataLoader trial." >&2
+                        exit 1
+                      fi
+
                       env \
                         RESOURCE_GROUP="$(RESOURCE_GROUP)" \
                         LOCATION="$(LOCATION)" \
@@ -160,6 +167,19 @@ stages:
                         OPEN_DATA_LOADER_IMAGE="$(odlImageRef)" \
                         OPEN_DATA_LOADER_SHARED_SECRET="$(ODL_SHARED_SECRET)" \
                         bash infrastructure/azure/scripts/deploy.sh
+
+                      openDataLoaderContainerAppUrl=$(az deployment group show \
+                        --resource-group "$(RESOURCE_GROUP)" \
+                        --name "$(DEPLOYMENT_NAME)" \
+                        --query "properties.outputs.openDataLoaderContainerAppUrl.value" -o tsv)
+
+                      if [[ -z "$openDataLoaderContainerAppUrl" ]]; then
+                        echo "OpenDataLoader Container App URL was empty after deployment." >&2
+                        exit 1
+                      fi
+
+                      echo "Resolved OpenDataLoader URL: $openDataLoaderContainerAppUrl"
+                      echo "##vso[task.setvariable variable=openDataLoaderContainerAppUrl]$openDataLoaderContainerAppUrl"
 
                 - task: AzureAppServiceSettings@1
                   displayName: Set Web App runtime settings

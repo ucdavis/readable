@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "15010229786984717556"
+      "templateHash": "16338994007836445437"
     }
   },
   "parameters": {
@@ -2045,7 +2045,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "12924232206287142269"
+              "templateHash": "3297431385429547303"
             }
           },
           "parameters": {
@@ -2172,7 +2172,7 @@
             },
             "maxReplicas": {
               "type": "int",
-              "defaultValue": 3,
+              "defaultValue": 20,
               "metadata": {
                 "description": "Maximum replica count."
               }

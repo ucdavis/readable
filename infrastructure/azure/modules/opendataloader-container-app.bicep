@@ -59,7 +59,7 @@ param memory string = '4Gi'
 param minReplicas int = 1
 
 @description('Maximum replica count.')
-param maxReplicas int = 3
+param maxReplicas int = 20
 
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: name

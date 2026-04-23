@@ -149,6 +149,9 @@ namespace server.core.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("nvarchar(2048)");
 
+                    b.Property<string>("MetadataJson")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<Guid>("FileId")
                         .HasColumnType("uniqueidentifier");
 
@@ -178,6 +181,8 @@ namespace server.core.Migrations
 
                     b.ToTable("FileProcessingAttempts", null, t =>
                         {
+                            t.HasCheckConstraint("CK_FileProcessingAttempts_MetadataJson_IsJson", "[MetadataJson] IS NULL OR ISJSON([MetadataJson]) > 0");
+
                             t.HasCheckConstraint("CK_FileProcessingAttempts_Outcome", "[Outcome] IS NULL OR [Outcome] IN ('Succeeded','Failed','Cancelled')");
 
                             t.HasCheckConstraint("CK_FileProcessingAttempts_Trigger", "[Trigger] IN ('Upload','Retry','Manual')");
