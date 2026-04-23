@@ -31,10 +31,15 @@ public sealed class OpenDataLoaderOptions
 
     public static OpenDataLoaderOptions FromConfiguration(IConfiguration configuration)
     {
-        static int GetInt(IConfiguration configuration, string primaryKey, string legacyKey, int fallback)
+        static int GetInt(
+            IConfiguration configuration,
+            string primaryKey,
+            string legacyKey,
+            int fallback,
+            int minValue = 1)
         {
             var raw = configuration[primaryKey] ?? configuration[legacyKey];
-            return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) && value > 0
+            return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) && value >= minValue
                 ? value
                 : fallback;
         }
@@ -72,7 +77,8 @@ public sealed class OpenDataLoaderOptions
                 configuration,
                 "OpenDataLoader:MaxQueuedConversions",
                 "ODL_MAX_QUEUED_CONVERSIONS",
-                DefaultMaxQueuedConversions),
+                DefaultMaxQueuedConversions,
+                minValue: 0),
             QueueTimeoutSeconds = GetInt(
                 configuration,
                 "OpenDataLoader:QueueTimeoutSeconds",

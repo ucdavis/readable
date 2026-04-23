@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "16338994007836445437"
+      "templateHash": "14746575035412623364"
     }
   },
   "parameters": {
@@ -2045,7 +2045,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "3297431385429547303"
+              "templateHash": "12665706850571937104"
             }
           },
           "parameters": {
@@ -2284,7 +2284,7 @@
                         }
                       ],
                       "resources": {
-                        "cpu": "[parameters('cpu')]",
+                        "cpu": "[json(parameters('cpu'))]",
                         "memory": "[parameters('memory')]"
                       }
                     }
