@@ -33,6 +33,22 @@ param maxRequestBodySizeMb int = 50
 @description('OpenDataLoader process timeout in seconds.')
 param processTimeoutSeconds int = 210
 
+@minValue(1)
+@description('Maximum conversions to run concurrently inside one replica.')
+param maxConcurrentConversions int = 1
+
+@minValue(0)
+@description('Maximum requests to hold in the in-memory queue inside one replica.')
+param maxQueuedConversions int = 20
+
+@minValue(1)
+@description('Maximum seconds a request may wait in the in-memory queue before returning 429.')
+param queueTimeoutSeconds int = 60
+
+@minValue(1)
+@description('HTTP concurrent request target for Container Apps autoscale.')
+param httpConcurrentRequests int = 1
+
 @description('CPU allocation for the container app.')
 param cpu string = '2.0'
 
@@ -99,6 +115,18 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'ODL_PROCESS_TIMEOUT_SECONDS'
               value: string(processTimeoutSeconds)
             }
+            {
+              name: 'ODL_MAX_CONCURRENT_CONVERSIONS'
+              value: string(maxConcurrentConversions)
+            }
+            {
+              name: 'ODL_MAX_QUEUED_CONVERSIONS'
+              value: string(maxQueuedConversions)
+            }
+            {
+              name: 'ODL_QUEUE_TIMEOUT_SECONDS'
+              value: string(queueTimeoutSeconds)
+            }
           ]
           probes: [
             {
@@ -144,6 +172,16 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       scale: {
         minReplicas: minReplicas
         maxReplicas: maxReplicas
+        rules: [
+          {
+            name: 'http-concurrency'
+            http: {
+              metadata: {
+                concurrentRequests: string(httpConcurrentRequests)
+              }
+            }
+          }
+        ]
       }
     }
   }
@@ -151,4 +189,3 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
 
 output name string = containerApp.name
 output fqdn string = containerApp.properties.configuration.ingress.fqdn
-

@@ -9,11 +9,17 @@ public sealed class OpenDataLoaderOptions
 {
     private const int DefaultMaxRequestBodySizeMb = 50;
     private const int DefaultProcessTimeoutSeconds = 210;
+    private const int DefaultMaxConcurrentConversions = 1;
+    private const int DefaultMaxQueuedConversions = 20;
+    private const int DefaultQueueTimeoutSeconds = 60;
     private const int MaxErrorLength = 4000;
 
     public string SharedSecret { get; init; } = string.Empty;
     public int MaxRequestBodySizeMb { get; init; } = DefaultMaxRequestBodySizeMb;
     public int ProcessTimeoutSeconds { get; init; } = DefaultProcessTimeoutSeconds;
+    public int MaxConcurrentConversions { get; init; } = DefaultMaxConcurrentConversions;
+    public int MaxQueuedConversions { get; init; } = DefaultMaxQueuedConversions;
+    public int QueueTimeoutSeconds { get; init; } = DefaultQueueTimeoutSeconds;
     public string CommandPath { get; init; } = "opendataloader-pdf";
     public string OutputFormat { get; init; } = "tagged-pdf";
     public string? HybridUrl { get; init; }
@@ -21,6 +27,7 @@ public sealed class OpenDataLoaderOptions
 
     public long MaxRequestBodySizeBytes => MaxRequestBodySizeMb * 1024L * 1024L;
     public TimeSpan ProcessTimeout => TimeSpan.FromSeconds(ProcessTimeoutSeconds);
+    public TimeSpan QueueTimeout => TimeSpan.FromSeconds(QueueTimeoutSeconds);
 
     public static OpenDataLoaderOptions FromConfiguration(IConfiguration configuration)
     {
@@ -56,6 +63,21 @@ public sealed class OpenDataLoaderOptions
                 "OpenDataLoader:ProcessTimeoutSeconds",
                 "ODL_PROCESS_TIMEOUT_SECONDS",
                 DefaultProcessTimeoutSeconds),
+            MaxConcurrentConversions = GetInt(
+                configuration,
+                "OpenDataLoader:MaxConcurrentConversions",
+                "ODL_MAX_CONCURRENT_CONVERSIONS",
+                DefaultMaxConcurrentConversions),
+            MaxQueuedConversions = GetInt(
+                configuration,
+                "OpenDataLoader:MaxQueuedConversions",
+                "ODL_MAX_QUEUED_CONVERSIONS",
+                DefaultMaxQueuedConversions),
+            QueueTimeoutSeconds = GetInt(
+                configuration,
+                "OpenDataLoader:QueueTimeoutSeconds",
+                "ODL_QUEUE_TIMEOUT_SECONDS",
+                DefaultQueueTimeoutSeconds),
             CommandPath = configuration["OpenDataLoader:CommandPath"]
                           ?? configuration["ODL_COMMAND_PATH"]
                           ?? "opendataloader-pdf",
@@ -91,4 +113,3 @@ public sealed class OpenDataLoaderOptions
         return CryptographicOperations.FixedTimeEquals(expectedBytes, providedBytes);
     }
 }
-

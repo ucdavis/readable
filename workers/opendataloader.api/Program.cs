@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Net.Http.Headers;
 using opendataloader.api;
@@ -14,6 +15,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<IOpenDataLoaderRunner, OpenDataLoaderRunner>();
 builder.Services.AddSingleton<IRuntimeDependencyProbe, RuntimeDependencyProbe>();
+builder.Services.AddSingleton<IConversionQueue, ConversionQueue>();
 
 var app = builder.Build();
 
@@ -54,13 +56,29 @@ app.MapGet("/help", () => Results.Ok(new
     responseContentType = "application/pdf",
     maxRequestBodySizeMb = options.MaxRequestBodySizeMb,
     processTimeoutSeconds = options.ProcessTimeoutSeconds,
+    maxConcurrentConversions = options.MaxConcurrentConversions,
+    maxQueuedConversions = options.MaxQueuedConversions,
+    queueTimeoutSeconds = options.QueueTimeoutSeconds,
     outputFormat = options.OutputFormat,
     hybridEnabled = !string.IsNullOrWhiteSpace(options.HybridUrl)
 }));
 
+app.MapGet("/queue", (IConversionQueue queue) =>
+{
+    var snapshot = queue.GetSnapshot();
+    return Results.Ok(new
+    {
+        activeConversions = snapshot.ActiveConversions,
+        queuedConversions = snapshot.QueuedConversions,
+        maxConcurrentConversions = snapshot.MaxConcurrentConversions,
+        maxQueuedConversions = snapshot.MaxQueuedConversions
+    });
+});
+
 app.MapPost("/convert", async Task<IResult> (
     HttpContext context,
     IOpenDataLoaderRunner runner,
+    IConversionQueue conversionQueue,
     ILoggerFactory loggerFactory) =>
 {
     if (!IsPdfContentType(context.Request.ContentType))
@@ -92,6 +110,17 @@ app.MapPost("/convert", async Task<IResult> (
 
     try
     {
+        await using var queueLease = await conversionQueue.TryAcquireAsync(linkedCts.Token);
+        if (queueLease is null)
+        {
+            CleanupWorkDir(workDir, logger);
+            context.Response.Headers.RetryAfter = options.QueueTimeoutSeconds.ToString(CultureInfo.InvariantCulture);
+            return TypedResults.Problem(
+                statusCode: StatusCodes.Status429TooManyRequests,
+                title: "Conversion Queue Full",
+                detail: "OpenDataLoader is currently at conversion capacity. Retry the request later.");
+        }
+
         await using (var fileStream = File.Create(inputPath))
         {
             await context.Request.Body.CopyToAsync(fileStream, linkedCts.Token);

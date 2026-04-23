@@ -56,6 +56,22 @@ param openDataLoaderMaxRequestBodySizeMb int = 50
 @description('OpenDataLoader process timeout in seconds.')
 param openDataLoaderProcessTimeoutSeconds int = 210
 
+@minValue(1)
+@description('Maximum OpenDataLoader conversions to run concurrently inside one replica.')
+param openDataLoaderMaxConcurrentConversions int = 1
+
+@minValue(0)
+@description('Maximum OpenDataLoader requests to hold in the in-memory queue inside one replica.')
+param openDataLoaderMaxQueuedConversions int = 20
+
+@minValue(1)
+@description('Maximum seconds a request may wait in the OpenDataLoader in-memory queue before returning 429.')
+param openDataLoaderQueueTimeoutSeconds int = 60
+
+@minValue(1)
+@description('HTTP concurrent request target used by Container Apps autoscale for OpenDataLoader.')
+param openDataLoaderHttpConcurrentRequests int = 1
+
 @description('CPU allocation for the OpenDataLoader Container App.')
 param openDataLoaderCpu string = '2.0'
 
@@ -68,7 +84,7 @@ param openDataLoaderMinReplicas int = 1
 
 @minValue(1)
 @description('Maximum replicas for the OpenDataLoader Container App.')
-param openDataLoaderMaxReplicas int = 3
+param openDataLoaderMaxReplicas int = 20
 
 var appSlug = toLower(replace(replace(replace(appName, '-', ''), '_', ''), ' ', ''))
 var appNameSafe = toLower(replace(replace(appName, ' ', ''), '_', ''))
@@ -305,6 +321,10 @@ module openDataLoaderContainerApp 'modules/opendataloader-container-app.bicep' =
     apiKey: openDataLoaderSharedSecret
     maxRequestBodySizeMb: openDataLoaderMaxRequestBodySizeMb
     processTimeoutSeconds: openDataLoaderProcessTimeoutSeconds
+    maxConcurrentConversions: openDataLoaderMaxConcurrentConversions
+    maxQueuedConversions: openDataLoaderMaxQueuedConversions
+    queueTimeoutSeconds: openDataLoaderQueueTimeoutSeconds
+    httpConcurrentRequests: openDataLoaderHttpConcurrentRequests
     cpu: openDataLoaderCpu
     memory: openDataLoaderMemory
     minReplicas: openDataLoaderMinReplicas
