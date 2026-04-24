@@ -27,6 +27,8 @@ parameters:
 variables:
   BuildConfiguration: Release
   NodeVersion: 22.x
+  CORS_ALLOWED_ORIGINS: '["*"]'
+  DEPLOY_OPEN_DATA_LOADER_INFRASTRUCTURE: "true"
 
   # Set to 'true' to have the pipeline deploy/update infra via Bicep before deploying code.
   # You can also override this per environment via variable groups.
