@@ -1,10 +1,14 @@
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using server.core.Data;
 
 #nullable disable
 
 namespace server.core.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260423224500_AddFileProcessingAttemptMetadata")]
     public partial class AddFileProcessingAttemptMetadata : Migration
     {
         /// <inheritdoc />
