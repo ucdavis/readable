@@ -79,6 +79,10 @@ export DEPLOY_EVENTGRID_SUBSCRIPTION=false
 ./infrastructure/azure/scripts/deploy_dev.sh
 ```
 
+`ODL_SHARED_SECRET` is the runtime secret used by the function app and local
+calls to the OpenDataLoader API. `OPEN_DATA_LOADER_SHARED_SECRET` is the deploy
+script parameter that provisions the Container App with that same secret.
+
 Get the URL from deployment outputs:
 
 ```bash

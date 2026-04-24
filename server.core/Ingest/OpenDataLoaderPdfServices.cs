@@ -23,6 +23,8 @@ public sealed class OpenDataLoaderPdfServices : IAdobePdfServices
         IConfiguration configuration,
         ILogger<OpenDataLoaderPdfServices> logger)
     {
+        AdobePdfServices.EnsureCredentialsConfigured(configuration);
+
         _httpClient = httpClient;
         _adobePdfServices = new AdobePdfServices(
             configuration,
@@ -35,6 +37,8 @@ public sealed class OpenDataLoaderPdfServices : IAdobePdfServices
         _httpClient.DefaultRequestHeaders.Remove("X-Api-Key");
         _httpClient.DefaultRequestHeaders.Add("X-Api-Key", _options.ApiKey);
     }
+
+    public string AutotagProviderName => FileIngestOptions.AutotagProviders.OpenDataLoader;
 
     public async Task<AdobeAutotagOutput> AutotagPdfAsync(
         string inputPdfPath,

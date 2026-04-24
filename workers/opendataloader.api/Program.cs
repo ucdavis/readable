@@ -110,6 +110,20 @@ app.MapPost("/convert", async Task<IResult> (
 
     try
     {
+        await using (var fileStream = File.Create(inputPath))
+        {
+            await context.Request.Body.CopyToAsync(fileStream, linkedCts.Token);
+        }
+
+        if (new FileInfo(inputPath).Length == 0)
+        {
+            CleanupWorkDir(workDir, logger);
+            return TypedResults.Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "Empty Request",
+                detail: "Request body must contain PDF bytes.");
+        }
+
         await using var queueLease = await conversionQueue.TryAcquireAsync(linkedCts.Token);
         if (queueLease is null)
         {
@@ -119,11 +133,6 @@ app.MapPost("/convert", async Task<IResult> (
                 statusCode: StatusCodes.Status429TooManyRequests,
                 title: "Conversion Queue Full",
                 detail: "OpenDataLoader is currently at conversion capacity. Retry the request later.");
-        }
-
-        await using (var fileStream = File.Create(inputPath))
-        {
-            await context.Request.Body.CopyToAsync(fileStream, linkedCts.Token);
         }
 
         var result = await runner.ConvertAsync(inputPath, outputDirectory, linkedCts.Token);

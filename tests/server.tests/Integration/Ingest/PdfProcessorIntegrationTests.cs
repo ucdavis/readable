@@ -469,6 +469,7 @@ public sealed class PdfProcessorIntegrationTests
         public List<AdobeCall> Calls { get; } = [];
         public int AccessibilityCheckCalls { get; private set; }
         public int AutotagCalls => Calls.Count;
+        public string AutotagProviderName => FileIngestOptions.AutotagProviders.Adobe;
 
         public async Task<AdobeAutotagOutput> AutotagPdfAsync(
             string inputPdfPath,
@@ -615,7 +616,6 @@ public sealed class PdfProcessorIntegrationTests
         return pdf.GetNumberOfPages();
     }
 }
-
 
 
 

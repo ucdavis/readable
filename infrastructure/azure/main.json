@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "14746575035412623364"
+      "templateHash": "6306649273613823366"
     }
   },
   "parameters": {
@@ -104,6 +104,13 @@
       "defaultValue": "",
       "metadata": {
         "description": "Shared secret expected in the OpenDataLoader X-Api-Key header. Leave empty to skip deploying the container app."
+      }
+    },
+    "deployOpenDataLoaderInfrastructure": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Deploy the OpenDataLoader registry and Container Apps environment even before a container image is available. This is used by CI to bootstrap image publishing."
       }
     },
     "openDataLoaderMaxRequestBodySizeMb": {
@@ -209,9 +216,11 @@
     "containerRegistryName": "[format('{0}{1}', variables('containerRegistryPrefix'), variables('nameToken'))]",
     "containerAppsEnvironmentName": "[toLower(format('cae-{0}-{1}-{2}', variables('appNameSafe'), parameters('env'), variables('nameToken')))]",
     "openDataLoaderContainerAppName": "[toLower(format('ca-odl-{0}-{1}-{2}', variables('appNameSafe'), parameters('env'), variables('nameToken')))]",
+    "openDataLoaderPullIdentityName": "[toLower(format('uai-odl-pull-{0}-{1}-{2}', variables('appNameSafe'), parameters('env'), variables('nameToken')))]",
     "sqlSkuName": "[if(equals(parameters('env'), 'prod'), 'S0', 'Basic')]",
     "sqlSkuTier": "[if(equals(parameters('env'), 'prod'), 'Standard', 'Basic')]",
     "deployOpenDataLoaderContainerApp": "[and(not(empty(parameters('openDataLoaderImage'))), not(empty(parameters('openDataLoaderSharedSecret'))))]",
+    "deployOpenDataLoaderPrerequisites": "[or(parameters('deployOpenDataLoaderInfrastructure'), variables('deployOpenDataLoaderContainerApp'))]",
     "ingestAutotagProvider": "[if(variables('deployOpenDataLoaderContainerApp'), 'OpenDataLoader', 'Adobe')]",
     "baseQueueName": "[if(equals(parameters('serviceBusQueueBaseName'), ''), 'files', parameters('serviceBusQueueBaseName'))]",
     "fileQueueNames": [
@@ -261,6 +270,14 @@
       "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
       "apiVersion": "2024-11-30",
       "name": "[variables('eventGridDeliveryIdentityName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('resourceTags')]"
+    },
+    "openDataLoaderPullIdentity": {
+      "condition": "[variables('deployOpenDataLoaderContainerApp')]",
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[variables('openDataLoaderPullIdentityName')]",
       "location": "[parameters('location')]",
       "tags": "[variables('resourceTags')]"
     },
@@ -889,7 +906,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "8918796768048231421"
+              "templateHash": "5510166543789126718"
             }
           },
           "parameters": {
@@ -945,9 +962,9 @@
             },
             "allowAzureServices": {
               "type": "bool",
-              "defaultValue": true,
+              "defaultValue": false,
               "metadata": {
-                "description": "Whether to allow Azure services/resources to access this SQL server (creates firewall rule 0.0.0.0)."
+                "description": "Whether to allow all Azure services/resources to access this SQL server via the 0.0.0.0 firewall rule. Prefer private endpoints, VNet integration, or narrowly scoped firewall rules."
               }
             }
           },
@@ -1009,6 +1026,7 @@
       }
     },
     "containerRegistry": {
+      "condition": "[variables('deployOpenDataLoaderPrerequisites')]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
       "name": "containerRegistry",
@@ -1026,17 +1044,17 @@
           },
           "tags": {
             "value": "[variables('resourceTags')]"
-          }
+          },
+          "acrPullPrincipalId": "[if(variables('deployOpenDataLoaderContainerApp'), createObject('value', reference('openDataLoaderPullIdentity').principalId), createObject('value', ''))]"
         },
         "template": {
           "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "languageVersion": "2.0",
           "contentVersion": "1.0.0.0",
           "metadata": {
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "7525572065294949514"
+              "templateHash": "12980482392011394938"
             }
           },
           "parameters": {
@@ -1064,10 +1082,17 @@
               "metadata": {
                 "description": "Container Registry SKU."
               }
+            },
+            "acrPullPrincipalId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional principal ID to grant AcrPull on this registry."
+              }
             }
           },
-          "resources": {
-            "registry": {
+          "resources": [
+            {
               "type": "Microsoft.ContainerRegistry/registries",
               "apiVersion": "2025-04-01",
               "name": "[parameters('name')]",
@@ -1077,10 +1102,25 @@
               },
               "tags": "[parameters('tags')]",
               "properties": {
-                "adminUserEnabled": true
+                "adminUserEnabled": false
               }
+            },
+            {
+              "condition": "[not(empty(parameters('acrPullPrincipalId')))]",
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.ContainerRegistry/registries', parameters('name'))]",
+              "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', parameters('name')), parameters('acrPullPrincipalId'), 'AcrPull')]",
+              "properties": {
+                "principalId": "[parameters('acrPullPrincipalId')]",
+                "principalType": "ServicePrincipal",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ContainerRegistry/registries', parameters('name'))]"
+              ]
             }
-          },
+          ],
           "outputs": {
             "name": {
               "type": "string",
@@ -1092,21 +1132,17 @@
             },
             "loginServer": {
               "type": "string",
-              "value": "[reference('registry').loginServer]"
-            },
-            "username": {
-              "type": "string",
-              "value": "[listCredentials('registry', '2025-04-01').username]"
-            },
-            "password": {
-              "type": "securestring",
-              "value": "[listCredentials('registry', '2025-04-01').passwords[0].value]"
+              "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', parameters('name')), '2025-04-01').loginServer]"
             }
           }
         }
-      }
+      },
+      "dependsOn": [
+        "openDataLoaderPullIdentity"
+      ]
     },
     "containerAppsEnvironment": {
+      "condition": "[variables('deployOpenDataLoaderPrerequisites')]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
       "name": "containerAppsEnvironment",
@@ -1998,11 +2034,8 @@
           "registryServer": {
             "value": "[reference('containerRegistry').outputs.loginServer.value]"
           },
-          "registryUsername": {
-            "value": "[reference('containerRegistry').outputs.username.value]"
-          },
-          "registryPassword": {
-            "value": "[listOutputsWithSecureValues('containerRegistry', '2025-04-01').password]"
+          "registryIdentityResourceId": {
+            "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('openDataLoaderPullIdentityName'))]"
           },
           "apiKey": {
             "value": "[parameters('openDataLoaderSharedSecret')]"
@@ -2045,7 +2078,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "12665706850571937104"
+              "templateHash": "4528876268105028133"
             }
           },
           "parameters": {
@@ -2085,16 +2118,10 @@
                 "description": "Container Registry login server."
               }
             },
-            "registryUsername": {
+            "registryIdentityResourceId": {
               "type": "string",
               "metadata": {
-                "description": "Container Registry username."
-              }
-            },
-            "registryPassword": {
-              "type": "securestring",
-              "metadata": {
-                "description": "Container Registry password."
+                "description": "User-assigned managed identity resource ID used to pull from the container registry."
               }
             },
             "apiKey": {
@@ -2185,6 +2212,12 @@
               "name": "[parameters('name')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
+              "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', parameters('registryIdentityResourceId'))]": {}
+                }
+              },
               "properties": {
                 "managedEnvironmentId": "[parameters('environmentId')]",
                 "configuration": {
@@ -2198,15 +2231,10 @@
                   "registries": [
                     {
                       "server": "[parameters('registryServer')]",
-                      "username": "[parameters('registryUsername')]",
-                      "passwordSecretRef": "registry-password"
+                      "identity": "[parameters('registryIdentityResourceId')]"
                     }
                   ],
                   "secrets": [
-                    {
-                      "name": "registry-password",
-                      "value": "[parameters('registryPassword')]"
-                    },
                     {
                       "name": "api-key",
                       "value": "[parameters('apiKey')]"
@@ -2321,7 +2349,8 @@
       },
       "dependsOn": [
         "containerAppsEnvironment",
-        "containerRegistry"
+        "containerRegistry",
+        "openDataLoaderPullIdentity"
       ]
     }
   },
@@ -2366,17 +2395,21 @@
       "type": "string",
       "value": "[variables('functionAppName')]"
     },
+    "ingestAutotagProvider": {
+      "type": "string",
+      "value": "[variables('ingestAutotagProvider')]"
+    },
     "containerRegistryName": {
       "type": "string",
-      "value": "[reference('containerRegistry').outputs.name.value]"
+      "value": "[if(variables('deployOpenDataLoaderPrerequisites'), reference('containerRegistry').outputs.name.value, '')]"
     },
     "containerRegistryLoginServer": {
       "type": "string",
-      "value": "[reference('containerRegistry').outputs.loginServer.value]"
+      "value": "[if(variables('deployOpenDataLoaderPrerequisites'), reference('containerRegistry').outputs.loginServer.value, '')]"
     },
     "containerAppsEnvironmentName": {
       "type": "string",
-      "value": "[reference('containerAppsEnvironment').outputs.name.value]"
+      "value": "[if(variables('deployOpenDataLoaderPrerequisites'), reference('containerAppsEnvironment').outputs.name.value, '')]"
     },
     "openDataLoaderContainerAppName": {
       "type": "string",

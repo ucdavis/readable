@@ -48,6 +48,9 @@ param openDataLoaderImage string = ''
 @description('Shared secret expected in the OpenDataLoader X-Api-Key header. Leave empty to skip deploying the container app.')
 param openDataLoaderSharedSecret string = ''
 
+@description('Deploy the OpenDataLoader registry and Container Apps environment even before a container image is available. This is used by CI to bootstrap image publishing.')
+param deployOpenDataLoaderInfrastructure bool = false
+
 @minValue(1)
 @description('Max request body size for the OpenDataLoader API in MB.')
 param openDataLoaderMaxRequestBodySizeMb int = 50
@@ -110,10 +113,12 @@ var containerRegistryPrefix = take('acr${appSlug}${envSlug}', 50 - length(nameTo
 var containerRegistryName = '${containerRegistryPrefix}${nameToken}'
 var containerAppsEnvironmentName = toLower('cae-${appNameSafe}-${env}-${nameToken}')
 var openDataLoaderContainerAppName = toLower('ca-odl-${appNameSafe}-${env}-${nameToken}')
+var openDataLoaderPullIdentityName = toLower('uai-odl-pull-${appNameSafe}-${env}-${nameToken}')
 var sqlSkuName = env == 'prod' ? 'S0' : 'Basic'
 var sqlSkuTier = env == 'prod' ? 'Standard' : 'Basic'
 var deployOpenDataLoaderContainerApp = !empty(openDataLoaderImage) && !empty(openDataLoaderSharedSecret)
-var openDataLoaderBaseUrl = deployOpenDataLoaderContainerApp ? 'https://${openDataLoaderContainerAppName}.${containerAppsEnvironment.outputs.defaultDomain}' : ''
+var deployOpenDataLoaderPrerequisites = deployOpenDataLoaderInfrastructure || deployOpenDataLoaderContainerApp
+var openDataLoaderBaseUrl = deployOpenDataLoaderContainerApp ? 'https://${openDataLoaderContainerAppName}.${containerAppsEnvironment!.outputs.defaultDomain}' : ''
 var ingestAutotagProvider = deployOpenDataLoaderContainerApp ? 'OpenDataLoader' : 'Adobe'
 
 var baseQueueName = serviceBusQueueBaseName == '' ? 'files' : serviceBusQueueBaseName
@@ -225,16 +230,23 @@ module sql 'modules/sql.bicep' = {
   }
 }
 
-module containerRegistry 'modules/acr.bicep' = {
+resource openDataLoaderPullIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (deployOpenDataLoaderContainerApp) {
+  name: openDataLoaderPullIdentityName
+  location: location
+  tags: resourceTags
+}
+
+module containerRegistry 'modules/acr.bicep' = if (deployOpenDataLoaderPrerequisites) {
   name: 'containerRegistry'
   params: {
     name: containerRegistryName
     location: location
     tags: resourceTags
+    acrPullPrincipalId: deployOpenDataLoaderContainerApp ? openDataLoaderPullIdentity!.properties.principalId : ''
   }
 }
 
-module containerAppsEnvironment 'modules/container-apps-environment.bicep' = {
+module containerAppsEnvironment 'modules/container-apps-environment.bicep' = if (deployOpenDataLoaderPrerequisites) {
   name: 'containerAppsEnvironment'
   params: {
     name: containerAppsEnvironmentName
@@ -318,11 +330,10 @@ module openDataLoaderContainerApp 'modules/opendataloader-container-app.bicep' =
     name: openDataLoaderContainerAppName
     location: location
     tags: resourceTags
-    environmentId: containerAppsEnvironment.outputs.id
+    environmentId: containerAppsEnvironment!.outputs.id
     image: openDataLoaderImage
-    registryServer: containerRegistry.outputs.loginServer
-    registryUsername: containerRegistry.outputs.username
-    registryPassword: containerRegistry.outputs.password
+    registryServer: containerRegistry!.outputs.loginServer
+    registryIdentityResourceId: openDataLoaderPullIdentity!.id
     apiKey: openDataLoaderSharedSecret
     maxRequestBodySizeMb: openDataLoaderMaxRequestBodySizeMb
     processTimeoutSeconds: openDataLoaderProcessTimeoutSeconds
@@ -347,8 +358,9 @@ output sqlServerName string = sql.outputs.serverName
 output sqlDatabaseName string = sqlDatabaseName
 output webAppName string = webAppName
 output functionAppName string = functionAppName
-output containerRegistryName string = containerRegistry.outputs.name
-output containerRegistryLoginServer string = containerRegistry.outputs.loginServer
-output containerAppsEnvironmentName string = containerAppsEnvironment.outputs.name
+output ingestAutotagProvider string = ingestAutotagProvider
+output containerRegistryName string = deployOpenDataLoaderPrerequisites ? containerRegistry!.outputs.name : ''
+output containerRegistryLoginServer string = deployOpenDataLoaderPrerequisites ? containerRegistry!.outputs.loginServer : ''
+output containerAppsEnvironmentName string = deployOpenDataLoaderPrerequisites ? containerAppsEnvironment!.outputs.name : ''
 output openDataLoaderContainerAppName string = deployOpenDataLoaderContainerApp ? openDataLoaderContainerApp!.outputs.name : ''
 output openDataLoaderContainerAppUrl string = deployOpenDataLoaderContainerApp ? 'https://${openDataLoaderContainerApp!.outputs.fqdn}' : ''

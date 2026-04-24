@@ -131,21 +131,7 @@ public static class IngestServiceCollectionExtensions
 
     private static void EnsureAdobeCredentialsConfigured(IConfiguration configuration)
     {
-        var clientId =
-            configuration["PDF_SERVICES_CLIENT_ID"]
-            ?? configuration["AdobePdfServices:ClientId"]
-            ?? configuration["AdobePdfServices__ClientId"];
-
-        var clientSecret =
-            configuration["PDF_SERVICES_CLIENT_SECRET"]
-            ?? configuration["AdobePdfServices:ClientSecret"]
-            ?? configuration["AdobePdfServices__ClientSecret"];
-
-        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
-        {
-            throw new InvalidOperationException(
-                "Adobe PDF Services is enabled but credentials are missing. Set PDF_SERVICES_CLIENT_ID and PDF_SERVICES_CLIENT_SECRET.");
-        }
+        AdobePdfServices.EnsureCredentialsConfigured(configuration);
     }
 
     private static bool IsOpenDataLoaderAutotagProvider(string? value)

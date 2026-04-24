@@ -21,11 +21,13 @@ RUN apt-get update \
 
 RUN python3 -m pip install --break-system-packages --no-cache-dir "opendataloader-pdf==2.3.0"
 
+RUN useradd --create-home --uid 10001 appuser
 WORKDIR /app
 COPY --from=build /app/publish .
+RUN chown -R appuser:appuser /app
 
 ENV ASPNETCORE_URLS=http://0.0.0.0:8080
 EXPOSE 8080
 
+USER appuser
 ENTRYPOINT ["dotnet", "opendataloader.api.dll"]
-

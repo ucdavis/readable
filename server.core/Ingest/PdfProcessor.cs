@@ -230,7 +230,7 @@ public sealed class PdfProcessor : IPdfProcessor
                 if (sourceInfo.PageCount <= _options.MaxPagesPerChunk)
                 {
                     // Common case: avoid split/merge overhead when the PDF fits in a single chunk.
-                    var reportPath = Path.Combine(workDir, $"{safeFileId}.autotag-report.xlsx");
+                    var reportPath = CreateAutotagReportPath(workDir, $"{safeFileId}.autotag-report");
                     using (LogStage.Begin(
                                _logger,
                                fileId,
@@ -281,7 +281,9 @@ public sealed class PdfProcessor : IPdfProcessor
                         cancellationToken.ThrowIfCancellationRequested();
 
                         var taggedPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.tagged.pdf");
-                        var reportPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.autotag-report.xlsx");
+                        var reportPath = CreateAutotagReportPath(
+                            workDir,
+                            $"{safeFileId}.part{chunk.Index + 1:000}.autotag-report");
 
                         using (LogStage.Begin(
                                    _logger,
@@ -413,12 +415,21 @@ public sealed class PdfProcessor : IPdfProcessor
 
     private string GetAutotagProviderName()
     {
-        return _adobePdfServices.GetType().Name switch
-        {
-            nameof(OpenDataLoaderPdfServices) => FileIngestOptions.AutotagProviders.OpenDataLoader,
-            nameof(NoopAdobePdfServices) => "None",
-            _ => FileIngestOptions.AutotagProviders.Adobe,
-        };
+        return string.IsNullOrWhiteSpace(_adobePdfServices.AutotagProviderName)
+            ? FileIngestOptions.AutotagProviders.Adobe
+            : _adobePdfServices.AutotagProviderName;
+    }
+
+    private string CreateAutotagReportPath(string workDir, string baseFileName)
+    {
+        var extension = string.Equals(
+            GetAutotagProviderName(),
+            FileIngestOptions.AutotagProviders.OpenDataLoader,
+            StringComparison.OrdinalIgnoreCase)
+            ? "json"
+            : "xlsx";
+
+        return Path.Combine(workDir, $"{baseFileName}.{extension}");
     }
 
     private enum PdfTaggingState

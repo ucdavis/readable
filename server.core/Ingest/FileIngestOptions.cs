@@ -24,6 +24,7 @@ public sealed class FileIngestOptions
     public static class AutotagProviders
     {
         public const string Adobe = "Adobe";
+        public const string None = "None";
         public const string OpenDataLoader = "OpenDataLoader";
     }
 }

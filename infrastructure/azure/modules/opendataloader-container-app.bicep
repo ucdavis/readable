@@ -16,12 +16,8 @@ param image string
 @description('Container Registry login server.')
 param registryServer string
 
-@description('Container Registry username.')
-param registryUsername string
-
-@secure()
-@description('Container Registry password.')
-param registryPassword string
+@description('User-assigned managed identity resource ID used to pull from the container registry.')
+param registryIdentityResourceId string
 
 @secure()
 @description('Shared secret required on X-Api-Key.')
@@ -65,6 +61,12 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: name
   location: location
   tags: tags
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${registryIdentityResourceId}': {}
+    }
+  }
   properties: {
     managedEnvironmentId: environmentId
     configuration: {
@@ -78,15 +80,10 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       registries: [
         {
           server: registryServer
-          username: registryUsername
-          passwordSecretRef: 'registry-password'
+          identity: registryIdentityResourceId
         }
       ]
       secrets: [
-        {
-          name: 'registry-password'
-          value: registryPassword
-        }
         {
           name: 'api-key'
           value: apiKey

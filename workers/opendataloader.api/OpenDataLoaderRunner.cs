@@ -124,9 +124,15 @@ public sealed class OpenDataLoaderRunner : IOpenDataLoaderRunner
             return expected;
         }
 
-        return Directory.Exists(outputDirectory)
-            ? Directory.EnumerateFiles(outputDirectory, "*_tagged.pdf", SearchOption.TopDirectoryOnly).FirstOrDefault()
-            : null;
+        if (!Directory.Exists(outputDirectory))
+        {
+            return null;
+        }
+
+        return Directory
+            .EnumerateFiles(outputDirectory, "*_tagged.pdf", SearchOption.TopDirectoryOnly)
+            .FirstOrDefault(file =>
+                Path.GetFileNameWithoutExtension(file).StartsWith(stem, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void TryKill(Process process)

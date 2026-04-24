@@ -12,6 +12,8 @@ public sealed class NoopAdobePdfServices : IAdobePdfServices
         _logger = logger;
     }
 
+    public string AutotagProviderName => FileIngestOptions.AutotagProviders.None;
+
     public async Task<AdobeAutotagOutput> AutotagPdfAsync(
         string inputPdfPath,
         string outputTaggedPdfPath,
@@ -103,4 +105,3 @@ public sealed class NoopAdobePdfServices : IAdobePdfServices
         return Task.CompletedTask;
     }
 }
-

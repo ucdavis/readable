@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -128,9 +129,11 @@ public class FileIngestProcessorTests
         attempts[0].ErrorMessage.Should().BeNull();
         attempts[0].ErrorDetails.Should().BeNull();
         attempts[0].MetadataJson.Should().NotBeNullOrWhiteSpace();
-        attempts[0].MetadataJson.Should().Contain("\"autotagProviderConfigured\":\"Adobe\"");
-        attempts[0].MetadataJson.Should().Contain("\"pageCount\":7");
-        attempts[0].MetadataJson.Should().Contain("\"provider\":\"OpenDataLoader\"");
+        using var metadata = JsonDocument.Parse(attempts[0].MetadataJson!);
+        var root = metadata.RootElement;
+        root.GetProperty("configuration").GetProperty("autotagProviderConfigured").GetString().Should().Be("Adobe");
+        root.GetProperty("processing").GetProperty("pageCount").GetInt32().Should().Be(7);
+        root.GetProperty("autotag").GetProperty("provider").GetString().Should().Be("OpenDataLoader");
     }
 
     [Fact]

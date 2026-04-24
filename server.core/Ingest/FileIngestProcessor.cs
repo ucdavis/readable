@@ -531,8 +531,12 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
 
     private string GetConfiguredAutotagProvider()
     {
-        return _configuration["Ingest:AutotagProvider"]
-               ?? _configuration["INGEST_AUTOTAG_PROVIDER"]
-               ?? FileIngestOptions.AutotagProviders.Adobe;
+        var configured =
+            _configuration["Ingest:AutotagProvider"]
+            ?? _configuration["INGEST_AUTOTAG_PROVIDER"];
+
+        return string.IsNullOrWhiteSpace(configured)
+            ? FileIngestOptions.AutotagProviders.Adobe
+            : configured;
     }
 }
