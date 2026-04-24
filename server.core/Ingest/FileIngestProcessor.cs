@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -21,6 +22,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
     private readonly IPdfProcessor _pdfProcessor;
     private readonly IBlobStorage _blobStorage;
     private readonly IConfiguration _configuration;
+    private readonly PdfProcessorOptions _pdfProcessorOptions;
     private readonly ILogger<FileIngestProcessor> _logger;
 
     public FileIngestProcessor(
@@ -29,6 +31,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         IPdfProcessor pdfProcessor,
         IBlobStorage blobStorage,
         IConfiguration configuration,
+        IOptions<PdfProcessorOptions> pdfProcessorOptions,
         ILogger<FileIngestProcessor> logger)
     {
         _dbContextFactory = dbContextFactory;
@@ -36,6 +39,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         _pdfProcessor = pdfProcessor;
         _blobStorage = blobStorage;
         _configuration = configuration;
+        _pdfProcessorOptions = pdfProcessorOptions.Value;
         _logger = logger;
     }
 
@@ -69,13 +73,13 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         var attemptId = await StartProcessingAttemptAsync(fileId, cancellationToken);
 
         var pageCount = 0;
+        PdfProcessResult? pdfResult = null;
 
         // start the actual processing
         try
         {
             await using var stream = await OpenBlobStreamAsync(request.FileId, request.BlobUri, cancellationToken);
 
-            PdfProcessResult pdfResult;
             using (LogStage.Begin(_logger, request.FileId, "pdf_processor", null))
             {
                 pdfResult = await _pdfProcessor.ProcessAsync(request.FileId, stream, cancellationToken);
@@ -160,7 +164,8 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                     error: null,
                     request,
                     CancellationToken.None,
-                    pageCount: pageCount);
+                    pageCount: pageCount,
+                    metadataJson: BuildMetadataJson(pdfResult, pageCount));
             }
 
             _logger.LogInformation(
@@ -182,7 +187,8 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 error: oce,
                 request,
                 CancellationToken.None,
-                pageCount: pageCount);
+                pageCount: pageCount,
+                metadataJson: BuildMetadataJson(pdfResult, pageCount));
             throw;
         }
         catch (Exception ex)
@@ -204,7 +210,8 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 error: ex,
                 request,
                 CancellationToken.None,
-                pageCount: pageCount);
+                pageCount: pageCount,
+                metadataJson: BuildMetadataJson(pdfResult, pageCount));
             throw;
         }
     }
@@ -416,7 +423,8 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         Exception? error,
         BlobIngestRequest request,
         CancellationToken cancellationToken,
-        int pageCount = 0)
+        int pageCount = 0,
+        string? metadataJson = null)
     {
         var finishedAt = DateTimeOffset.UtcNow;
 
@@ -438,6 +446,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
 
             attempt.Outcome = outcome;
             attempt.FinishedAt = finishedAt;
+            attempt.MetadataJson = metadataJson;
 
             if (error is not null)
             {
@@ -492,5 +501,42 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         }
 
         return value[..maxLength];
+    }
+
+    private string BuildMetadataJson(PdfProcessResult? pdfResult, int pageCount)
+    {
+        var metadata = new
+        {
+            configuration = new
+            {
+                autotagProviderConfigured = GetConfiguredAutotagProvider(),
+                useAdobePdfServices = _pdfProcessorOptions.UseAdobePdfServices,
+                usePdfRemediationProcessor = _pdfProcessorOptions.UsePdfRemediationProcessor,
+                usePdfBookmarks = _pdfProcessorOptions.UsePdfBookmarks,
+                autotagTaggedPdfs = _pdfProcessorOptions.AutotagTaggedPdfs,
+                maxPagesPerChunk = _pdfProcessorOptions.MaxPagesPerChunk,
+                maxUploadPages = _pdfProcessorOptions.MaxUploadPages,
+            },
+            processing = new
+            {
+                pageCount,
+            },
+            autotag = pdfResult?.Autotag
+        };
+
+        return JsonSerializer.Serialize(
+            metadata,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    }
+
+    private string GetConfiguredAutotagProvider()
+    {
+        var configured =
+            _configuration["Ingest:AutotagProvider"]
+            ?? _configuration["INGEST_AUTOTAG_PROVIDER"];
+
+        return string.IsNullOrWhiteSpace(configured)
+            ? FileIngestOptions.AutotagProviders.Adobe
+            : configured;
     }
 }

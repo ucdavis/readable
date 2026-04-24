@@ -97,6 +97,41 @@ You might also want to set the publisher domain to ucdavis.edu and fill in the o
 
 The health check endpoint (`/health`) is configured to return the status of the application and its dependencies. It includes a database health check to ensure the SQL Server connection is healthy. See [Health Checks](https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/health-checks?view=aspnetcore-9.0#entity-framework-core-dbcontext-probe).
 
+## OpenDataLoader Tagged PDF API
+
+This repo now includes a standalone synchronous OpenDataLoader spike at `workers/opendataloader.api/`.
+
+- `POST /convert` expects raw `application/pdf` bytes and returns tagged `application/pdf` bytes.
+- `GET /help` returns the configured limits and auth header.
+- `GET /health` reports whether `opendataloader-pdf`, `java`, and `python3` are available.
+
+The service expects an `X-Api-Key` header whose value matches `ODL_SHARED_SECRET`.
+
+Useful environment variables:
+
+- `ODL_SHARED_SECRET`: required API key value.
+- `ODL_MAX_REQUEST_BODY_SIZE_MB`: max upload size, default `50`.
+- `ODL_PROCESS_TIMEOUT_SECONDS`: hard conversion timeout, default `210`.
+- `ODL_COMMAND_PATH`: override the CLI path, default `opendataloader-pdf`.
+- `ODL_HYBRID_URL`: optional hybrid backend URL. When set, the API adds `--hybrid docling-fast --hybrid-url <url>`.
+
+Run locally:
+
+```bash
+ASPNETCORE_URLS=http://127.0.0.1:8080 ODL_SHARED_SECRET=local-dev-key dotnet run --project workers/opendataloader.api
+```
+
+Call it:
+
+```bash
+curl -X POST \
+  http://127.0.0.1:8080/convert \
+  -H 'Content-Type: application/pdf' \
+  -H 'X-Api-Key: local-dev-key' \
+  --data-binary @./sample.pdf \
+  --output ./sample.tagged.pdf
+```
+
 ## Development
 
 ### Backend Development
@@ -177,6 +212,7 @@ And as always, after updating dependencies, make sure to run `dotnet build` and 
 │   ├── Program.cs # Application entry point
 │   └── server.csproj
 ├── package.json # Root package.json with start script
+├── workers/ # Background and standalone worker services
 └── app.sln # Visual Studio solution file
 ```
 

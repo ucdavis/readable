@@ -78,6 +78,8 @@ public class FileProcessingAttempt
 
     public string? ErrorDetails { get; set; }
 
+    public string? MetadataJson { get; set; }
+
     internal static void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<FileProcessingAttempt>(entity =>
@@ -88,6 +90,9 @@ public class FileProcessingAttempt
                 {
                     table.HasCheckConstraint("CK_FileProcessingAttempts_Trigger", Triggers.CheckConstraintSql);
                     table.HasCheckConstraint("CK_FileProcessingAttempts_Outcome", Outcomes.CheckConstraintSql);
+                    table.HasCheckConstraint(
+                        "CK_FileProcessingAttempts_MetadataJson_IsJson",
+                        "[MetadataJson] IS NULL OR ISJSON([MetadataJson]) > 0");
                 });
             entity.HasKey(x => x.AttemptId);
 

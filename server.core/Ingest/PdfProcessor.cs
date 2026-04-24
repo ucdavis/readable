@@ -20,7 +20,15 @@ public sealed record PdfProcessResult(
     string? BeforeAccessibilityReportPath = null,
     string? AfterAccessibilityReportJson = null,
     string? AfterAccessibilityReportPath = null,
-    int PageCount = 0);
+    int PageCount = 0,
+    PdfAutotagMetadata? Autotag = null);
+
+public sealed record PdfAutotagMetadata(
+    string Provider,
+    bool Required,
+    string? SkippedReason,
+    int ChunkCount,
+    IReadOnlyList<string> LocalReportPaths);
 
 public sealed record PdfChunk(int Index, int FromPage, int ToPage, string Path)
 {
@@ -160,6 +168,7 @@ public sealed class PdfProcessor : IPdfProcessor
         }
 
         var pageCount = 0;
+        PdfAutotagMetadata? autotagMetadata = null;
         string taggedPdfPath;
         if (_options.UseAdobePdfServices)
         {
@@ -189,6 +198,12 @@ public sealed class PdfProcessor : IPdfProcessor
             if (sourceInfo.TaggingState == PdfTaggingState.TaggedUsable && !_options.AutotagTaggedPdfs)
             {
                 _logger.LogInformation("Skipping Adobe autotagging for {fileId}: PDF is already tagged.", fileId);
+                autotagMetadata = new PdfAutotagMetadata(
+                    Provider: FileIngestOptions.AutotagProviders.None,
+                    Required: false,
+                    SkippedReason: "already-tagged",
+                    ChunkCount: 0,
+                    LocalReportPaths: []);
                 taggedPdfPath = sourcePath;
             }
             else
@@ -215,7 +230,7 @@ public sealed class PdfProcessor : IPdfProcessor
                 if (sourceInfo.PageCount <= _options.MaxPagesPerChunk)
                 {
                     // Common case: avoid split/merge overhead when the PDF fits in a single chunk.
-                    var reportPath = Path.Combine(workDir, $"{safeFileId}.autotag-report.xlsx");
+                    var reportPath = CreateAutotagReportPath(workDir, $"{safeFileId}.autotag-report");
                     using (LogStage.Begin(
                                _logger,
                                fileId,
@@ -229,6 +244,12 @@ public sealed class PdfProcessor : IPdfProcessor
                             cancellationToken: cancellationToken);
                     }
 
+                    autotagMetadata = new PdfAutotagMetadata(
+                        Provider: GetAutotagProviderName(),
+                        Required: true,
+                        SkippedReason: null,
+                        ChunkCount: 1,
+                        LocalReportPaths: [reportPath]);
                     taggedPdfPath = outputTaggedPath;
                 }
                 else
@@ -254,12 +275,15 @@ public sealed class PdfProcessor : IPdfProcessor
 
                     // 3. Autotag each chunk via Adobe PDF Services.
                     var taggedChunkPaths = new List<string>(chunks.Count);
+                    var reportPaths = new List<string>(chunks.Count);
                     foreach (var chunk in chunks)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
                         var taggedPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.tagged.pdf");
-                        var reportPath = Path.Combine(workDir, $"{safeFileId}.part{chunk.Index + 1:000}.autotag-report.xlsx");
+                        var reportPath = CreateAutotagReportPath(
+                            workDir,
+                            $"{safeFileId}.part{chunk.Index + 1:000}.autotag-report");
 
                         using (LogStage.Begin(
                                    _logger,
@@ -283,6 +307,7 @@ public sealed class PdfProcessor : IPdfProcessor
                         }
 
                         taggedChunkPaths.Add(taggedPath);
+                        reportPaths.Add(reportPath);
                     }
 
                     // 4. Merge all tagged chunk PDFs back into a single tagged PDF.
@@ -292,6 +317,12 @@ public sealed class PdfProcessor : IPdfProcessor
                     }
                     _logger.LogInformation("Merged tagged PDF written to {path}", outputTaggedPath);
 
+                    autotagMetadata = new PdfAutotagMetadata(
+                        Provider: GetAutotagProviderName(),
+                        Required: true,
+                        SkippedReason: null,
+                        ChunkCount: chunks.Count,
+                        LocalReportPaths: reportPaths);
                     taggedPdfPath = outputTaggedPath;
                 }
             }
@@ -299,6 +330,12 @@ public sealed class PdfProcessor : IPdfProcessor
         else
         {
             // When Adobe autotagging is disabled, avoid splitting/merging with iText.
+            autotagMetadata = new PdfAutotagMetadata(
+                Provider: FileIngestOptions.AutotagProviders.None,
+                Required: false,
+                SkippedReason: "disabled",
+                ChunkCount: 0,
+                LocalReportPaths: []);
             taggedPdfPath = sourcePath;
             pageCount = TryReadPageCount(sourcePath);
         }
@@ -372,7 +409,27 @@ public sealed class PdfProcessor : IPdfProcessor
             beforeAccessibilityReport?.ReportPath,
             accessibilityReport?.ReportJson,
             accessibilityReport?.ReportPath,
-            PageCount: pageCount);
+            PageCount: pageCount,
+            Autotag: autotagMetadata);
+    }
+
+    private string GetAutotagProviderName()
+    {
+        return string.IsNullOrWhiteSpace(_adobePdfServices.AutotagProviderName)
+            ? FileIngestOptions.AutotagProviders.Adobe
+            : _adobePdfServices.AutotagProviderName;
+    }
+
+    private string CreateAutotagReportPath(string workDir, string baseFileName)
+    {
+        var extension = string.Equals(
+            GetAutotagProviderName(),
+            FileIngestOptions.AutotagProviders.OpenDataLoader,
+            StringComparison.OrdinalIgnoreCase)
+            ? "json"
+            : "xlsx";
+
+        return Path.Combine(workDir, $"{baseFileName}.{extension}");
     }
 
     private enum PdfTaggingState
@@ -676,5 +733,3 @@ public sealed class NoopPdfProcessor : IPdfProcessor
     }
 
 }
-
-

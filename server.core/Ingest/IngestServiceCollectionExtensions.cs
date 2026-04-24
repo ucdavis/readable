@@ -40,12 +40,19 @@ public static class IngestServiceCollectionExtensions
 
         if (options.UseAdobePdfServices)
         {
-            services.AddSingleton<IAdobePdfServices>(sp =>
+            if (IsOpenDataLoaderAutotagProvider(options.AutotagProvider))
             {
-                var configuration = sp.GetRequiredService<IConfiguration>();
-                EnsureAdobeCredentialsConfigured(configuration);
-                return new AdobePdfServices(configuration, sp.GetRequiredService<ILogger<AdobePdfServices>>());
-            });
+                services.AddHttpClient<IAdobePdfServices, OpenDataLoaderPdfServices>();
+            }
+            else
+            {
+                services.AddSingleton<IAdobePdfServices>(sp =>
+                {
+                    var configuration = sp.GetRequiredService<IConfiguration>();
+                    EnsureAdobeCredentialsConfigured(configuration);
+                    return new AdobePdfServices(configuration, sp.GetRequiredService<ILogger<AdobePdfServices>>());
+                });
+            }
         }
         else
         {
@@ -124,21 +131,15 @@ public static class IngestServiceCollectionExtensions
 
     private static void EnsureAdobeCredentialsConfigured(IConfiguration configuration)
     {
-        var clientId =
-            configuration["PDF_SERVICES_CLIENT_ID"]
-            ?? configuration["AdobePdfServices:ClientId"]
-            ?? configuration["AdobePdfServices__ClientId"];
+        AdobePdfServices.EnsureCredentialsConfigured(configuration);
+    }
 
-        var clientSecret =
-            configuration["PDF_SERVICES_CLIENT_SECRET"]
-            ?? configuration["AdobePdfServices:ClientSecret"]
-            ?? configuration["AdobePdfServices__ClientSecret"];
-
-        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
-        {
-            throw new InvalidOperationException(
-                "Adobe PDF Services is enabled but credentials are missing. Set PDF_SERVICES_CLIENT_ID and PDF_SERVICES_CLIENT_SECRET.");
-        }
+    private static bool IsOpenDataLoaderAutotagProvider(string? value)
+    {
+        return string.Equals(
+            value,
+            FileIngestOptions.AutotagProviders.OpenDataLoader,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? GetOpenAiApiKey(IConfiguration configuration)

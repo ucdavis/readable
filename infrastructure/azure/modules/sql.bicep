@@ -23,8 +23,8 @@ param skuName string = 'S0'
 @description('SQL database SKU tier.')
 param skuTier string = 'Standard'
 
-@description('Whether to allow Azure services/resources to access this SQL server (creates firewall rule 0.0.0.0).')
-param allowAzureServices bool = true
+@description('Whether to allow all Azure services/resources to access this SQL server via the 0.0.0.0 firewall rule. Prefer private endpoints, VNet integration, or narrowly scoped firewall rules.')
+param allowAzureServices bool = false
 
 resource sqlServer 'Microsoft.Sql/servers@2023-08-01' = {
   name: name

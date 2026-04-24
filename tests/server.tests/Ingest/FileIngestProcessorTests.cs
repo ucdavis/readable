@@ -1,7 +1,9 @@
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using server.core.Data;
 using server.core.Domain;
 using server.core.Ingest;
@@ -61,6 +63,15 @@ public class FileIngestProcessorTests
             pdf,
             blobStorage,
             configuration,
+            Options.Create(new PdfProcessorOptions
+            {
+                UseAdobePdfServices = true,
+                UsePdfRemediationProcessor = true,
+                UsePdfBookmarks = true,
+                AutotagTaggedPdfs = false,
+                MaxPagesPerChunk = 200,
+                MaxUploadPages = 25,
+            }),
             loggerFactory.CreateLogger<FileIngestProcessor>());
 
         var request = new BlobIngestRequest(
@@ -117,6 +128,12 @@ public class FileIngestProcessorTests
         attempts[0].ErrorCode.Should().BeNull();
         attempts[0].ErrorMessage.Should().BeNull();
         attempts[0].ErrorDetails.Should().BeNull();
+        attempts[0].MetadataJson.Should().NotBeNullOrWhiteSpace();
+        using var metadata = JsonDocument.Parse(attempts[0].MetadataJson!);
+        var root = metadata.RootElement;
+        root.GetProperty("configuration").GetProperty("autotagProviderConfigured").GetString().Should().Be("Adobe");
+        root.GetProperty("processing").GetProperty("pageCount").GetInt32().Should().Be(7);
+        root.GetProperty("autotag").GetProperty("provider").GetString().Should().Be("OpenDataLoader");
     }
 
     [Fact]
@@ -168,6 +185,7 @@ public class FileIngestProcessorTests
             pdf,
             blobStorage,
             configuration,
+            Options.Create(new PdfProcessorOptions()),
             loggerFactory.CreateLogger<FileIngestProcessor>());
 
         var request = new BlobIngestRequest(
@@ -218,6 +236,7 @@ public class FileIngestProcessorTests
             pdf,
             blobStorage,
             configuration,
+            Options.Create(new PdfProcessorOptions()),
             loggerFactory.CreateLogger<FileIngestProcessor>());
 
         var request = new BlobIngestRequest(
@@ -282,6 +301,7 @@ public class FileIngestProcessorTests
             pdf,
             blobStorage,
             configuration,
+            Options.Create(new PdfProcessorOptions()),
             loggerFactory.CreateLogger<FileIngestProcessor>());
 
         var request = new BlobIngestRequest(
@@ -378,7 +398,13 @@ public class FileIngestProcessorTests
                 _outputPath,
                 BeforeAccessibilityReportJson: BeforeAccessibilityReportJson,
                 AfterAccessibilityReportJson: AfterAccessibilityReportJson,
-                PageCount: PageCount);
+                PageCount: PageCount,
+                Autotag: new PdfAutotagMetadata(
+                    Provider: FileIngestOptions.AutotagProviders.OpenDataLoader,
+                    Required: true,
+                    SkippedReason: null,
+                    ChunkCount: 1,
+                    LocalReportPaths: [Path.Combine(Path.GetTempPath(), "autotag-report.json")]));
         }
 
         public void Cleanup()

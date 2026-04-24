@@ -12,6 +12,8 @@ namespace server.core.Ingest;
 
 public interface IAdobePdfServices
 {
+    string AutotagProviderName { get; }
+
     Task<AdobeAutotagOutput> AutotagPdfAsync(
         string inputPdfPath,
         string outputTaggedPdfPath,
@@ -35,6 +37,8 @@ public sealed class AdobePdfServices : IAdobePdfServices
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<AdobePdfServices> _logger;
+
+    public string AutotagProviderName => FileIngestOptions.AutotagProviders.Adobe;
 
     public AdobePdfServices(IConfiguration configuration, ILogger<AdobePdfServices> logger)
     {
@@ -161,6 +165,8 @@ public sealed class AdobePdfServices : IAdobePdfServices
     /// </summary>
     private PDFServices CreateClient()
     {
+        EnsureCredentialsConfigured(_configuration);
+
         var clientId =
             _configuration["PDF_SERVICES_CLIENT_ID"]
             ?? _configuration["AdobePdfServices:ClientId"]
@@ -171,14 +177,27 @@ public sealed class AdobePdfServices : IAdobePdfServices
             ?? _configuration["AdobePdfServices:ClientSecret"]
             ?? _configuration["AdobePdfServices__ClientSecret"];
 
+        ICredentials credentials = new ServicePrincipalCredentials(clientId, clientSecret);
+        return new PDFServices(credentials);
+    }
+
+    public static void EnsureCredentialsConfigured(IConfiguration configuration)
+    {
+        var clientId =
+            configuration["PDF_SERVICES_CLIENT_ID"]
+            ?? configuration["AdobePdfServices:ClientId"]
+            ?? configuration["AdobePdfServices__ClientId"];
+
+        var clientSecret =
+            configuration["PDF_SERVICES_CLIENT_SECRET"]
+            ?? configuration["AdobePdfServices:ClientSecret"]
+            ?? configuration["AdobePdfServices__ClientSecret"];
+
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
         {
             throw new InvalidOperationException(
                 "Adobe PDF Services credentials missing. Set PDF_SERVICES_CLIENT_ID and PDF_SERVICES_CLIENT_SECRET.");
         }
-
-        ICredentials credentials = new ServicePrincipalCredentials(clientId, clientSecret);
-        return new PDFServices(credentials);
     }
 
     /// <summary>
@@ -200,4 +219,3 @@ public sealed class AdobePdfServices : IAdobePdfServices
         await input.CopyToAsync(output, cancellationToken);
     }
 }
-
