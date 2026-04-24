@@ -183,7 +183,7 @@ stages:
                         APP_NAME="$(APP_NAME)" \
                         ENVIRONMENT="$(ENVIRONMENT)" \
                         DEPLOYMENT_NAME="$(DEPLOYMENT_NAME)" \
-                        CORS_ALLOWED_ORIGINS="$(CORS_ALLOWED_ORIGINS)" \
+                        CORS_ALLOWED_ORIGINS='$(CORS_ALLOWED_ORIGINS)' \
                         SQL_ADMIN_LOGIN="$(SQL_ADMIN_LOGIN)" \
                         SQL_ADMIN_PASSWORD="$(SQL_ADMIN_PASSWORD)" \
                         DEPLOY_EVENTGRID_SUBSCRIPTION="false" \
