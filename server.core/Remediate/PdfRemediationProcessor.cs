@@ -159,6 +159,11 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 await EnsurePdfHasTitleAsync(pdf, primaryLanguage, cancellationToken);
             }
 
+            using (LogStage.Begin(_logger, fileId, "ensure_marked_as_tagged", null, kind: "Remediation stage"))
+            {
+                EnsurePdfMarkedAsTagged(pdf, cancellationToken);
+            }
+
             var isTagged = pdf.IsTagged();
             _logger.LogInformation(
                 "PDF remediation input characteristics: {fileId} pages={pages} isTagged={isTagged}",
@@ -808,6 +813,30 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             pdf.GetCatalog().GetPdfObject().GetAsString(PdfName.Lang)?.ToUnicodeString() ?? string.Empty);
 
         return string.IsNullOrWhiteSpace(language) ? null : language;
+    }
+
+    /// <summary>
+    /// Ensures tagged PDFs have the catalog marker Acrobat checks for the "Tagged PDF" rule.
+    /// </summary>
+    private static void EnsurePdfMarkedAsTagged(PdfDocument pdf, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var catalogDict = pdf.GetCatalog().GetPdfObject();
+        var hasStructTreeRoot = catalogDict.GetAsDictionary(PdfName.StructTreeRoot) is not null;
+        if (!hasStructTreeRoot && !pdf.IsTagged())
+        {
+            return;
+        }
+
+        var markInfo = catalogDict.GetAsDictionary(PdfName.MarkInfo);
+        if (markInfo is null)
+        {
+            markInfo = new PdfDictionary();
+            catalogDict.Put(PdfName.MarkInfo, markInfo);
+        }
+
+        markInfo.Put(PdfName.Marked, PdfBoolean.ValueOf(true));
     }
 
     /// <summary>
