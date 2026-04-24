@@ -823,14 +823,8 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         cancellationToken.ThrowIfCancellationRequested();
 
         var catalogDict = pdf.GetCatalog().GetPdfObject();
-        var structTreeRoot = catalogDict.GetAsDictionary(PdfName.StructTreeRoot);
-        if (structTreeRoot is null)
-        {
-            return;
-        }
-
-        var rootKids = structTreeRoot.Get(PdfName.K);
-        if (rootKids is null || rootKids is PdfNull)
+        var hasStructTreeRoot = catalogDict.GetAsDictionary(PdfName.StructTreeRoot) is not null;
+        if (!hasStructTreeRoot && !pdf.IsTagged())
         {
             return;
         }

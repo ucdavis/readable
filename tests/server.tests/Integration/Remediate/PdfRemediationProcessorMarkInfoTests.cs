@@ -57,6 +57,54 @@ public sealed class PdfRemediationProcessorMarkInfoTests
         }
     }
 
+    [Fact]
+    public async Task ProcessAsync_WhenTaggedPdfHasNoRootKids_StillSetsMarkedTrue()
+    {
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-markinfo-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var originalPdfPath = Path.Combine(runRoot, "original.pdf");
+            CreateTaggedPdf(originalPdfPath);
+
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            RemoveRootKidsAndForceMarkedFalse(originalPdfPath, inputPdfPath);
+
+            using (var inputPdf = new PdfDocument(new PdfReader(inputPdfPath)))
+            {
+                HasStructTreeRoot(inputPdf).Should().BeTrue();
+                GetStructTreeRootKids(inputPdf).Should().BeNull();
+                IsCatalogMarked(inputPdf).Should().BeFalse();
+            }
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            var sut = new PdfRemediationProcessor(
+                new FakeAltTextService(),
+                new NoopPdfBookmarkService(),
+                new FakePdfTitleService(),
+                NullLogger<PdfRemediationProcessor>.Instance);
+
+            await sut.ProcessAsync(
+                fileId: "fixture",
+                inputPdfPath: inputPdfPath,
+                outputPdfPath: outputPdfPath,
+                cancellationToken: CancellationToken.None);
+
+            using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
+            HasStructTreeRoot(outputPdf).Should().BeTrue();
+            GetStructTreeRootKids(outputPdf).Should().BeNull();
+            IsCatalogMarked(outputPdf).Should().BeTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
     private static void CreateTaggedPdf(string path)
     {
         using var writer = new PdfWriter(path);
@@ -77,12 +125,40 @@ public sealed class PdfRemediationProcessorMarkInfoTests
         catalog.Put(PdfName.MarkInfo, markInfo);
     }
 
+    private static void RemoveRootKidsAndForceMarkedFalse(string inputPath, string outputPath)
+    {
+        using var pdf = new PdfDocument(new PdfReader(inputPath), new PdfWriter(outputPath));
+
+        var catalog = pdf.GetCatalog().GetPdfObject();
+        var structTreeRoot = catalog.GetAsDictionary(PdfName.StructTreeRoot);
+        structTreeRoot.Should().NotBeNull();
+        structTreeRoot!.Remove(PdfName.K);
+
+        var markInfo = catalog.GetAsDictionary(PdfName.MarkInfo) ?? new PdfDictionary();
+        markInfo.Put(PdfName.Marked, PdfBoolean.ValueOf(false));
+        catalog.Put(PdfName.MarkInfo, markInfo);
+    }
+
     private static bool IsCatalogMarked(PdfDocument pdf)
     {
         var catalog = pdf.GetCatalog().GetPdfObject();
         var marked = catalog.GetAsDictionary(PdfName.MarkInfo)?.Get(PdfName.Marked);
 
         return marked is PdfBoolean value && value.GetValue();
+    }
+
+    private static bool HasStructTreeRoot(PdfDocument pdf)
+    {
+        var catalog = pdf.GetCatalog().GetPdfObject();
+
+        return catalog.GetAsDictionary(PdfName.StructTreeRoot) is not null;
+    }
+
+    private static PdfObject? GetStructTreeRootKids(PdfDocument pdf)
+    {
+        var catalog = pdf.GetCatalog().GetPdfObject();
+
+        return catalog.GetAsDictionary(PdfName.StructTreeRoot)?.Get(PdfName.K);
     }
 
     private sealed class FakeAltTextService : IAltTextService
