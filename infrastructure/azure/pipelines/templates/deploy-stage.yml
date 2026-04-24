@@ -27,7 +27,8 @@ stages:
       # - RESOURCE_GROUP, LOCATION, APP_NAME, ENVIRONMENT, DEPLOYMENT_NAME
       # - SQL_ADMIN_LOGIN, SQL_ADMIN_PASSWORD (secret)
       # - ODL_SHARED_SECRET (secret) for the OpenDataLoader Container App
-      # - (optional) CORS_ALLOWED_ORIGINS, DEPLOY_EVENTGRID_SUBSCRIPTION, EVENTGRID_* tuning vars
+      # - (optional) CORS_ALLOWED_ORIGINS, DEPLOY_EVENTGRID_SUBSCRIPTION,
+      #   DEPLOY_OPEN_DATA_LOADER_INFRASTRUCTURE, EVENTGRID_* tuning vars
       - group: ${{ parameters.variableGroup }}
     jobs:
       - deployment: deploy
@@ -54,6 +55,7 @@ stages:
                       set -euo pipefail
                       cd "$(Build.SourcesDirectory)"
 
+                      odlBootstrap="${DEPLOY_OPEN_DATA_LOADER_INFRASTRUCTURE:-false}"
                       env \
                         RESOURCE_GROUP="$(RESOURCE_GROUP)" \
                         LOCATION="$(LOCATION)" \
@@ -62,7 +64,7 @@ stages:
                         DEPLOYMENT_NAME="$(DEPLOYMENT_NAME)" \
                         SQL_ADMIN_LOGIN="$(SQL_ADMIN_LOGIN)" \
                         SQL_ADMIN_PASSWORD="$(SQL_ADMIN_PASSWORD)" \
-                        DEPLOY_OPEN_DATA_LOADER_INFRASTRUCTURE="true" \
+                        DEPLOY_OPEN_DATA_LOADER_INFRASTRUCTURE="$odlBootstrap" \
                         bash infrastructure/azure/scripts/deploy.sh
 
                 - task: AzureCLI@2
@@ -127,6 +129,7 @@ stages:
                 - task: AzureCLI@2
                   name: buildOpenDataLoaderImage
                   displayName: Build and push OpenDataLoader API image
+                  condition: and(succeeded(), ne(variables['acrName'], ''), ne(variables['ODL_SHARED_SECRET'], ''))
                   inputs:
                     azureSubscription: ${{ parameters.azureSubscription }}
                     scriptType: bash
@@ -134,6 +137,16 @@ stages:
                     inlineScript: |
                       set -euo pipefail
                       cd "$(Build.SourcesDirectory)"
+
+                      if [[ -z "$(acrName)" || -z "$(acrLoginServer)" ]]; then
+                        echo "Skipping OpenDataLoader image build because ACR outputs are empty."
+                        exit 0
+                      fi
+
+                      if [[ -z "$(ODL_SHARED_SECRET)" ]]; then
+                        echo "Skipping OpenDataLoader image build because ODL_SHARED_SECRET is empty."
+                        exit 0
+                      fi
 
                       imageRef="$(acrLoginServer)/opendataloader-api:$(Build.SourceVersion)"
 
@@ -150,6 +163,7 @@ stages:
 
                 - task: AzureCLI@2
                   displayName: Deploy OpenDataLoader Container App
+                  condition: and(succeeded(), ne(variables['acrName'], ''), ne(variables['ODL_SHARED_SECRET'], ''))
                   inputs:
                     azureSubscription: ${{ parameters.azureSubscription }}
                     scriptType: bash

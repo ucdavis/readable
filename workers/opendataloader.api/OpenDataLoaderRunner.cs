@@ -132,7 +132,10 @@ public sealed class OpenDataLoaderRunner : IOpenDataLoaderRunner
         return Directory
             .EnumerateFiles(outputDirectory, "*_tagged.pdf", SearchOption.TopDirectoryOnly)
             .FirstOrDefault(file =>
-                Path.GetFileNameWithoutExtension(file).StartsWith(stem, StringComparison.OrdinalIgnoreCase));
+                string.Equals(
+                    Path.GetFileNameWithoutExtension(file),
+                    $"{stem}_tagged",
+                    StringComparison.OrdinalIgnoreCase));
     }
 
     private static void TryKill(Process process)

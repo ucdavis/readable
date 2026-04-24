@@ -199,7 +199,7 @@ public sealed class PdfProcessor : IPdfProcessor
             {
                 _logger.LogInformation("Skipping Adobe autotagging for {fileId}: PDF is already tagged.", fileId);
                 autotagMetadata = new PdfAutotagMetadata(
-                    Provider: "None",
+                    Provider: FileIngestOptions.AutotagProviders.None,
                     Required: false,
                     SkippedReason: "already-tagged",
                     ChunkCount: 0,
@@ -331,7 +331,7 @@ public sealed class PdfProcessor : IPdfProcessor
         {
             // When Adobe autotagging is disabled, avoid splitting/merging with iText.
             autotagMetadata = new PdfAutotagMetadata(
-                Provider: "None",
+                Provider: FileIngestOptions.AutotagProviders.None,
                 Required: false,
                 SkippedReason: "disabled",
                 ChunkCount: 0,

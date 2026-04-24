@@ -105,14 +105,13 @@ app.MapPost("/convert", async Task<IResult> (
     var outputDirectory = Path.Combine(workDir, "output");
     Directory.CreateDirectory(outputDirectory);
 
-    using var timeoutCts = new CancellationTokenSource(options.ProcessTimeout);
-    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, timeoutCts.Token);
+    var conversionTimedOut = false;
 
     try
     {
         await using (var fileStream = File.Create(inputPath))
         {
-            await context.Request.Body.CopyToAsync(fileStream, linkedCts.Token);
+            await context.Request.Body.CopyToAsync(fileStream, context.RequestAborted);
         }
 
         if (new FileInfo(inputPath).Length == 0)
@@ -124,7 +123,7 @@ app.MapPost("/convert", async Task<IResult> (
                 detail: "Request body must contain PDF bytes.");
         }
 
-        await using var queueLease = await conversionQueue.TryAcquireAsync(linkedCts.Token);
+        await using var queueLease = await conversionQueue.TryAcquireAsync(context.RequestAborted);
         if (queueLease is null)
         {
             CleanupWorkDir(workDir, logger);
@@ -135,7 +134,20 @@ app.MapPost("/convert", async Task<IResult> (
                 detail: "OpenDataLoader is currently at conversion capacity. Retry the request later.");
         }
 
-        var result = await runner.ConvertAsync(inputPath, outputDirectory, linkedCts.Token);
+        OpenDataLoaderRunResult result;
+        using (var timeoutCts = new CancellationTokenSource(options.ProcessTimeout))
+        using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, timeoutCts.Token))
+        {
+            try
+            {
+                result = await runner.ConvertAsync(inputPath, outputDirectory, linkedCts.Token);
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !context.RequestAborted.IsCancellationRequested)
+            {
+                conversionTimedOut = true;
+                throw;
+            }
+        }
 
         if (result.ExitCode != 0)
         {
@@ -174,7 +186,7 @@ app.MapPost("/convert", async Task<IResult> (
             title: "Payload Too Large",
             detail: $"The request exceeded the {options.MaxRequestBodySizeMb} MB limit.");
     }
-    catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !context.RequestAborted.IsCancellationRequested)
+    catch (OperationCanceledException) when (conversionTimedOut)
     {
         CleanupWorkDir(workDir, logger);
         return TypedResults.Problem(

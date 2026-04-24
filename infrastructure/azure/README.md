@@ -61,6 +61,14 @@ The base Bicep deployment now provisions:
 - a Container Apps environment,
 - and, once an image + secret are supplied, the `opendataloader` Container App itself.
 
+For a first-time setup without an image yet, bootstrap the optional ACR and
+Container Apps environment first:
+
+```bash
+export DEPLOY_OPEN_DATA_LOADER_INFRASTRUCTURE=true
+./infrastructure/azure/scripts/deploy_dev.sh
+```
+
 After the base infra exists, build and push the worker image:
 
 ```bash

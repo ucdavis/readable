@@ -51,7 +51,7 @@ public sealed class OpenDataLoaderRunnerTests
     }
 
     [Fact]
-    public void FindTaggedPdfPath_FallsBackToTaggedArtifactForCurrentInput()
+    public void FindTaggedPdfPath_FallsBackToExactTaggedArtifactForCurrentInput()
     {
         var root = Path.Combine(Path.GetTempPath(), "readable-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -61,7 +61,7 @@ public sealed class OpenDataLoaderRunnerTests
             var outputDir = Path.Combine(root, "output");
             Directory.CreateDirectory(outputDir);
 
-            var taggedPath = Path.Combine(outputDir, "input_custom_name_tagged.pdf");
+            var taggedPath = Path.Combine(outputDir, "input_tagged.pdf");
             File.WriteAllBytes(taggedPath, []);
 
             var resolved = OpenDataLoaderRunner.FindTaggedPdfPath(
@@ -80,7 +80,7 @@ public sealed class OpenDataLoaderRunnerTests
     }
 
     [Fact]
-    public void FindTaggedPdfPath_IgnoresTaggedArtifactForDifferentInput()
+    public void FindTaggedPdfPath_IgnoresTaggedArtifactForDifferentOrPrefixMatchingInput()
     {
         var root = Path.Combine(Path.GetTempPath(), "readable-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -91,6 +91,7 @@ public sealed class OpenDataLoaderRunnerTests
             Directory.CreateDirectory(outputDir);
 
             File.WriteAllBytes(Path.Combine(outputDir, "stale_tagged.pdf"), []);
+            File.WriteAllBytes(Path.Combine(outputDir, "input2_tagged.pdf"), []);
 
             var resolved = OpenDataLoaderRunner.FindTaggedPdfPath(
                 Path.Combine(root, "input.pdf"),
