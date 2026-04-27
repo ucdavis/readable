@@ -193,6 +193,21 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 await _bookmarkService.EnsureBookmarksAsync(pdf, cancellationToken);
             }
 
+            IReadOnlyList<PdfHeadingDemotion> headingDemotions;
+            using (LogStage.Begin(_logger, fileId, "demote_skipped_table_label_headings", null, kind: "Remediation stage"))
+            {
+                headingDemotions = PdfHeadingRoleRemediator.DemoteSkippedTableLabelHeadings(pdf, cancellationToken);
+            }
+            foreach (var demotion in headingDemotions)
+            {
+                _logger.LogInformation(
+                    "Demoted skipped table/form label heading in {fileId}: role={role} path={path} text={text}",
+                    fileId,
+                    demotion.OriginalRole,
+                    demotion.StructurePath,
+                    demotion.Text);
+            }
+
             int layoutTablesDemoted;
             using (LogStage.Begin(
                        _logger,
