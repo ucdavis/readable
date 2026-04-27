@@ -1,5 +1,8 @@
 using FluentAssertions;
+using iText.IO.Font;
+using iText.Kernel.Colors;
 using iText.Kernel.Pdf;
+using iText.Kernel.Pdf.Canvas;
 using Microsoft.Extensions.Logging.Abstractions;
 using server.core.Remediate;
 using server.core.Remediate.AltText;
@@ -12,25 +15,24 @@ public sealed class PdfRemediationProcessorVectorFigureAltTests
     [Fact]
     public async Task ProcessAsync_TaggedHasPlaceholderAlt_ReplacesPlaceholderAltForVectorFigures()
     {
-        var repoRoot = FindRepoRoot();
-        var inputPdfPath = Path.Combine(repoRoot, "tests", "server.tests", "Fixtures", "pdfs", "tagged-bad-alt.pdf");
-        File.Exists(inputPdfPath).Should().BeTrue($"fixture should exist at {inputPdfPath}");
-
-        var inputPlaceholderCount = 0;
-        using (var inputPdf = new PdfDocument(new PdfReader(inputPdfPath)))
-        {
-            inputPdf.IsTagged().Should().BeTrue("fixture should be tagged");
-            var inputFigures = ListStructElementsByRole(inputPdf, PdfName.Figure);
-            inputFigures.Count.Should().BeGreaterThan(0);
-            inputPlaceholderCount = inputFigures.Count(f => IsPlaceholderAlt(f));
-            inputPlaceholderCount.Should().BeGreaterThan(0, "fixture should contain placeholder alt text");
-        }
-
         var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-vector-alt-{Guid.NewGuid():N}");
         Directory.CreateDirectory(runRoot);
 
         try
         {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateTaggedPdfWithPlaceholderVectorFigure(inputPdfPath);
+
+            var inputPlaceholderCount = 0;
+            using (var inputPdf = new PdfDocument(new PdfReader(inputPdfPath)))
+            {
+                inputPdf.IsTagged().Should().BeTrue("fixture should be tagged");
+                var inputFigures = ListStructElementsByRole(inputPdf, PdfName.Figure);
+                inputFigures.Count.Should().BeGreaterThan(0);
+                inputPlaceholderCount = inputFigures.Count(f => IsPlaceholderAlt(f));
+                inputPlaceholderCount.Should().BeGreaterThan(0, "fixture should contain placeholder alt text");
+            }
+
             var outputPdfPath = Path.Combine(runRoot, "output.pdf");
 
             var altText = new FakeAltTextService();
@@ -61,6 +63,73 @@ public sealed class PdfRemediationProcessorVectorFigureAltTests
                 Directory.Delete(runRoot, recursive: true);
             }
         }
+    }
+
+    private static void CreateTaggedPdfWithPlaceholderVectorFigure(string outputPath)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+
+        const int mcid = 0;
+
+        using var pdf = new PdfDocument(new PdfWriter(outputPath));
+        var page = pdf.AddNewPage();
+        var pageDict = page.GetPdfObject();
+
+        var catalog = pdf.GetCatalog().GetPdfObject();
+
+        var structTreeRoot = new PdfDictionary();
+        structTreeRoot.MakeIndirect(pdf);
+        structTreeRoot.Put(PdfName.Type, PdfName.StructTreeRoot);
+
+        var parentTree = new PdfDictionary();
+        parentTree.MakeIndirect(pdf);
+        structTreeRoot.Put(PdfName.ParentTree, parentTree);
+
+        var documentElem = new PdfDictionary();
+        documentElem.MakeIndirect(pdf);
+        documentElem.Put(PdfName.Type, new PdfName("StructElem"));
+        documentElem.Put(PdfName.S, new PdfName("Document"));
+        documentElem.Put(PdfName.P, structTreeRoot);
+
+        var figureElem = new PdfDictionary();
+        figureElem.MakeIndirect(pdf);
+        figureElem.Put(PdfName.Type, new PdfName("StructElem"));
+        figureElem.Put(PdfName.S, PdfName.Figure);
+        figureElem.Put(PdfName.P, documentElem);
+        figureElem.Put(PdfName.Pg, pageDict);
+        figureElem.Put(PdfName.Alt, new PdfString("alt text for image", PdfEncodings.UNICODE_BIG));
+
+        var markedContentRef = new PdfDictionary();
+        markedContentRef.Put(PdfName.Type, new PdfName("MCR"));
+        markedContentRef.Put(PdfName.Pg, pageDict);
+        markedContentRef.Put(PdfName.MCID, new PdfNumber(mcid));
+        figureElem.Put(PdfName.K, markedContentRef);
+
+        var kids = new PdfArray();
+        kids.Add(figureElem);
+        documentElem.Put(PdfName.K, kids);
+
+        structTreeRoot.Put(PdfName.K, documentElem);
+
+        var markInfo = new PdfDictionary();
+        markInfo.MakeIndirect(pdf);
+        markInfo.Put(PdfName.Marked, PdfBoolean.ValueOf(true));
+
+        catalog.Put(PdfName.MarkInfo, markInfo);
+        catalog.Put(PdfName.StructTreeRoot, structTreeRoot);
+
+        var markedContentProperties = new PdfDictionary();
+        markedContentProperties.Put(PdfName.MCID, new PdfNumber(mcid));
+
+        var canvas = new PdfCanvas(page);
+        canvas.BeginMarkedContent(PdfName.Figure, markedContentProperties);
+        canvas.SaveState();
+        canvas.SetFillColor(ColorConstants.BLACK);
+        canvas.Rectangle(100, 500, 120, 80);
+        canvas.Fill();
+        canvas.RestoreState();
+        canvas.EndMarkedContent();
+        canvas.Release();
     }
 
     private sealed class FakeAltTextService : IAltTextService
@@ -146,22 +215,6 @@ public sealed class PdfRemediationProcessorVectorFigureAltTests
         return string.Equals(alt.Trim(), "alt text for image", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string FindRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "app.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        if (dir is null)
-        {
-            throw new DirectoryNotFoundException("Unable to locate repo root (missing app.sln).");
-        }
-
-        return dir.FullName;
-    }
-
     private static List<PdfDictionary> ListStructElementsByRole(PdfDocument pdf, PdfName role)
     {
         var results = new List<PdfDictionary>();
@@ -218,4 +271,3 @@ public sealed class PdfRemediationProcessorVectorFigureAltTests
     private static PdfObject Dereference(PdfObject obj)
         => obj is PdfIndirectReference reference ? reference.GetRefersTo(true) : obj;
 }
-
