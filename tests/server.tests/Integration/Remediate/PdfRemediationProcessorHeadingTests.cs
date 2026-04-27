@@ -14,7 +14,9 @@ namespace server.tests.Integration.Remediate;
 
 public sealed class PdfRemediationProcessorHeadingTests
 {
+    private static readonly PdfName RoleH1 = new("H1");
     private static readonly PdfName RoleH2 = new("H2");
+    private static readonly PdfName RoleH3 = new("H3");
     private static readonly PdfName RoleH5 = new("H5");
     private static readonly PdfName RoleP = new("P");
     private static readonly PdfName RoleTd = new("TD");
@@ -33,7 +35,10 @@ public sealed class PdfRemediationProcessorHeadingTests
             using (var inputPdf = new PdfDocument(new PdfReader(inputPdfPath)))
             {
                 inputPdf.IsTagged().Should().BeTrue();
-                ListStructElementsByRole(inputPdf, RoleTd).Should().Contain(td => HasDescendantWithRole(td, RoleH5));
+                ListStructElementsByRole(inputPdf, RoleTd)
+                    .Count(td => HasDescendantWithRole(td, RoleH5))
+                    .Should()
+                    .Be(2);
             }
 
             var outputPdfPath = Path.Combine(runRoot, "output.pdf");
@@ -47,9 +52,12 @@ public sealed class PdfRemediationProcessorHeadingTests
 
             using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
             var outputCells = ListStructElementsByRole(outputPdf, RoleTd);
-            outputCells.Should().Contain(td => HasDescendantWithRole(td, RoleP));
+            outputCells.Count(td => HasDescendantWithRole(td, RoleP)).Should().Be(2);
             outputCells.Should().NotContain(td => HasDescendantWithRole(td, RoleH5));
-            ListStructElementsByRole(outputPdf, RoleH2).Should().HaveCount(1);
+
+            ListStructElementsByRole(outputPdf, RoleH1).Should().HaveCount(2);
+            ListStructElementsByRole(outputPdf, RoleH2).Should().HaveCount(2);
+            ListStructElementsByRole(outputPdf, RoleH3).Should().HaveCount(1);
         }
         finally
         {
@@ -119,9 +127,13 @@ public sealed class PdfRemediationProcessorHeadingTests
 
         var table = new Table(UnitValue.CreatePercentArray([1f])).UseAllAvailableWidth();
         table.AddCell(new Cell().Add(Heading("Location Contact Name:", "H5")));
+        table.AddCell(new Cell().Add(Heading("Locat ion Conta ct Name:", "H5")));
         doc.Add(table);
 
-        doc.Add(Heading("Proper Subsection", "H2"));
+        doc.Add(Heading("Instructions", "H1"));
+        doc.Add(Heading("Complete Section 1", "H2"));
+        doc.Add(Heading("Complete Section 4", "H2"));
+        doc.Add(Heading("Routing Instructions", "H3"));
     }
 
     private static void CreateTaggedPdfWithSkippedHeadingOutsideTable(string path)
