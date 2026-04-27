@@ -41,3 +41,6 @@ msbuild.wrn
 # Azure
 .azurepub/
 .azure/
+
+# Local Testing
+outputs/
