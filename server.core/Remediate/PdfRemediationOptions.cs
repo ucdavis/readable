@@ -12,6 +12,16 @@ public sealed class PdfRemediationOptions
     public bool GenerateLinkAltText { get; set; }
 
     /// <summary>
+    /// When enabled, unresolved character-encoding anomalies may be sent to an AI service for proposed repairs.
+    /// </summary>
+    public bool UseAiCharacterEncodingRepair { get; set; }
+
+    /// <summary>
+    /// Minimum confidence required before applying an AI-proposed character-encoding repair.
+    /// </summary>
+    public double CharacterEncodingRepairConfidenceThreshold { get; set; } = 0.90;
+
+    /// <summary>
     /// When enabled, demotes small <c>/Table</c> tag-tree elements that have no <c>/TH</c> header cells to <c>/Div</c>.
     /// </summary>
     /// <remarks>
