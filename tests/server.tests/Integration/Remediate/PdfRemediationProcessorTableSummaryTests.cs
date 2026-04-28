@@ -81,8 +81,12 @@ public sealed class PdfRemediationProcessorTableSummaryTests
         using var doc = new Document(pdf);
 
         var table = new Table(UnitValue.CreatePercentArray([1f, 1f])).UseAllAvailableWidth();
-        table.AddHeaderCell(new Cell().Add(new Paragraph("Name")));
-        table.AddHeaderCell(new Cell().Add(new Paragraph("Age")));
+        var nameHeader = new Cell().Add(new Paragraph("Name"));
+        nameHeader.GetAccessibilityProperties().SetRole("TH");
+        var ageHeader = new Cell().Add(new Paragraph("Age"));
+        ageHeader.GetAccessibilityProperties().SetRole("TH");
+        table.AddHeaderCell(nameHeader);
+        table.AddHeaderCell(ageHeader);
         table.AddCell(new Cell().Add(new Paragraph("Alice")));
         table.AddCell(new Cell().Add(new Paragraph("30")));
 
@@ -251,4 +255,3 @@ public sealed class PdfRemediationProcessorTableSummaryTests
             throw new InvalidOperationException("Title service should not be called for table summary tests.");
     }
 }
-

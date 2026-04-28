@@ -10,8 +10,8 @@ namespace server.core.Remediate;
 
 internal enum PdfNoHeaderTableRemediationAction
 {
-    PromotedFirstRow,
-    DemotedLayoutTable,
+    PromotedHeaderRow,
+    DemotedNoHeaderTable,
     LeftUnchanged,
 }
 
@@ -34,12 +34,6 @@ internal static class PdfTableRoleRemediator
     private static readonly PdfName RoleTh = new("TH");
     private static readonly PdfName RoleTd = new("TD");
     private static readonly PdfName RoleDiv = new("Div");
-    private static readonly PdfName AttrOwnerKey = new("O");
-    private static readonly PdfName AttrOwnerTable = new("Table");
-    private static readonly PdfName AttrScopeKey = new("Scope");
-    private static readonly PdfName AttrScopeColumn = new("Column");
-    private static readonly PdfName AttrHeadersKey = new("Headers");
-    private static readonly PdfName StructElemIdKey = new("ID");
 
     public static int DemoteLikelyLayoutTables(
         PdfDocument pdf,
@@ -80,8 +74,7 @@ internal static class PdfTableRoleRemediator
         PdfDocument pdf,
         IPdfTableClassificationService tableClassificationService,
         string? primaryLanguage,
-        bool promoteFirstRowHeadersForNoHeaderTables,
-        bool demoteLikelyFormLayoutTables,
+        bool demoteNoHeaderTables,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -91,7 +84,7 @@ internal static class PdfTableRoleRemediator
             return [];
         }
 
-        if (!promoteFirstRowHeadersForNoHeaderTables && !demoteLikelyFormLayoutTables)
+        if (!demoteNoHeaderTables)
         {
             return [];
         }
@@ -137,57 +130,36 @@ internal static class PdfTableRoleRemediator
             var request = inventory.ToClassificationRequest(primaryLanguage);
             var classification = await tableClassificationService.ClassifyAsync(request, cancellationToken);
             var confidence = Math.Clamp(classification.Confidence, 0, 1);
+            var isConfidentDataTable = classification.Kind == PdfTableKind.DataTable
+                && confidence >= MinClassifierConfidence;
 
-            if (classification.Kind == PdfTableKind.DataTable
-                && confidence >= MinClassifierConfidence
-                && promoteFirstRowHeadersForNoHeaderTables)
+            if (isConfidentDataTable)
             {
-                var promoted = PromoteHeaderRowCellsToHeaders(inventory, cancellationToken);
+                var promoted = PromoteHeaderRowToTableHead(inventory, cancellationToken);
                 results.Add(
                     new PdfNoHeaderTableRemediation(
-                        promoted > 0
-                            ? PdfNoHeaderTableRemediationAction.PromotedFirstRow
+                        promoted
+                            ? PdfNoHeaderTableRemediationAction.PromotedHeaderRow
                             : PdfNoHeaderTableRemediationAction.LeftUnchanged,
                         inventory.RowCount,
                         inventory.MaxColumnCount,
                         inventory.FirstRowSnippet,
-                        promoted > 0
-                            ? "classified as data table; promoted header row cells to TH"
-                            : "classified as data table but no usable header row cells were available to promote"));
+                        promoted
+                            ? "classified as data table; moved header row into THead and promoted cells to TH"
+                            : "classified as data table but no usable header row was available to promote"));
                 continue;
             }
 
-            if (classification.Kind == PdfTableKind.DataTable && confidence < MinClassifierConfidence)
-            {
-                classification = classification with
-                {
-                    Kind = PdfTableKind.NotDataTable,
-                    Reason =
-                        $"data-table classifier confidence {confidence:0.00} was below {MinClassifierConfidence:0.00}; treating as non-data",
-                };
-            }
-
-            if (classification.Kind == PdfTableKind.NotDataTable && demoteLikelyFormLayoutTables)
-            {
-                DemoteTableAndDescendants(table, cancellationToken);
-                results.Add(
-                    new PdfNoHeaderTableRemediation(
-                        PdfNoHeaderTableRemediationAction.DemotedLayoutTable,
-                        inventory.RowCount,
-                        inventory.MaxColumnCount,
-                        inventory.FirstRowSnippet,
-                        "classified as non-data table; demoted table roles"));
-                continue;
-            }
-
+            DemoteTableAndDescendants(table, cancellationToken);
             results.Add(
-                CreateUnchangedResult(
-                    inventory,
-                    classification.Kind switch
-                    {
-                        PdfTableKind.DataTable => "classified as data table but first-row header promotion is disabled",
-                        _ => "classified as non-data table but form-layout demotion is disabled",
-                    }));
+                new PdfNoHeaderTableRemediation(
+                    PdfNoHeaderTableRemediationAction.DemotedNoHeaderTable,
+                    inventory.RowCount,
+                    inventory.MaxColumnCount,
+                    inventory.FirstRowSnippet,
+                    classification.Kind == PdfTableKind.DataTable
+                        ? $"data-table classifier confidence {confidence:0.00} was below {MinClassifierConfidence:0.00}; demoted table roles"
+                        : "classified as non-data table; demoted table roles"));
         }
 
         return results;
@@ -322,40 +294,50 @@ internal static class PdfTableRoleRemediator
         return new TableInventory(table, rows, headerCellCount, maxColumnCount, hasNestedTable, firstRowSnippet);
     }
 
-    private static int PromoteHeaderRowCellsToHeaders(TableInventory inventory, CancellationToken cancellationToken)
+    private static bool PromoteHeaderRowToTableHead(TableInventory inventory, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var headerRowIndex = SelectHeaderRowIndex(inventory);
         if (headerRowIndex is null)
         {
-            return 0;
+            return false;
         }
 
-        var headerRow = inventory.Rows[headerRowIndex.Value];
-        var headerIdsByColumn = new List<string>();
-        var promoted = 0;
-        for (var colIndex = 0; colIndex < headerRow.Cells.Count; colIndex++)
+        var headerRow = inventory.Rows[headerRowIndex.Value].Element;
+        var headerRowParent = FindStructElementParent(inventory.Element, headerRow, cancellationToken);
+        if (headerRowParent is null)
+        {
+            return false;
+        }
+
+        var headerCellsPromoted = 0;
+        foreach (var child in ListDirectStructElementChildren(headerRow))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var cell = headerRow.Cells[colIndex];
-            if (!RoleTd.Equals(cell.Role))
+            if (RoleTd.Equals(child.GetAsName(PdfName.S)))
             {
-                if (RoleTh.Equals(cell.Role))
-                {
-                    headerIdsByColumn.Add(EnsureHeaderId(cell.Element));
-                }
-
-                continue;
+                child.Put(PdfName.S, RoleTh);
+                headerCellsPromoted++;
             }
-
-            cell.Element.Put(PdfName.S, RoleTh);
-            EnsureColumnScope(cell.Element);
-            headerIdsByColumn.Add(EnsureHeaderId(cell.Element));
-            promoted++;
         }
 
-        AssociateDataCellsWithHeaders(inventory, headerRowIndex.Value, headerIdsByColumn, cancellationToken);
-        return promoted;
+        if (headerCellsPromoted == 0)
+        {
+            return false;
+        }
+
+        var thead = CreateStructElement(RoleTHead, inventory.Element);
+        if (!MoveStructElementChild(headerRowParent, thead, headerRow))
+        {
+            return false;
+        }
+
+        InsertTableHead(inventory.Element, thead);
+        headerRow.Put(PdfName.P, thead);
+        WrapDirectRowsInTableBody(inventory.Element, cancellationToken);
+        return true;
     }
 
     private static int? SelectHeaderRowIndex(TableInventory inventory)
@@ -377,193 +359,223 @@ internal static class PdfTableRoleRemediator
         return inventory.Rows[0].Cells.Count > 0 ? 0 : null;
     }
 
-    private static string EnsureHeaderId(PdfDictionary headerCell)
+    private static PdfDictionary CreateStructElement(PdfName role, PdfDictionary parent)
     {
-        var existing = headerCell.GetAsString(StructElemIdKey)?.ToUnicodeString();
-        existing = RemediationHelpers.NormalizeWhitespace(existing ?? string.Empty);
-        if (!string.IsNullOrWhiteSpace(existing))
+        var structElem = new PdfDictionary();
+        structElem.Put(PdfName.Type, new PdfName("StructElem"));
+        structElem.Put(PdfName.S, role);
+        structElem.Put(PdfName.P, parent);
+
+        var page = parent.Get(PdfName.Pg);
+        if (page is not null)
         {
-            return existing;
+            structElem.Put(PdfName.Pg, page);
         }
 
-        var id = $"rbl-th-{Guid.NewGuid():N}";
-        headerCell.Put(StructElemIdKey, new PdfString(id));
-        return id;
+        return structElem;
     }
 
-    private static void AssociateDataCellsWithHeaders(
-        TableInventory inventory,
-        int headerRowIndex,
-        IReadOnlyList<string> headerIdsByColumn,
+    private static PdfDictionary? FindStructElementParent(
+        PdfDictionary root,
+        PdfDictionary target,
         CancellationToken cancellationToken)
     {
-        if (headerIdsByColumn.Count == 0)
+        var stack = new Stack<PdfDictionary>();
+        stack.Push(root);
+
+        while (stack.Count > 0)
         {
-            return;
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var current = stack.Pop();
+            foreach (var child in ListDirectStructElementChildren(current))
+            {
+                if (IsSameStructElement(child, target))
+                {
+                    return current;
+                }
+
+                stack.Push(child);
+            }
         }
 
-        for (var rowIndex = 0; rowIndex < inventory.Rows.Count; rowIndex++)
-        {
-            var row = inventory.Rows[rowIndex];
-            for (var colIndex = 0; colIndex < row.Cells.Count; colIndex++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
+        return null;
+    }
 
-                if (rowIndex == headerRowIndex || colIndex >= headerIdsByColumn.Count)
+    private static bool MoveStructElementChild(PdfDictionary fromParent, PdfDictionary toParent, PdfDictionary child)
+    {
+        var childObject = RemoveStructElementChild(fromParent, child);
+        if (childObject is null)
+        {
+            return false;
+        }
+
+        var kids = new PdfArray();
+        kids.Add(childObject);
+        toParent.Put(PdfName.K, kids);
+        return true;
+    }
+
+    private static PdfObject? RemoveStructElementChild(PdfDictionary parent, PdfDictionary child)
+    {
+        var kids = parent.Get(PdfName.K);
+        if (kids is null)
+        {
+            return null;
+        }
+
+        var dereferencedKids = Dereference(kids);
+        if (dereferencedKids is PdfArray array)
+        {
+            for (var i = 0; i < array.Size(); i++)
+            {
+                var item = array.Get(i);
+                if (!IsSameStructElement(item, child))
                 {
                     continue;
                 }
 
-                var cell = row.Cells[colIndex];
-                if (RoleTd.Equals(cell.Role))
-                {
-                    EnsureCellHeaders(cell.Element, [headerIdsByColumn[colIndex]]);
-                }
+                array.Remove(i);
+                return item;
             }
+
+            return null;
         }
+
+        if (!IsSameStructElement(dereferencedKids ?? kids, child))
+        {
+            return null;
+        }
+
+        parent.Remove(PdfName.K);
+        return kids;
     }
 
-    private static void EnsureColumnScope(PdfDictionary cell)
+    private static void InsertTableHead(PdfDictionary table, PdfDictionary thead)
     {
-        var attrsObj = cell.Get(PdfName.A);
-        var attrs = Dereference(attrsObj);
-
-        if (attrs is null)
+        var kids = table.Get(PdfName.K);
+        if (kids is null)
         {
-            cell.Put(PdfName.A, CreateColumnScopeAttributeDict());
+            var singleKid = new PdfArray();
+            singleKid.Add(thead);
+            table.Put(PdfName.K, singleKid);
             return;
         }
 
-        if (attrs is PdfDictionary dict)
+        var dereferencedKids = Dereference(kids);
+        if (dereferencedKids is PdfArray array)
         {
-            if (TrySetColumnScope(dict))
+            var insertIndex = 0;
+            while (insertIndex < array.Size())
             {
-                return;
-            }
-
-            var array = new PdfArray();
-            array.Add(dict);
-            array.Add(CreateColumnScopeAttributeDict());
-            cell.Put(PdfName.A, array);
-            return;
-        }
-
-        if (attrs is PdfArray attrArray)
-        {
-            foreach (var item in attrArray)
-            {
-                if (Dereference(item) is PdfDictionary itemDict && TrySetColumnScope(itemDict))
+                var item = Dereference(array.Get(insertIndex));
+                if (item is PdfDictionary dict && RoleTHead.Equals(dict.GetAsName(PdfName.S)))
                 {
-                    return;
+                    insertIndex++;
+                    continue;
                 }
+
+                break;
             }
 
-            attrArray.Add(CreateColumnScopeAttributeDict());
+            array.Add(insertIndex, thead);
             return;
         }
 
-        var fallback = new PdfArray();
-        fallback.Add(attrsObj);
-        fallback.Add(CreateColumnScopeAttributeDict());
-        cell.Put(PdfName.A, fallback);
+        var newKids = new PdfArray();
+        newKids.Add(thead);
+        newKids.Add(kids);
+        table.Put(PdfName.K, newKids);
     }
 
-    private static bool TrySetColumnScope(PdfDictionary dict)
+    private static void WrapDirectRowsInTableBody(PdfDictionary table, CancellationToken cancellationToken)
     {
-        var owner = dict.GetAsName(AttrOwnerKey);
-        if (owner is not null && !AttrOwnerTable.Equals(owner))
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var kids = Dereference(table.Get(PdfName.K));
+        if (kids is not PdfArray array)
+        {
+            return;
+        }
+
+        var rowKids = new List<PdfObject>();
+        var rowIndexes = new List<int>();
+        for (var i = 0; i < array.Size(); i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var item = array.Get(i);
+            if (Dereference(item) is PdfDictionary dict && RoleTr.Equals(dict.GetAsName(PdfName.S)))
+            {
+                rowKids.Add(item);
+                rowIndexes.Add(i);
+            }
+        }
+
+        if (rowKids.Count == 0)
+        {
+            return;
+        }
+
+        var tbody = CreateStructElement(RoleTBody, table);
+        var tbodyKids = new PdfArray();
+        foreach (var rowKid in rowKids)
+        {
+            tbodyKids.Add(rowKid);
+            if (Dereference(rowKid) is PdfDictionary rowDict)
+            {
+                rowDict.Put(PdfName.P, tbody);
+            }
+        }
+
+        tbody.Put(PdfName.K, tbodyKids);
+
+        for (var i = rowIndexes.Count - 1; i >= 0; i--)
+        {
+            array.Remove(rowIndexes[i]);
+        }
+
+        var insertIndex = 0;
+        while (insertIndex < array.Size())
+        {
+            var item = Dereference(array.Get(insertIndex));
+            if (item is PdfDictionary dict && RoleTHead.Equals(dict.GetAsName(PdfName.S)))
+            {
+                insertIndex++;
+                continue;
+            }
+
+            break;
+        }
+
+        array.Add(insertIndex, tbody);
+    }
+
+    private static bool IsSameStructElement(PdfObject? candidate, PdfDictionary target)
+    {
+        var targetRef = target.GetIndirectReference();
+        if (targetRef is not null && candidate is PdfIndirectReference candidateRef)
+        {
+            return candidateRef.GetObjNumber() == targetRef.GetObjNumber()
+                && candidateRef.GetGenNumber() == targetRef.GetGenNumber();
+        }
+
+        var dereferenced = Dereference(candidate);
+        if (dereferenced is not PdfDictionary candidateDict)
         {
             return false;
         }
 
-        dict.Put(AttrOwnerKey, AttrOwnerTable);
-        dict.Put(AttrScopeKey, AttrScopeColumn);
-        return true;
-    }
-
-    private static PdfDictionary CreateColumnScopeAttributeDict()
-    {
-        var dict = new PdfDictionary();
-        dict.Put(AttrOwnerKey, AttrOwnerTable);
-        dict.Put(AttrScopeKey, AttrScopeColumn);
-        return dict;
-    }
-
-    private static void EnsureCellHeaders(PdfDictionary cell, IReadOnlyList<string> headerIds)
-    {
-        var attrsObj = cell.Get(PdfName.A);
-        var attrs = Dereference(attrsObj);
-
-        if (attrs is null)
+        if (ReferenceEquals(candidateDict, target))
         {
-            cell.Put(PdfName.A, CreateHeadersAttributeDict(headerIds));
-            return;
+            return true;
         }
 
-        if (attrs is PdfDictionary dict)
-        {
-            if (TrySetHeaders(dict, headerIds))
-            {
-                return;
-            }
-
-            var array = new PdfArray();
-            array.Add(dict);
-            array.Add(CreateHeadersAttributeDict(headerIds));
-            cell.Put(PdfName.A, array);
-            return;
-        }
-
-        if (attrs is PdfArray attrArray)
-        {
-            foreach (var item in attrArray)
-            {
-                if (Dereference(item) is PdfDictionary itemDict && TrySetHeaders(itemDict, headerIds))
-                {
-                    return;
-                }
-            }
-
-            attrArray.Add(CreateHeadersAttributeDict(headerIds));
-            return;
-        }
-
-        var fallback = new PdfArray();
-        fallback.Add(attrsObj);
-        fallback.Add(CreateHeadersAttributeDict(headerIds));
-        cell.Put(PdfName.A, fallback);
-    }
-
-    private static bool TrySetHeaders(PdfDictionary dict, IReadOnlyList<string> headerIds)
-    {
-        var owner = dict.GetAsName(AttrOwnerKey);
-        if (owner is not null && !AttrOwnerTable.Equals(owner))
-        {
-            return false;
-        }
-
-        dict.Put(AttrOwnerKey, AttrOwnerTable);
-        dict.Put(AttrHeadersKey, CreateHeaderIdArray(headerIds));
-        return true;
-    }
-
-    private static PdfDictionary CreateHeadersAttributeDict(IReadOnlyList<string> headerIds)
-    {
-        var dict = new PdfDictionary();
-        dict.Put(AttrOwnerKey, AttrOwnerTable);
-        dict.Put(AttrHeadersKey, CreateHeaderIdArray(headerIds));
-        return dict;
-    }
-
-    private static PdfArray CreateHeaderIdArray(IReadOnlyList<string> headerIds)
-    {
-        var array = new PdfArray();
-        foreach (var id in headerIds)
-        {
-            array.Add(new PdfString(id));
-        }
-
-        return array;
+        var candidateRefFromDict = candidateDict.GetIndirectReference();
+        return targetRef is not null
+            && candidateRefFromDict is not null
+            && candidateRefFromDict.GetObjNumber() == targetRef.GetObjNumber()
+            && candidateRefFromDict.GetGenNumber() == targetRef.GetGenNumber();
     }
 
     private static bool CollectTableRows(

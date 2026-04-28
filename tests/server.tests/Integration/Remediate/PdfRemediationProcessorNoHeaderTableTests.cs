@@ -16,17 +16,13 @@ namespace server.tests.Integration.Remediate;
 public sealed class PdfRemediationProcessorNoHeaderTableTests
 {
     private static readonly PdfName RoleTable = new("Table");
+    private static readonly PdfName RoleTHead = new("THead");
+    private static readonly PdfName RoleTBody = new("TBody");
+    private static readonly PdfName RoleTr = new("TR");
     private static readonly PdfName RoleTh = new("TH");
     private static readonly PdfName RoleTd = new("TD");
-    private static readonly PdfName AttrOwnerKey = new("O");
-    private static readonly PdfName AttrOwnerTable = new("Table");
-    private static readonly PdfName AttrScopeKey = new("Scope");
-    private static readonly PdfName AttrScopeColumn = new("Column");
-    private static readonly PdfName AttrHeadersKey = new("Headers");
-    private static readonly PdfName StructElemIdKey = new("ID");
-
     [Fact]
-    public async Task ProcessAsync_NoHeaderDataTable_PromotesFirstRowCellsToColumnHeaders()
+    public async Task ProcessAsync_NoHeaderDataTable_MovesFirstRowIntoTableHead()
     {
         await RunPdfTestAsync(
             "no-header-data-table",
@@ -37,14 +33,11 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             outputPdf =>
             {
                 ListStructElementsByRole(outputPdf, RoleTable).Should().HaveCount(1);
-
-                var headers = ListStructElementsByRole(outputPdf, RoleTh);
-                headers.Should().HaveCount(3);
-                headers.Should().OnlyContain(header => HasColumnScope(header));
-                headers.Should().OnlyContain(header => !string.IsNullOrWhiteSpace(GetHeaderId(header)));
-                ListStructElementsByRole(outputPdf, RoleTd)
-                    .Should()
-                    .OnlyContain(cell => HasHeaderReference(cell));
+                ListStructElementsByRole(outputPdf, RoleTHead).Should().HaveCount(1);
+                ListStructElementsByRole(outputPdf, RoleTBody).Should().HaveCount(1);
+                ListStructElementsByRole(outputPdf, RoleTr).Should().HaveCount(3);
+                ListStructElementsByRole(outputPdf, RoleTh).Should().HaveCount(3);
+                ListStructElementsByRole(outputPdf, RoleTd).Should().HaveCount(6);
             });
     }
 
@@ -113,7 +106,7 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
     }
 
     [Fact]
-    public async Task ProcessAsync_VerificationPdfShape_DemotesFormTableAndPromotesServiceDateHeaders()
+    public async Task ProcessAsync_VerificationPdfShape_DemotesFormTableAndAddsDataTableHeader()
     {
         await RunPdfTestAsync(
             "verification-pdf-shape",
@@ -125,14 +118,11 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             outputPdf =>
             {
                 ListStructElementsByRole(outputPdf, RoleTable).Should().HaveCount(1);
-
-                var headers = ListStructElementsByRole(outputPdf, RoleTh);
-                headers.Should().HaveCount(3);
-                headers.Should().OnlyContain(header => HasColumnScope(header));
-                headers.Should().OnlyContain(header => !string.IsNullOrWhiteSpace(GetHeaderId(header)));
-                ListStructElementsByRole(outputPdf, RoleTd)
-                    .Should()
-                    .OnlyContain(cell => HasHeaderReference(cell));
+                ListStructElementsByRole(outputPdf, RoleTHead).Should().HaveCount(1);
+                ListStructElementsByRole(outputPdf, RoleTBody).Should().HaveCount(1);
+                ListStructElementsByRole(outputPdf, RoleTr).Should().HaveCount(4);
+                ListStructElementsByRole(outputPdf, RoleTh).Should().HaveCount(3);
+                ListStructElementsByRole(outputPdf, RoleTd).Should().HaveCount(9);
             });
     }
 
@@ -291,72 +281,6 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
         table.AddCell(new Cell().Add(new Paragraph("")));
         table.AddCell(new Cell().Add(new Paragraph("")));
         doc.Add(table);
-    }
-
-    private static bool HasColumnScope(PdfDictionary structElem)
-    {
-        var attrs = Dereference(structElem.Get(PdfName.A));
-        if (attrs is PdfDictionary dict)
-        {
-            return HasColumnScopeAttribute(dict);
-        }
-
-        if (attrs is PdfArray array)
-        {
-            foreach (var item in array)
-            {
-                if (Dereference(item) is PdfDictionary itemDict && HasColumnScopeAttribute(itemDict))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static bool HasColumnScopeAttribute(PdfDictionary dict)
-    {
-        var owner = dict.GetAsName(AttrOwnerKey);
-        var scope = dict.GetAsName(AttrScopeKey);
-        return AttrOwnerTable.Equals(owner) && AttrScopeColumn.Equals(scope);
-    }
-
-    private static string? GetHeaderId(PdfDictionary structElem) =>
-        structElem.GetAsString(StructElemIdKey)?.ToUnicodeString();
-
-    private static bool HasHeaderReference(PdfDictionary structElem)
-    {
-        var attrs = Dereference(structElem.Get(PdfName.A));
-        if (attrs is PdfDictionary dict)
-        {
-            return HasHeaderReferenceAttribute(dict);
-        }
-
-        if (attrs is PdfArray array)
-        {
-            foreach (var item in array)
-            {
-                if (Dereference(item) is PdfDictionary itemDict && HasHeaderReferenceAttribute(itemDict))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static bool HasHeaderReferenceAttribute(PdfDictionary dict)
-    {
-        var owner = dict.GetAsName(AttrOwnerKey);
-        if (!AttrOwnerTable.Equals(owner))
-        {
-            return false;
-        }
-
-        var headers = Dereference(dict.Get(AttrHeadersKey));
-        return headers is PdfArray array && array.Size() > 0;
     }
 
     private static List<PdfDictionary> ListStructElementsByRole(PdfDocument pdf, PdfName role)

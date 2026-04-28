@@ -259,9 +259,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                        "remediate_no_header_tables",
                        new
                        {
-                           promoteFirstRowHeadersForNoHeaderTables =
-                               _options.PromoteFirstRowHeadersForNoHeaderTables,
-                           demoteLikelyFormLayoutTables = _options.DemoteLikelyFormLayoutTables,
+                           demoteNoHeaderTables = _options.DemoteNoHeaderTables,
                        },
                        kind: "Remediation stage"))
             {
@@ -269,8 +267,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     pdf,
                     _tableClassificationService,
                     primaryLanguage,
-                    promoteFirstRowHeadersForNoHeaderTables: _options.PromoteFirstRowHeadersForNoHeaderTables,
-                    demoteLikelyFormLayoutTables: _options.DemoteLikelyFormLayoutTables,
+                    demoteNoHeaderTables: _options.DemoteNoHeaderTables,
                     cancellationToken);
             }
             foreach (var tableRemediation in noHeaderTableRemediations)

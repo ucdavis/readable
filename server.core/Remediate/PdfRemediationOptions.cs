@@ -22,12 +22,21 @@ public sealed class PdfRemediationOptions
     public bool DemoteSmallTablesWithoutHeaders { get; set; } = true;
 
     /// <summary>
-    /// When enabled, promotes first-row <c>/TD</c> cells to <c>/TH</c> for no-header tables that look like data tables.
+    /// When enabled, demotes multi-row, multi-column no-header tables to <c>/Div</c>.
+    /// </summary>
+    /// <remarks>
+    /// This avoids producing tagged tables that fail accessibility checks with "Tables should have headers" when
+    /// the source PDF does not already contain usable table header cells.
+    /// </remarks>
+    public bool DemoteNoHeaderTables { get; set; } = true;
+
+    /// <summary>
+    /// Legacy option retained for existing configuration binding. First-row header promotion is no longer used.
     /// </summary>
     public bool PromoteFirstRowHeadersForNoHeaderTables { get; set; } = true;
 
     /// <summary>
-    /// When enabled, demotes multi-row, multi-column no-header tables that look like form/layout tables to <c>/Div</c>.
+    /// Legacy option retained for existing configuration binding. Use <see cref="DemoteNoHeaderTables" /> instead.
     /// </summary>
     public bool DemoteLikelyFormLayoutTables { get; set; } = true;
 }

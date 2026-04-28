@@ -83,6 +83,13 @@ public static class IngestServiceCollectionExtensions
                     configuration.GetValue<bool?>("Ingest:DemoteLikelyFormLayoutTables")
                     ?? configuration.GetValue<bool?>("INGEST_DEMOTE_LIKELY_FORM_LAYOUT_TABLES")
                     ?? true;
+
+                o.DemoteNoHeaderTables =
+                    configuration.GetValue<bool?>("Ingest:DemoteNoHeaderTables")
+                    ?? configuration.GetValue<bool?>("INGEST_DEMOTE_NO_HEADER_TABLES")
+                    ?? configuration.GetValue<bool?>("Ingest:DemoteLikelyFormLayoutTables")
+                    ?? configuration.GetValue<bool?>("INGEST_DEMOTE_LIKELY_FORM_LAYOUT_TABLES")
+                    ?? true;
             });
 
             services.AddSingleton<OpenAiRemediationConfig>(sp =>
