@@ -25,6 +25,9 @@ internal sealed record PdfNoHeaderTableRemediation(
 internal static class PdfTableRoleRemediator
 {
     private const int MaxCellTextChars = 120;
+    private const int MaxMarkedContentTraversalDepth = 64;
+    private const int MaxMarkedContentTraversalNodes = 4096;
+    private const int MaxTableDemotionTraversalNodes = 4096;
     private const double MinClassifierConfidence = 0.7;
     private static readonly PdfName RoleTable = new("Table");
     private static readonly PdfName RoleTHead = new("THead");
@@ -664,7 +667,7 @@ internal static class PdfTableRoleRemediator
             return alt;
         }
 
-        var refs = ListMarkedContentRefs(cell, pageObjNumToPageNumber);
+        var refs = ListMarkedContentRefs(cell, pageObjNumToPageNumber, cancellationToken);
         if (refs.Count == 0)
         {
             return null;
@@ -693,7 +696,8 @@ internal static class PdfTableRoleRemediator
 
     private static List<(int pageNumber, int mcid)> ListMarkedContentRefs(
         PdfDictionary structElem,
-        Dictionary<int, int> pageObjNumToPageNumber)
+        Dictionary<int, int> pageObjNumToPageNumber,
+        CancellationToken cancellationToken)
     {
         var defaultPageDict = structElem.GetAsDictionary(PdfName.Pg);
         var kids = structElem.Get(PdfName.K);
@@ -703,35 +707,60 @@ internal static class PdfTableRoleRemediator
         }
 
         var results = new List<(int pageNumber, int mcid)>();
-        CollectMarkedContentRefsRecursive(kids, defaultPageDict, pageObjNumToPageNumber, results);
+        var state = new MarkedContentTraversalState();
+        CollectMarkedContentRefsRecursive(
+            kids,
+            defaultPageDict,
+            pageObjNumToPageNumber,
+            results,
+            state,
+            depth: 0,
+            cancellationToken);
         return results;
     }
 
     private static void CollectMarkedContentRefsRecursive(
-        PdfObject node,
+        PdfObject? node,
         PdfDictionary? inheritedPageDict,
         Dictionary<int, int> pageObjNumToPageNumber,
-        List<(int pageNumber, int mcid)> results)
+        List<(int pageNumber, int mcid)> results,
+        MarkedContentTraversalState state,
+        int depth,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (node is null
+            || depth > MaxMarkedContentTraversalDepth
+            || !state.TryEnter(node, MaxMarkedContentTraversalNodes))
+        {
+            return;
+        }
+
         var dereferenced = Dereference(node);
         if (dereferenced is null)
         {
             return;
         }
 
-        node = dereferenced;
-
-        if (node is PdfArray array)
+        if (dereferenced is PdfArray array)
         {
             foreach (var item in array)
             {
-                CollectMarkedContentRefsRecursive(item, inheritedPageDict, pageObjNumToPageNumber, results);
+                CollectMarkedContentRefsRecursive(
+                    item,
+                    inheritedPageDict,
+                    pageObjNumToPageNumber,
+                    results,
+                    state,
+                    depth + 1,
+                    cancellationToken);
             }
 
             return;
         }
 
-        if (node is PdfNumber num)
+        if (dereferenced is PdfNumber num)
         {
             var pageNumber = TryResolvePageNumber(inheritedPageDict, pageObjNumToPageNumber);
             if (pageNumber is not null)
@@ -742,7 +771,7 @@ internal static class PdfTableRoleRemediator
             return;
         }
 
-        if (node is not PdfDictionary dict)
+        if (dereferenced is not PdfDictionary dict)
         {
             return;
         }
@@ -753,7 +782,14 @@ internal static class PdfTableRoleRemediator
             var kids = dict.Get(PdfName.K);
             if (kids is not null)
             {
-                CollectMarkedContentRefsRecursive(kids, nestedPageDict, pageObjNumToPageNumber, results);
+                CollectMarkedContentRefsRecursive(
+                    kids,
+                    nestedPageDict,
+                    pageObjNumToPageNumber,
+                    results,
+                    state,
+                    depth + 1,
+                    cancellationToken);
             }
 
             return;
@@ -850,14 +886,26 @@ internal static class PdfTableRoleRemediator
         table.Put(PdfName.S, RoleDiv);
 
         var stack = new Stack<PdfObject?>();
+        var visited = new HashSet<(int objNum, int genNum)>();
+        var nodesVisited = 0;
         stack.Push(table.Get(PdfName.K));
 
         while (stack.Count > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            if (++nodesVisited > MaxTableDemotionTraversalNodes)
+            {
+                return;
+            }
+
             var node = stack.Pop();
             if (node is null)
+            {
+                continue;
+            }
+
+            if (!TryMarkVisited(node, visited))
             {
                 continue;
             }
@@ -1068,6 +1116,18 @@ internal static class PdfTableRoleRemediator
 
     private static bool IsStructElemDictionary(PdfDictionary dict) => dict.ContainsKey(PdfName.S);
 
+    private static bool TryMarkVisited(PdfObject node, HashSet<(int objNum, int genNum)> visited)
+    {
+        if (node is PdfIndirectReference reference)
+        {
+            return visited.Add((reference.GetObjNumber(), reference.GetGenNumber()));
+        }
+
+        var objectReference = node.GetIndirectReference();
+        return objectReference is null
+            || visited.Add((objectReference.GetObjNumber(), objectReference.GetGenNumber()));
+    }
+
     private sealed record TableInventory(
         PdfDictionary Element,
         IReadOnlyList<TableRowInventory> Rows,
@@ -1092,6 +1152,23 @@ internal static class PdfTableRoleRemediator
     private sealed record TableRowInventory(PdfDictionary Element, IReadOnlyList<TableCellInventory> Cells);
 
     private sealed record TableCellInventory(PdfDictionary Element, PdfName Role, string Text);
+
+    private sealed class MarkedContentTraversalState
+    {
+        private readonly HashSet<(int objNum, int genNum)> _visited = new();
+
+        private int _nodesVisited;
+
+        public bool TryEnter(PdfObject node, int maxNodes)
+        {
+            if (++_nodesVisited > maxNodes)
+            {
+                return false;
+            }
+
+            return TryMarkVisited(node, _visited);
+        }
+    }
 
     private sealed class McidTextListener : IEventListener
     {
