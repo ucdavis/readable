@@ -9,6 +9,7 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
 {
     private const int MaxRowsInPrompt = 8;
     private const int MaxCellsPerRowInPrompt = 8;
+    private const int MaxCharsPerCellInPrompt = 200;
     private static readonly BinaryData ClassificationSchema = BinaryData.FromBytes(
         """
         {
@@ -109,7 +110,7 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
         {
             var cells = request.Rows[rowIndex]
                 .Take(MaxCellsPerRowInPrompt)
-                .Select(cell => string.IsNullOrWhiteSpace(cell) ? "[blank]" : cell);
+                .Select(FormatPromptCell);
             sb.Append("Row ");
             sb.Append(rowIndex + 1);
             sb.Append(": ");
@@ -122,6 +123,19 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
         }
 
         return sb.ToString();
+    }
+
+    private static string FormatPromptCell(string? cell)
+    {
+        var normalized = RemediationHelpers.NormalizeWhitespace(cell ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return "[blank]";
+        }
+
+        return normalized.Length <= MaxCharsPerCellInPrompt
+            ? normalized
+            : $"{normalized[..MaxCharsPerCellInPrompt]}...";
     }
 
     private static PdfTableClassificationResult ParseResult(string text)
