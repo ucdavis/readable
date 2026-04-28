@@ -16,6 +16,7 @@ namespace server.tests.Integration.Remediate;
 
 public sealed class PdfRemediationProcessorNoHeaderTableTests
 {
+    private const int MaxTestStructTreeTraversalNodes = 4096;
     private static readonly PdfName RoleTable = new("Table");
     private static readonly PdfName RoleTHead = new("THead");
     private static readonly PdfName RoleTBody = new("TBody");
@@ -390,6 +391,29 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             });
     }
 
+    [Fact]
+    public void ListStructElementsByRole_WhenStructTreeContainsCycle_StopsTraversal()
+    {
+        using var stream = new MemoryStream();
+        using var pdf = new PdfDocument(new PdfWriter(stream));
+        pdf.AddNewPage();
+
+        var structTreeRoot = new PdfDictionary();
+        structTreeRoot.Put(PdfName.Type, PdfName.StructTreeRoot);
+        structTreeRoot.MakeIndirect(pdf);
+        pdf.GetCatalog().GetPdfObject().Put(PdfName.StructTreeRoot, structTreeRoot);
+
+        var table = CreateTestStructElement(pdf, RoleTable);
+        var cell = CreateTestStructElement(pdf, RoleTd);
+        structTreeRoot.Put(PdfName.K, table.GetIndirectReference());
+        table.Put(PdfName.K, cell.GetIndirectReference());
+        cell.Put(PdfName.K, table.GetIndirectReference());
+
+        var cells = ListStructElementsByRole(pdf, RoleTd);
+
+        cells.Should().ContainSingle().Which.Should().BeSameAs(cell);
+    }
+
     private static async Task RunPdfTestAsync(
         string testName,
         Action<string> createPdf,
@@ -683,7 +707,7 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             return results;
         }
 
-        Traverse(rootKids, role, results);
+        Traverse(rootKids, role, results, new HashSet<(int Obj, int Gen)>());
         return results;
     }
 
@@ -745,42 +769,87 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             && candidateRefFromDict.GetGenNumber() == targetRef.GetGenNumber();
     }
 
-    private static void Traverse(PdfObject node, PdfName role, List<PdfDictionary> results)
+    private static void Traverse(
+        PdfObject node,
+        PdfName role,
+        List<PdfDictionary> results,
+        HashSet<(int Obj, int Gen)> visited)
     {
-        var dereferenced = Dereference(node);
-        if (dereferenced is null)
-        {
-            return;
-        }
+        var stack = new Stack<PdfObject?>();
+        var nodesVisited = 0;
+        stack.Push(node);
 
-        node = dereferenced;
-
-        if (node is PdfArray array)
+        while (stack.Count > 0)
         {
-            foreach (var item in array)
+            if (++nodesVisited > MaxTestStructTreeTraversalNodes)
             {
-                Traverse(item, role, results);
+                return;
             }
 
-            return;
+            var current = stack.Pop();
+            if (current is null)
+            {
+                continue;
+            }
+
+            if (!TryMarkVisited(current, visited))
+            {
+                continue;
+            }
+
+            var dereferenced = Dereference(current);
+            if (dereferenced is null)
+            {
+                continue;
+            }
+
+            if (dereferenced is PdfArray array)
+            {
+                for (var i = array.Size() - 1; i >= 0; i--)
+                {
+                    stack.Push(array.Get(i));
+                }
+
+                continue;
+            }
+
+            if (dereferenced is not PdfDictionary dict)
+            {
+                continue;
+            }
+
+            var s = dict.GetAsName(PdfName.S);
+            if (role.Equals(s))
+            {
+                results.Add(dict);
+            }
+
+            var kids = dict.Get(PdfName.K);
+            if (kids is not null)
+            {
+                stack.Push(kids);
+            }
+        }
+    }
+
+    private static bool TryMarkVisited(PdfObject node, HashSet<(int Obj, int Gen)> visited)
+    {
+        if (node is PdfIndirectReference reference)
+        {
+            return visited.Add((reference.GetObjNumber(), reference.GetGenNumber()));
         }
 
-        if (node is not PdfDictionary dict)
-        {
-            return;
-        }
+        var objectReference = node.GetIndirectReference();
+        return objectReference is null
+            || visited.Add((objectReference.GetObjNumber(), objectReference.GetGenNumber()));
+    }
 
-        var s = dict.GetAsName(PdfName.S);
-        if (role.Equals(s))
-        {
-            results.Add(dict);
-        }
-
-        var kids = dict.Get(PdfName.K);
-        if (kids is not null)
-        {
-            Traverse(kids, role, results);
-        }
+    private static PdfDictionary CreateTestStructElement(PdfDocument pdf, PdfName role)
+    {
+        var dict = new PdfDictionary();
+        dict.Put(PdfName.S, role);
+        dict.MakeIndirect(pdf);
+        return dict;
     }
 
     private static PdfObject? Dereference(PdfObject? obj)
