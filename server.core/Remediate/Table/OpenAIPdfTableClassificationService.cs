@@ -9,6 +9,27 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
 {
     private const int MaxRowsInPrompt = 8;
     private const int MaxCellsPerRowInPrompt = 8;
+    private static readonly BinaryData ClassificationSchema = BinaryData.FromBytes(
+        """
+        {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["data_table", "layout_or_form_table", "uncertain"]
+                },
+                "confidence": {
+                    "type": "number"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "confidence", "reason"],
+            "additionalProperties": false
+        }
+        """u8.ToArray());
+
     private readonly ChatClient _chatClient;
 
     public OpenAIPdfTableClassificationService(string apiKey, string model)
@@ -38,8 +59,16 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
             new UserChatMessage(BuildPrompt(request)),
         ];
 
+        ChatCompletionOptions options = new()
+        {
+            ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
+                jsonSchemaFormatName: "pdf_table_classification",
+                jsonSchema: ClassificationSchema,
+                jsonSchemaIsStrict: true),
+        };
+
         ClientResult<ChatCompletion> result =
-            await _chatClient.CompleteChatAsync(messages, new ChatCompletionOptions(), cancellationToken);
+            await _chatClient.CompleteChatAsync(messages, options, cancellationToken);
 
         var text = RemediationHelpers.ExtractFirstTextOrEmpty(result.Value);
         return ParseResult(text);
@@ -48,15 +77,11 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
     private static string BuildSystemInstructions() =>
         """
         You classify PDF tag-tree tables for accessibility remediation.
-        Return only a compact JSON object with:
-        - "kind": one of "data_table", "layout_or_form_table", or "uncertain"
-        - "confidence": a number from 0 to 1
-        - "reason": a short plain-text reason
-
         Classify based on the table's apparent semantic purpose, not on whether every row is filled in.
         A data table organizes repeated records, choices, measurements, or values by rows and columns.
         A layout_or_form_table positions labels, instructions, or form fields without conveying tabular relationships.
         Use "uncertain" when the evidence is weak or both interpretations are plausible.
+        Set confidence from 0 to 1 and keep the reason short.
         """;
 
     private static string BuildPrompt(PdfTableClassificationRequest request)
