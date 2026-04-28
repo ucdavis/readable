@@ -39,6 +39,8 @@ internal static partial class PdfCharacterEncodingRemediator
 
         var groups = GroupAnomalies(scan.Anomalies);
         var proposed = new List<RepairCandidate>();
+        proposed.AddRange(BuildNullPaddingRepairs(groups));
+        proposed.AddRange(BuildKnownControlCodeRepairs(groups));
         proposed.AddRange(BuildExistingMappingRepairs(groups, scan.FontsByObjectId));
         proposed.AddRange(BuildTimestampRepairs(groups));
         proposed.AddRange(BuildFillerRepairs(groups));
@@ -97,6 +99,30 @@ internal static partial class PdfCharacterEncodingRemediator
         }
 
         var verification = Scan(pdf, cancellationToken);
+        if (verification.Anomalies.Count > 0 && deterministicApplied + aiApplied > 0)
+        {
+            var secondPassGroups = GroupAnomalies(verification.Anomalies);
+            var secondPassProposed = new List<RepairCandidate>();
+            secondPassProposed.AddRange(BuildNullPaddingRepairs(secondPassGroups));
+            secondPassProposed.AddRange(BuildKnownControlCodeRepairs(secondPassGroups));
+            secondPassProposed.AddRange(BuildExistingMappingRepairs(secondPassGroups, verification.FontsByObjectId));
+            secondPassProposed.AddRange(BuildTimestampRepairs(secondPassGroups));
+            secondPassProposed.AddRange(BuildFillerRepairs(secondPassGroups));
+
+            var secondPassApplied = ApplyValidatedRepairs(
+                pdf,
+                secondPassGroups,
+                verification.FontsByObjectId,
+                secondPassProposed,
+                logger);
+
+            if (secondPassApplied > 0)
+            {
+                deterministicApplied += secondPassApplied;
+                verification = Scan(pdf, cancellationToken);
+            }
+        }
+
         logger.LogInformation(
             "PDF character encoding remediation summary: detected={detected} groups={groups} deterministicApplied={deterministicApplied} aiApplied={aiApplied} remaining={remaining}",
             scan.Anomalies.Count,
@@ -147,6 +173,59 @@ internal static partial class PdfCharacterEncodingRemediator
             .GroupBy(a => a.Key)
             .Select(g => new AnomalyGroup(g.Key, g.ToArray()))
             .ToArray();
+
+    private static IEnumerable<RepairCandidate> BuildNullPaddingRepairs(IReadOnlyList<AnomalyGroup> groups)
+    {
+        foreach (var group in groups)
+        {
+            if (!group.Key.SourceCode.All(ch => ch == '0'))
+            {
+                continue;
+            }
+
+            if (group.Anomalies.Any(a => a.Kind is not "replacement_character"))
+            {
+                continue;
+            }
+
+            yield return new RepairCandidate(
+                group.Key,
+                " ",
+                Confidence: 1,
+                Source: "null_padding",
+                Reason: "Used all-zero source code decodes to replacement characters; mapping to a space avoids invalid Unicode output.");
+        }
+    }
+
+    private static IEnumerable<RepairCandidate> BuildKnownControlCodeRepairs(IReadOnlyList<AnomalyGroup> groups)
+    {
+        foreach (var group in groups)
+        {
+            if (group.Anomalies.Any(a => a.Kind is not "replacement_character" and not "invalid_control"))
+            {
+                continue;
+            }
+
+            if (string.Equals(group.Key.SourceCode, "19", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return new RepairCandidate(
+                    group.Key,
+                    ":",
+                    Confidence: 1,
+                    Source: "known_control_code",
+                    Reason: "Used source code 0x19 appears as an invalid timestamp separator; mapping to colon.");
+            }
+            else if (string.Equals(group.Key.SourceCode, "0A", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return new RepairCandidate(
+                    group.Key,
+                    " ",
+                    Confidence: 1,
+                    Source: "known_control_code",
+                    Reason: "Used source code 0x0A decodes to replacement characters; mapping to space avoids invalid Unicode output.");
+            }
+        }
+    }
 
     private static IEnumerable<RepairCandidate> BuildExistingMappingRepairs(
         IReadOnlyList<AnomalyGroup> groups,
@@ -206,7 +285,7 @@ internal static partial class PdfCharacterEncodingRemediator
     {
         foreach (var group in groups)
         {
-            if (group.Anomalies.Any(a => TimestampPlaceholderRegex.IsMatch(a.LineWithPlaceholder)))
+            if (group.Anomalies.Any(IsTimestampSeparatorAnomaly))
             {
                 yield return new RepairCandidate(
                     group.Key,
@@ -216,6 +295,18 @@ internal static partial class PdfCharacterEncodingRemediator
                     Reason: "Anomaly appears between hour and minute digits before AM/PM.");
             }
         }
+    }
+
+    private static bool IsTimestampSeparatorAnomaly(DetectedAnomaly anomaly)
+    {
+        if (TimestampPlaceholderRegex.IsMatch(anomaly.LineWithPlaceholder))
+        {
+            return true;
+        }
+
+        var combined = RemediationHelpers.NormalizeWhitespace(
+            KeepLastChars(anomaly.ContextBefore, 24) + Placeholder + KeepFirstChars(anomaly.ContextAfter, 24));
+        return TimestampPlaceholderRegex.IsMatch(combined);
     }
 
     private static IEnumerable<RepairCandidate> BuildFillerRepairs(IReadOnlyList<AnomalyGroup> groups)
@@ -278,10 +369,20 @@ internal static partial class PdfCharacterEncodingRemediator
         foreach (var candidateGroup in candidates.GroupBy(c => c.Key))
         {
             var key = candidateGroup.Key;
-            var alternatives = candidateGroup
+            var candidateItems = candidateGroup
                 .Where(c => c.Confidence >= minimumConfidence)
-                .Select(c => c with { Replacement = c.Replacement.Trim() })
-                .Where(c => IsSafeReplacement(c.Replacement))
+                .Select(c => c.Source == "null_padding" ? c : c with { Replacement = c.Replacement.Trim() })
+                .Where(IsSafeRepairCandidate)
+                .ToArray();
+
+            if (candidateItems.Length == 0)
+            {
+                continue;
+            }
+
+            var bestPriority = candidateItems.Max(c => GetRepairPriority(c.Source));
+            var alternatives = candidateItems
+                .Where(c => GetRepairPriority(c.Source) == bestPriority)
                 .GroupBy(c => c.Replacement, StringComparer.Ordinal)
                 .ToArray();
 
@@ -300,8 +401,11 @@ internal static partial class PdfCharacterEncodingRemediator
             }
 
             var replacement = alternatives[0].Key;
+            var chosen = alternatives[0].OrderByDescending(c => c.Confidence).First();
             var existing = font.ToUnicode.Lookup(key.SourceCode);
-            if (IsSafeReplacement(existing) && !string.Equals(existing, replacement, StringComparison.Ordinal))
+            if (GetRepairPriority(chosen.Source) < GetRepairPriority("known_control_code")
+                && IsSafeReplacement(existing)
+                && !string.Equals(existing, replacement, StringComparison.Ordinal))
             {
                 logger.LogInformation(
                     "Skipped PDF character encoding repair because a valid mapping already exists: fontObject={fontObject} sourceCode={sourceCode} existing={existing} replacement={replacement}",
@@ -333,7 +437,6 @@ internal static partial class PdfCharacterEncodingRemediator
             font.ToUnicode.ExplicitMappings[key.SourceCode] = replacement;
             applied++;
 
-            var chosen = alternatives[0].OrderByDescending(c => c.Confidence).First();
             logger.LogInformation(
                 "Applied PDF character encoding repair: fontObject={fontObject} sourceCode={sourceCode} replacement={replacement} action={action} source={source} confidence={confidence} reason={reason}",
                 key.FontObjectId,
@@ -348,8 +451,19 @@ internal static partial class PdfCharacterEncodingRemediator
         return applied;
     }
 
+    private static int GetRepairPriority(string source) => source switch
+    {
+        "null_padding" => 100,
+        "known_control_code" => 90,
+        "timestamp_pattern" => 80,
+        "filler_pattern" => 70,
+        "existing_mapping" => 60,
+        "ai" => 50,
+        _ => 0,
+    };
+
     private static bool HasAcceptedRepair(IEnumerable<RepairCandidate> candidates, RepairKey key)
-        => candidates.Any(c => c.Key.Equals(key) && IsSafeReplacement(c.Replacement));
+        => candidates.Any(c => c.Key.Equals(key) && IsSafeRepairCandidate(c));
 
     private static PdfCharacterEncodingAnomalyGroup ToRepairRequestGroup(AnomalyGroup group)
         => new(
@@ -507,7 +621,12 @@ internal static partial class PdfCharacterEncodingRemediator
     private static string? DecodeUtf16BeHex(string hex)
     {
         hex = RemediationHelpers.NormalizeWhitespace(hex).ToUpperInvariant();
-        if (hex.Length == 0 || hex.Length % 4 != 0 || !IsHex(hex))
+        if (hex.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        if (hex.Length % 4 != 0 || !IsHex(hex))
         {
             return null;
         }
@@ -547,6 +666,21 @@ internal static partial class PdfCharacterEncodingRemediator
         return true;
     }
 
+    private static bool IsSafeRepairCandidate(RepairCandidate candidate)
+    {
+        if (candidate.Source is "null_padding")
+        {
+            return candidate.Replacement == " ";
+        }
+
+        if (candidate.Source is "known_control_code" && candidate.Replacement == " ")
+        {
+            return true;
+        }
+
+        return IsSafeReplacement(candidate.Replacement);
+    }
+
     private static bool IsBadExtractedChar(char ch)
         => ch == '\uFFFD' || IsInvalidControl(ch) || IsPrivateUse(ch);
 
@@ -570,6 +704,12 @@ internal static partial class PdfCharacterEncodingRemediator
 
         return fontName.ToUpperInvariant();
     }
+
+    private static string KeepFirstChars(string text, int maxChars)
+        => string.IsNullOrEmpty(text) || text.Length <= maxChars ? text : text[..maxChars];
+
+    private static string KeepLastChars(string text, int maxChars)
+        => string.IsNullOrEmpty(text) || text.Length <= maxChars ? text : text[^maxChars..];
 
     private sealed class CharacterEncodingListener : IEventListener
     {
