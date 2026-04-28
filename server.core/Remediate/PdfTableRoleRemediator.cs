@@ -169,7 +169,9 @@ internal static class PdfTableRoleRemediator
                 {
                     results.Add(CreateUnchangedResult(
                         inventory,
-                        "classified as data table; first-row header promotion disabled"));
+                        BuildClassifierDecisionReason(
+                            "classified as data table; first-row header promotion disabled",
+                            classification)));
                     continue;
                 }
 
@@ -182,9 +184,11 @@ internal static class PdfTableRoleRemediator
                         inventory.RowCount,
                         inventory.MaxColumnCount,
                         inventory.FirstRowSnippet,
-                        promoted
-                            ? "classified as data table; moved header row into THead and promoted cells to TH"
-                            : "classified as data table but no usable header row was available to promote"));
+                        BuildClassifierDecisionReason(
+                            promoted
+                                ? "classified as data table; moved header row into THead and promoted cells to TH"
+                                : "classified as data table but no usable header row was available to promote",
+                            classification)));
                 continue;
             }
 
@@ -195,12 +199,27 @@ internal static class PdfTableRoleRemediator
                     inventory.RowCount,
                     inventory.MaxColumnCount,
                     inventory.FirstRowSnippet,
-                    classification.Kind == PdfTableKind.DataTable
-                        ? $"data-table classifier confidence {confidence:0.00} was below {MinClassifierConfidence:0.00}; demoted table roles"
-                        : "classified as non-data table; demoted table roles"));
+                    BuildClassifierDecisionReason(
+                        classification.Kind == PdfTableKind.DataTable
+                            ? $"data-table classifier confidence {confidence:0.00} was below {MinClassifierConfidence:0.00}; demoted table roles"
+                            : "classified as non-data table; demoted table roles",
+                        classification)));
         }
 
         return results;
+    }
+
+    private static string BuildClassifierDecisionReason(
+        string decisionReason,
+        PdfTableClassificationResult classification)
+    {
+        var classifierReason = RemediationHelpers.NormalizeWhitespace(classification.Reason);
+        if (string.IsNullOrWhiteSpace(classifierReason))
+        {
+            return decisionReason;
+        }
+
+        return $"{decisionReason}; classifier reason: {classifierReason}";
     }
 
     private static async Task<PdfTableClassificationResult> ClassifyWithTimeoutAsync(

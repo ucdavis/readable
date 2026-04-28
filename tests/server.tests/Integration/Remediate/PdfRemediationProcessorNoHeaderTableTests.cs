@@ -3,6 +3,7 @@ using iText.Kernel.Pdf;
 using iText.Layout;
 using iText.Layout.Element;
 using iText.Layout.Properties;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using server.core.Remediate;
@@ -42,6 +43,12 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
                 ListStructElementsByRole(outputPdf, RoleTh).Should().HaveCount(3);
                 ListStructElementsByRole(outputPdf, RoleTd).Should().HaveCount(6);
                 AssertPromotedHeaderStructure(outputPdf);
+            },
+            logs =>
+            {
+                logs.Should().Contain(message =>
+                    message.Contains("moved header row into THead", StringComparison.Ordinal)
+                    && message.Contains("classifier reason: Looks like a data table.", StringComparison.Ordinal));
             });
 
         tableClassificationService.Requests.Should().ContainSingle();
@@ -122,6 +129,12 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             {
                 ListStructElementsByRole(outputPdf, RoleTable).Should().BeEmpty();
                 ListStructElementsByRole(outputPdf, RoleTd).Should().BeEmpty();
+            },
+            logs =>
+            {
+                logs.Should().Contain(message =>
+                    message.Contains("classified as non-data table", StringComparison.Ordinal)
+                    && message.Contains("classifier reason: Does not look like a data table.", StringComparison.Ordinal));
             });
     }
 
@@ -318,7 +331,8 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
         string testName,
         Action<string> createPdf,
         QueuePdfTableClassificationService tableClassificationService,
-        Action<PdfDocument> assert)
+        Action<PdfDocument> assert,
+        Action<IReadOnlyList<string>>? assertLogs = null)
     {
         var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"{testName}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(runRoot);
@@ -329,6 +343,7 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             createPdf(inputPdfPath);
 
             var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            var logger = new CapturingLogger<PdfRemediationProcessor>();
             var sut = new PdfRemediationProcessor(
                 new ThrowingAltTextService(),
                 new NoopPdfBookmarkService(),
@@ -336,7 +351,7 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
                 tableClassificationService,
                 new StablePdfTitleService(),
                 Options.Create(new PdfRemediationOptions()),
-                NullLogger<PdfRemediationProcessor>.Instance);
+                logger);
 
             await sut.ProcessAsync(
                 fileId: testName,
@@ -346,6 +361,7 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
 
             using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
             assert(outputPdf);
+            assertLogs?.Invoke(logger.Messages);
             tableClassificationService.AssertAllResponsesConsumed();
         }
         finally
@@ -775,6 +791,29 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
         {
             CallCount++;
             return new TaskCompletionSource<PdfTableClassificationResult>().Task;
+        }
+    }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        private readonly List<string> _messages = [];
+
+        public IReadOnlyList<string> Messages => _messages;
+
+        public IDisposable BeginScope<TState>(TState state)
+            where TState : notnull =>
+            NullLogger.Instance.BeginScope(state);
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            _messages.Add(formatter(state, exception));
         }
     }
 
