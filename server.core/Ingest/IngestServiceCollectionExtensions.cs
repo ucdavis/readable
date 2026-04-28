@@ -90,6 +90,11 @@ public static class IngestServiceCollectionExtensions
                     ?? configuration.GetValue<bool?>("Ingest:DemoteLikelyFormLayoutTables")
                     ?? configuration.GetValue<bool?>("INGEST_DEMOTE_LIKELY_FORM_LAYOUT_TABLES")
                     ?? true;
+
+                o.NoHeaderTableClassificationTimeoutSeconds =
+                    configuration.GetValue<int?>("Ingest:NoHeaderTableClassificationTimeoutSeconds")
+                    ?? configuration.GetValue<int?>("INGEST_NO_HEADER_TABLE_CLASSIFICATION_TIMEOUT_SECONDS")
+                    ?? 30;
             });
 
             services.AddSingleton<OpenAiRemediationConfig>(sp =>

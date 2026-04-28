@@ -31,6 +31,11 @@ public sealed class PdfRemediationOptions
     public bool DemoteNoHeaderTables { get; set; } = true;
 
     /// <summary>
+    /// Maximum time to wait for each no-header table classification request before leaving that table unchanged.
+    /// </summary>
+    public int NoHeaderTableClassificationTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>
     /// Legacy option retained for existing configuration binding. First-row header promotion is no longer used.
     /// </summary>
     public bool PromoteFirstRowHeadersForNoHeaderTables { get; set; } = true;

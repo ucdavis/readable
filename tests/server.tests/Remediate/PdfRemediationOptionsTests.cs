@@ -10,5 +10,10 @@ public sealed class PdfRemediationOptionsTests
     {
         new PdfRemediationOptions().DemoteSmallTablesWithoutHeaders.Should().BeTrue();
     }
-}
 
+    [Fact]
+    public void Defaults_NoHeaderTableClassificationTimeoutSeconds_IsThirty()
+    {
+        new PdfRemediationOptions().NoHeaderTableClassificationTimeoutSeconds.Should().Be(30);
+    }
+}

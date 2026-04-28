@@ -78,6 +78,7 @@ internal static class PdfTableRoleRemediator
         IPdfTableClassificationService tableClassificationService,
         string? primaryLanguage,
         bool demoteNoHeaderTables,
+        TimeSpan classificationTimeout,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -131,7 +132,32 @@ internal static class PdfTableRoleRemediator
             }
 
             var request = inventory.ToClassificationRequest(primaryLanguage);
-            var classification = await tableClassificationService.ClassifyAsync(request, cancellationToken);
+            PdfTableClassificationResult classification;
+            try
+            {
+                classification = await ClassifyWithTimeoutAsync(
+                    tableClassificationService,
+                    request,
+                    classificationTimeout,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                results.Add(CreateUnchangedResult(inventory, "left unchanged; table classification timed out"));
+                continue;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                results.Add(CreateUnchangedResult(
+                    inventory,
+                    $"left unchanged; table classification failed: {ex.GetType().Name}"));
+                continue;
+            }
+
             var confidence = Math.Clamp(classification.Confidence, 0, 1);
             var isConfidentDataTable = classification.Kind == PdfTableKind.DataTable
                 && confidence >= MinClassifierConfidence;
@@ -166,6 +192,32 @@ internal static class PdfTableRoleRemediator
         }
 
         return results;
+    }
+
+    private static async Task<PdfTableClassificationResult> ClassifyWithTimeoutAsync(
+        IPdfTableClassificationService tableClassificationService,
+        PdfTableClassificationRequest request,
+        TimeSpan classificationTimeout,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (classificationTimeout <= TimeSpan.Zero)
+        {
+            return await tableClassificationService.ClassifyAsync(request, cancellationToken);
+        }
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var classificationTask = tableClassificationService.ClassifyAsync(request, timeoutCts.Token);
+        try
+        {
+            return await classificationTask.WaitAsync(classificationTimeout, cancellationToken);
+        }
+        catch (TimeoutException ex)
+        {
+            timeoutCts.Cancel();
+            throw new OperationCanceledException("Table classification timed out.", ex, timeoutCts.Token);
+        }
     }
 
     private static PdfNoHeaderTableRemediation CreateUnchangedResult(TableInventory inventory, string reason) =>

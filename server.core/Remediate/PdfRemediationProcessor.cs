@@ -260,6 +260,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                        new
                        {
                            demoteNoHeaderTables = _options.DemoteNoHeaderTables,
+                           noHeaderTableClassificationTimeoutSeconds = _options.NoHeaderTableClassificationTimeoutSeconds,
                        },
                        kind: "Remediation stage"))
             {
@@ -268,6 +269,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     _tableClassificationService,
                     primaryLanguage,
                     demoteNoHeaderTables: _options.DemoteNoHeaderTables,
+                    classificationTimeout: TimeSpan.FromSeconds(Math.Max(1, _options.NoHeaderTableClassificationTimeoutSeconds)),
                     cancellationToken);
             }
             foreach (var tableRemediation in noHeaderTableRemediations)

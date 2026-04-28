@@ -127,6 +127,55 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
     }
 
     [Fact]
+    public async Task ProcessAsync_NoHeaderTableClassificationTimeout_LeavesTableUnchanged()
+    {
+        var runRoot = Path.Combine(
+            Path.GetTempPath(),
+            "readable-tests",
+            $"no-header-classification-timeout-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateNoHeaderContactFormTablePdf(inputPdfPath);
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            var tableClassificationService = new NeverCompletingPdfTableClassificationService();
+            var sut = new PdfRemediationProcessor(
+                new ThrowingAltTextService(),
+                new NoopPdfBookmarkService(),
+                NoopPdfPageRasterizer.Instance,
+                tableClassificationService,
+                new StablePdfTitleService(),
+                Options.Create(new PdfRemediationOptions
+                {
+                    NoHeaderTableClassificationTimeoutSeconds = 1,
+                }),
+                NullLogger<PdfRemediationProcessor>.Instance);
+
+            await sut.ProcessAsync(
+                fileId: "no-header-classification-timeout",
+                inputPdfPath: inputPdfPath,
+                outputPdfPath: outputPdfPath,
+                cancellationToken: CancellationToken.None);
+
+            using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
+            tableClassificationService.CallCount.Should().Be(1);
+            ListStructElementsByRole(outputPdf, RoleTable).Should().HaveCount(1);
+            ListStructElementsByRole(outputPdf, RoleTr).Should().NotBeEmpty();
+            ListStructElementsByRole(outputPdf, RoleTd).Should().NotBeEmpty();
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task ProcessAsync_VerificationPdfShape_DemotesFormTableAndAddsDataTableHeader()
     {
         await RunPdfTestAsync(
@@ -503,6 +552,19 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
         }
 
         public void AssertAllResponsesConsumed() => _responses.Should().BeEmpty();
+    }
+
+    private sealed class NeverCompletingPdfTableClassificationService : IPdfTableClassificationService
+    {
+        public int CallCount { get; private set; }
+
+        public Task<PdfTableClassificationResult> ClassifyAsync(
+            PdfTableClassificationRequest request,
+            CancellationToken cancellationToken)
+        {
+            CallCount++;
+            return new TaskCompletionSource<PdfTableClassificationResult>().Task;
+        }
     }
 
     private sealed class StablePdfTitleService : IPdfTitleService
