@@ -28,6 +28,7 @@ internal static class PdfTableRoleRemediator
     private const int MaxMarkedContentTraversalDepth = 64;
     private const int MaxMarkedContentTraversalNodes = 4096;
     private const int MaxTableDemotionTraversalNodes = 4096;
+    private const int MaxStructTreeTraversalNodes = 4096;
     private const double MinClassifierConfidence = 0.7;
     private static readonly PdfName RoleTable = new("Table");
     private static readonly PdfName RoleTHead = new("THead");
@@ -476,13 +477,25 @@ internal static class PdfTableRoleRemediator
         CancellationToken cancellationToken)
     {
         var stack = new Stack<PdfDictionary>();
+        var visited = new HashSet<(int objNum, int genNum)>();
+        var nodesVisited = 0;
         stack.Push(root);
 
         while (stack.Count > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            if (++nodesVisited > MaxStructTreeTraversalNodes)
+            {
+                return null;
+            }
+
             var current = stack.Pop();
+            if (!TryMarkVisited(current, visited))
+            {
+                continue;
+            }
+
             foreach (var child in ListDirectStructElementChildren(current))
             {
                 if (IsSameStructElement(child, target))
@@ -1082,14 +1095,26 @@ internal static class PdfTableRoleRemediator
     {
         var results = new List<PdfDictionary>();
         var stack = new Stack<PdfObject?>();
+        var visited = new HashSet<(int objNum, int genNum)>();
+        var nodesVisited = 0;
         stack.Push(root.Get(PdfName.K));
 
         while (stack.Count > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            if (++nodesVisited > MaxStructTreeTraversalNodes)
+            {
+                return results;
+            }
+
             var node = stack.Pop();
             if (node is null)
+            {
+                continue;
+            }
+
+            if (!TryMarkVisited(node, visited))
             {
                 continue;
             }
@@ -1137,40 +1162,62 @@ internal static class PdfTableRoleRemediator
         List<PdfDictionary> results,
         CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        var stack = new Stack<PdfObject?>();
+        var visited = new HashSet<(int objNum, int genNum)>();
+        var nodesVisited = 0;
+        stack.Push(node);
 
-        var dereferenced = Dereference(node);
-        if (dereferenced is null)
+        while (stack.Count > 0)
         {
-            return;
-        }
+            cancellationToken.ThrowIfCancellationRequested();
 
-        node = dereferenced;
-
-        if (node is PdfArray array)
-        {
-            foreach (var item in array)
+            if (++nodesVisited > MaxStructTreeTraversalNodes)
             {
-                TraverseTagTreeForList(item, role, results, cancellationToken);
+                return;
             }
 
-            return;
-        }
+            var current = stack.Pop();
+            if (current is null)
+            {
+                continue;
+            }
 
-        if (node is not PdfDictionary dict)
-        {
-            return;
-        }
+            if (!TryMarkVisited(current, visited))
+            {
+                continue;
+            }
 
-        if (dict.ContainsKey(PdfName.S) && role.Equals(dict.GetAsName(PdfName.S)))
-        {
-            results.Add(dict);
-        }
+            var dereferenced = Dereference(current);
+            if (dereferenced is null)
+            {
+                continue;
+            }
 
-        var kids = dict.Get(PdfName.K);
-        if (kids is not null)
-        {
-            TraverseTagTreeForList(kids, role, results, cancellationToken);
+            if (dereferenced is PdfArray array)
+            {
+                for (var i = array.Size() - 1; i >= 0; i--)
+                {
+                    stack.Push(array.Get(i));
+                }
+
+                continue;
+            }
+
+            if (dereferenced is not PdfDictionary dict)
+            {
+                continue;
+            }
+
+            if (dict.ContainsKey(PdfName.S) && role.Equals(dict.GetAsName(PdfName.S)))
+            {
+                results.Add(dict);
+            }
+
+            var kids = dict.Get(PdfName.K);
+            if (kids is not null)
+            {
+                stack.Push(kids);
+            }
         }
     }
 
