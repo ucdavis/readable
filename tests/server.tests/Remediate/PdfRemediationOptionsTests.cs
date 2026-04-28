@@ -16,4 +16,10 @@ public sealed class PdfRemediationOptionsTests
     {
         new PdfRemediationOptions().NoHeaderTableClassificationTimeoutSeconds.Should().Be(30);
     }
+
+    [Fact]
+    public void Defaults_PromoteFirstRowHeadersForNoHeaderTables_IsTrue()
+    {
+        new PdfRemediationOptions().PromoteFirstRowHeadersForNoHeaderTables.Should().BeTrue();
+    }
 }

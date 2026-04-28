@@ -43,6 +43,60 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
     }
 
     [Fact]
+    public async Task ProcessAsync_NoHeaderDataTable_WhenHeaderPromotionDisabled_LeavesTableUnchanged()
+    {
+        var runRoot = Path.Combine(
+            Path.GetTempPath(),
+            "readable-tests",
+            $"no-header-data-table-promotion-disabled-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateNoHeaderServiceDatesTablePdf(inputPdfPath);
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            var tableClassificationService = new QueuePdfTableClassificationService([
+                new PdfTableClassificationResult(PdfTableKind.DataTable, 0.95, "Looks like a data table."),
+            ]);
+            var sut = new PdfRemediationProcessor(
+                new ThrowingAltTextService(),
+                new NoopPdfBookmarkService(),
+                NoopPdfPageRasterizer.Instance,
+                tableClassificationService,
+                new StablePdfTitleService(),
+                Options.Create(new PdfRemediationOptions
+                {
+                    PromoteFirstRowHeadersForNoHeaderTables = false,
+                }),
+                NullLogger<PdfRemediationProcessor>.Instance);
+
+            await sut.ProcessAsync(
+                fileId: "no-header-data-table-promotion-disabled",
+                inputPdfPath: inputPdfPath,
+                outputPdfPath: outputPdfPath,
+                cancellationToken: CancellationToken.None);
+
+            using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
+            ListStructElementsByRole(outputPdf, RoleTable).Should().HaveCount(1);
+            ListStructElementsByRole(outputPdf, RoleTHead).Should().BeEmpty();
+            ListStructElementsByRole(outputPdf, RoleTBody).Should().BeEmpty();
+            ListStructElementsByRole(outputPdf, RoleTr).Should().HaveCount(3);
+            ListStructElementsByRole(outputPdf, RoleTh).Should().BeEmpty();
+            ListStructElementsByRole(outputPdf, RoleTd).Should().HaveCount(9);
+            tableClassificationService.AssertAllResponsesConsumed();
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task ProcessAsync_NoHeaderFormLayoutTable_DemotesTableRoles()
     {
         await RunPdfTestAsync(

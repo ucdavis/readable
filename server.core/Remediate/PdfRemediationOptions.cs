@@ -36,7 +36,7 @@ public sealed class PdfRemediationOptions
     public int NoHeaderTableClassificationTimeoutSeconds { get; set; } = 30;
 
     /// <summary>
-    /// Legacy option retained for existing configuration binding. First-row header promotion is no longer used.
+    /// When enabled, promotes the first usable row of confident no-header data tables into <c>/TH</c> cells.
     /// </summary>
     public bool PromoteFirstRowHeadersForNoHeaderTables { get; set; } = true;
 

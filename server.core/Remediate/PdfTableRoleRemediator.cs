@@ -78,6 +78,7 @@ internal static class PdfTableRoleRemediator
         IPdfTableClassificationService tableClassificationService,
         string? primaryLanguage,
         bool demoteNoHeaderTables,
+        bool promoteFirstRowHeadersForNoHeaderTables,
         TimeSpan classificationTimeout,
         CancellationToken cancellationToken)
     {
@@ -164,6 +165,14 @@ internal static class PdfTableRoleRemediator
 
             if (isConfidentDataTable)
             {
+                if (!promoteFirstRowHeadersForNoHeaderTables)
+                {
+                    results.Add(CreateUnchangedResult(
+                        inventory,
+                        "classified as data table; first-row header promotion disabled"));
+                    continue;
+                }
+
                 var promoted = PromoteHeaderRowToTableHead(inventory, cancellationToken);
                 results.Add(
                     new PdfNoHeaderTableRemediation(
