@@ -16,6 +16,7 @@ using IOPath = System.IO.Path;
 using server.core.Remediate.AltText;
 using server.core.Remediate.Bookmarks;
 using server.core.Remediate.Rasterize;
+using server.core.Remediate.Table;
 using server.core.Remediate.Title;
 using server.core.Telemetry;
 
@@ -69,6 +70,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
     private readonly IAltTextService _altTextService;
     private readonly IPdfBookmarkService _bookmarkService;
     private readonly IPdfPageRasterizer _pageRasterizer;
+    private readonly IPdfTableClassificationService _tableClassificationService;
     private readonly IPdfTitleService _pdfTitleService;
     private readonly PdfRemediationOptions _options;
     private readonly ILogger<PdfRemediationProcessor> _logger;
@@ -80,10 +82,30 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         IPdfTitleService pdfTitleService,
         IOptions<PdfRemediationOptions> options,
         ILogger<PdfRemediationProcessor> logger)
+        : this(
+            altTextService,
+            bookmarkService,
+            pageRasterizer,
+            new SamplePdfTableClassificationService(),
+            pdfTitleService,
+            options,
+            logger)
+    {
+    }
+
+    public PdfRemediationProcessor(
+        IAltTextService altTextService,
+        IPdfBookmarkService bookmarkService,
+        IPdfPageRasterizer pageRasterizer,
+        IPdfTableClassificationService tableClassificationService,
+        IPdfTitleService pdfTitleService,
+        IOptions<PdfRemediationOptions> options,
+        ILogger<PdfRemediationProcessor> logger)
     {
         _altTextService = altTextService ?? throw new ArgumentNullException(nameof(altTextService));
         _bookmarkService = bookmarkService ?? throw new ArgumentNullException(nameof(bookmarkService));
         _pageRasterizer = pageRasterizer ?? throw new ArgumentNullException(nameof(pageRasterizer));
+        _tableClassificationService = tableClassificationService ?? throw new ArgumentNullException(nameof(tableClassificationService));
         _pdfTitleService = pdfTitleService ?? throw new ArgumentNullException(nameof(pdfTitleService));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -99,6 +121,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             altTextService,
             bookmarkService,
             pageRasterizer,
+            new SamplePdfTableClassificationService(),
             pdfTitleService,
             Options.Create(new PdfRemediationOptions()),
             logger)
@@ -227,6 +250,38 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     "Demoted {count} likely layout table(s) in {fileId}.",
                     layoutTablesDemoted,
                     fileId);
+            }
+
+            IReadOnlyList<PdfNoHeaderTableRemediation> noHeaderTableRemediations;
+            using (LogStage.Begin(
+                       _logger,
+                       fileId,
+                       "remediate_no_header_tables",
+                       new
+                       {
+                           demoteNoHeaderTables = _options.DemoteNoHeaderTables,
+                           promoteFirstRowHeadersForNoHeaderTables = _options.PromoteFirstRowHeadersForNoHeaderTables,
+                           noHeaderTableClassificationTimeoutSeconds = _options.NoHeaderTableClassificationTimeoutSeconds,
+                       },
+                       kind: "Remediation stage"))
+            {
+                noHeaderTableRemediations = await PdfTableRoleRemediator.RemediateNoHeaderTablesAsync(
+                    pdf,
+                    _tableClassificationService,
+                    primaryLanguage,
+                    demoteNoHeaderTables: _options.DemoteNoHeaderTables,
+                    promoteFirstRowHeadersForNoHeaderTables: _options.PromoteFirstRowHeadersForNoHeaderTables,
+                    classificationTimeout: TimeSpan.FromSeconds(Math.Max(1, _options.NoHeaderTableClassificationTimeoutSeconds)),
+                    cancellationToken);
+            }
+            foreach (var tableRemediation in noHeaderTableRemediations)
+            {
+                _logger.LogInformation(
+                    "No-header table remediation decision in {fileId}: action={action} rows={rows} columns={columns}",
+                    fileId,
+                    tableRemediation.Action,
+                    tableRemediation.RowCount,
+                    tableRemediation.MaxColumnCount);
             }
 
             using (LogStage.Begin(_logger, fileId, "ensure_table_summaries", null, kind: "Remediation stage"))

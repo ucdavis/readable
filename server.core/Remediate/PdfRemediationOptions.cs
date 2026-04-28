@@ -20,4 +20,28 @@ public sealed class PdfRemediationOptions
     /// Disable this if you find it demoting true data tables.
     /// </remarks>
     public bool DemoteSmallTablesWithoutHeaders { get; set; } = true;
+
+    /// <summary>
+    /// When enabled, demotes multi-row, multi-column no-header tables to <c>/Div</c>.
+    /// </summary>
+    /// <remarks>
+    /// This avoids producing tagged tables that fail accessibility checks with "Tables should have headers" when
+    /// the source PDF does not already contain usable table header cells.
+    /// </remarks>
+    public bool DemoteNoHeaderTables { get; set; } = true;
+
+    /// <summary>
+    /// Maximum time to wait for each no-header table classification request before leaving that table unchanged.
+    /// </summary>
+    public int NoHeaderTableClassificationTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// When enabled, promotes the first usable row of confident no-header data tables into <c>/TH</c> cells.
+    /// </summary>
+    public bool PromoteFirstRowHeadersForNoHeaderTables { get; set; } = true;
+
+    /// <summary>
+    /// Legacy option retained for existing configuration binding. Use <see cref="DemoteNoHeaderTables" /> instead.
+    /// </summary>
+    public bool DemoteLikelyFormLayoutTables { get; set; } = true;
 }
