@@ -277,13 +277,11 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             foreach (var tableRemediation in noHeaderTableRemediations)
             {
                 _logger.LogInformation(
-                    "No-header table remediation decision in {fileId}: action={action} rows={rows} columns={columns} firstRow={firstRow} reason={reason}",
+                    "No-header table remediation decision in {fileId}: action={action} rows={rows} columns={columns}",
                     fileId,
                     tableRemediation.Action,
                     tableRemediation.RowCount,
-                    tableRemediation.MaxColumnCount,
-                    tableRemediation.FirstRowSnippet,
-                    tableRemediation.Reason);
+                    tableRemediation.MaxColumnCount);
             }
 
             using (LogStage.Begin(_logger, fileId, "ensure_table_summaries", null, kind: "Remediation stage"))
