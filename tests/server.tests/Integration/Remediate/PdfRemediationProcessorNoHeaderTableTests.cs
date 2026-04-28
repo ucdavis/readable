@@ -47,8 +47,12 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             logs =>
             {
                 logs.Should().Contain(message =>
-                    message.Contains("moved header row into THead", StringComparison.Ordinal)
-                    && message.Contains("classifier reason: Looks like a data table.", StringComparison.Ordinal));
+                    message.Contains("No-header table remediation decision", StringComparison.Ordinal)
+                    && message.Contains("action=PromotedHeaderRow", StringComparison.Ordinal)
+                    && message.Contains("rows=3", StringComparison.Ordinal)
+                    && message.Contains("columns=3", StringComparison.Ordinal));
+                logs.Should().NotContain(message =>
+                    message.Contains("Looks like a data table.", StringComparison.Ordinal));
             });
 
         tableClassificationService.Requests.Should().ContainSingle();
@@ -133,8 +137,10 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             logs =>
             {
                 logs.Should().Contain(message =>
-                    message.Contains("classified as non-data table", StringComparison.Ordinal)
-                    && message.Contains("classifier reason: Does not look like a data table.", StringComparison.Ordinal));
+                    message.Contains("No-header table remediation decision", StringComparison.Ordinal)
+                    && message.Contains("action=DemotedNoHeaderTable", StringComparison.Ordinal));
+                logs.Should().NotContain(message =>
+                    message.Contains("Does not look like a data table.", StringComparison.Ordinal));
             });
     }
 
@@ -153,7 +159,9 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             CreateNoHeaderContactFormTablePdf(inputPdfPath);
 
             var outputPdfPath = Path.Combine(runRoot, "output.pdf");
-            var tableClassificationService = new QueuePdfTableClassificationService([]);
+            var tableClassificationService = new QueuePdfTableClassificationService([
+                new PdfTableClassificationResult(PdfTableKind.NotDataTable, 0.95, "Does not look like a data table."),
+            ]);
             var sut = new PdfRemediationProcessor(
                 new ThrowingAltTextService(),
                 new NoopPdfBookmarkService(),
@@ -177,7 +185,62 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             ListStructElementsByRole(outputPdf, RoleTr).Should().HaveCount(5);
             ListStructElementsByRole(outputPdf, RoleTh).Should().BeEmpty();
             ListStructElementsByRole(outputPdf, RoleTd).Should().HaveCount(10);
-            tableClassificationService.Requests.Should().BeEmpty();
+            tableClassificationService.Requests.Should().ContainSingle();
+            tableClassificationService.Requests[0].RowCount.Should().Be(5);
+            tableClassificationService.AssertAllResponsesConsumed();
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WhenDemoteNoHeaderTablesDisabled_StillPromotesNoHeaderDataTable()
+    {
+        var runRoot = Path.Combine(
+            Path.GetTempPath(),
+            "readable-tests",
+            $"no-header-demotion-disabled-promotes-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateNoHeaderServiceDatesTablePdf(inputPdfPath);
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            var tableClassificationService = new QueuePdfTableClassificationService([
+                new PdfTableClassificationResult(PdfTableKind.DataTable, 0.95, "Looks like a data table."),
+            ]);
+            var sut = new PdfRemediationProcessor(
+                new ThrowingAltTextService(),
+                new NoopPdfBookmarkService(),
+                NoopPdfPageRasterizer.Instance,
+                tableClassificationService,
+                new StablePdfTitleService(),
+                Options.Create(new PdfRemediationOptions
+                {
+                    DemoteNoHeaderTables = false,
+                }),
+                NullLogger<PdfRemediationProcessor>.Instance);
+
+            await sut.ProcessAsync(
+                fileId: "no-header-demotion-disabled-promotes",
+                inputPdfPath: inputPdfPath,
+                outputPdfPath: outputPdfPath,
+                cancellationToken: CancellationToken.None);
+
+            using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
+            ListStructElementsByRole(outputPdf, RoleTable).Should().HaveCount(1);
+            ListStructElementsByRole(outputPdf, RoleTHead).Should().HaveCount(1);
+            ListStructElementsByRole(outputPdf, RoleTBody).Should().HaveCount(1);
+            ListStructElementsByRole(outputPdf, RoleTh).Should().HaveCount(3);
+            ListStructElementsByRole(outputPdf, RoleTd).Should().HaveCount(6);
+            tableClassificationService.Requests.Should().ContainSingle();
             tableClassificationService.AssertAllResponsesConsumed();
         }
         finally

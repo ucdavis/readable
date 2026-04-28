@@ -89,7 +89,7 @@ internal static class PdfTableRoleRemediator
             return [];
         }
 
-        if (!demoteNoHeaderTables)
+        if (!demoteNoHeaderTables && !promoteFirstRowHeadersForNoHeaderTables)
         {
             return [];
         }
@@ -189,6 +189,18 @@ internal static class PdfTableRoleRemediator
                                 ? "classified as data table; moved header row into THead and promoted cells to TH"
                                 : "classified as data table but no usable header row was available to promote",
                             classification)));
+                continue;
+            }
+
+            if (!demoteNoHeaderTables)
+            {
+                results.Add(CreateUnchangedResult(
+                    inventory,
+                    BuildClassifierDecisionReason(
+                        classification.Kind == PdfTableKind.DataTable
+                            ? $"data-table classifier confidence {confidence:0.00} was below {MinClassifierConfidence:0.00}; no-header table demotion disabled"
+                            : "classified as non-data table; no-header table demotion disabled",
+                        classification)));
                 continue;
             }
 
