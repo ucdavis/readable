@@ -143,7 +143,7 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
         text = RemediationHelpers.NormalizeWhitespace(text);
         if (string.IsNullOrWhiteSpace(text))
         {
-            return new PdfTableClassificationResult(PdfTableKind.NotDataTable, 0, "Empty classifier response.");
+            throw new InvalidOperationException("Empty classifier response.");
         }
 
         var start = text.IndexOf('{');
@@ -174,9 +174,9 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
 
             return new PdfTableClassificationResult(kind, confidence, reason);
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
-            return new PdfTableClassificationResult(PdfTableKind.NotDataTable, 0, "Classifier response was not valid JSON.");
+            throw new InvalidOperationException("Classifier response was not valid JSON.", ex);
         }
     }
 
