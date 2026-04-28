@@ -20,4 +20,14 @@ public sealed class PdfRemediationOptions
     /// Disable this if you find it demoting true data tables.
     /// </remarks>
     public bool DemoteSmallTablesWithoutHeaders { get; set; } = true;
+
+    /// <summary>
+    /// When enabled, promotes first-row <c>/TD</c> cells to <c>/TH</c> for no-header tables that look like data tables.
+    /// </summary>
+    public bool PromoteFirstRowHeadersForNoHeaderTables { get; set; } = true;
+
+    /// <summary>
+    /// When enabled, demotes multi-row, multi-column no-header tables that look like form/layout tables to <c>/Div</c>.
+    /// </summary>
+    public bool DemoteLikelyFormLayoutTables { get; set; } = true;
 }

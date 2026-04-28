@@ -5,6 +5,7 @@ using server.core.Remediate;
 using server.core.Remediate.AltText;
 using server.core.Remediate.Bookmarks;
 using server.core.Remediate.Rasterize;
+using server.core.Remediate.Table;
 using server.core.Remediate.Title;
 
 namespace server.core.Ingest;
@@ -16,7 +17,8 @@ public static class IngestServiceCollectionExtensions
     /// </summary>
     /// <remarks>
     /// When PDF remediation is enabled, OpenAI-backed services are required for title and alt text generation.
-    /// Model selection can be overridden via <c>OPENAI_ALT_TEXT_MODEL</c> and <c>OPENAI_PDF_TITLE_MODEL</c>.
+    /// Model selection can be overridden via <c>OPENAI_ALT_TEXT_MODEL</c>, <c>OPENAI_PDF_TITLE_MODEL</c>, and
+    /// <c>OPENAI_PDF_TABLE_CLASSIFICATION_MODEL</c>.
     /// When Adobe PDF Services is enabled, credentials must be provided via environment variables
     /// or configuration settings.
     /// </remarks>
@@ -71,6 +73,16 @@ public static class IngestServiceCollectionExtensions
                     configuration.GetValue<bool?>("Ingest:DemoteSmallTablesWithoutHeaders")
                     ?? configuration.GetValue<bool?>("INGEST_DEMOTE_SMALL_TABLES_WITHOUT_HEADERS")
                     ?? true;
+
+                o.PromoteFirstRowHeadersForNoHeaderTables =
+                    configuration.GetValue<bool?>("Ingest:PromoteFirstRowHeadersForNoHeaderTables")
+                    ?? configuration.GetValue<bool?>("INGEST_PROMOTE_FIRST_ROW_HEADERS_FOR_NO_HEADER_TABLES")
+                    ?? true;
+
+                o.DemoteLikelyFormLayoutTables =
+                    configuration.GetValue<bool?>("Ingest:DemoteLikelyFormLayoutTables")
+                    ?? configuration.GetValue<bool?>("INGEST_DEMOTE_LIKELY_FORM_LAYOUT_TABLES")
+                    ?? true;
             });
 
             services.AddSingleton<OpenAiRemediationConfig>(sp =>
@@ -95,7 +107,17 @@ public static class IngestServiceCollectionExtensions
                     ?? configuration["OpenAI__PdfTitleModel"]
                     ?? "gpt-5-mini";
 
-                return new OpenAiRemediationConfig(apiKey, altTextModel, pdfTitleModel);
+                var pdfTableClassificationModel =
+                    configuration["OPENAI_PDF_TABLE_CLASSIFICATION_MODEL"]
+                    ?? configuration["OpenAI:PdfTableClassificationModel"]
+                    ?? configuration["OpenAI__PdfTableClassificationModel"]
+                    ?? "gpt-5-mini";
+
+                return new OpenAiRemediationConfig(
+                    apiKey,
+                    altTextModel,
+                    pdfTitleModel,
+                    pdfTableClassificationModel);
             });
             services.AddSingleton<IAltTextService>(sp =>
             {
@@ -106,6 +128,11 @@ public static class IngestServiceCollectionExtensions
             {
                 var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
                 return new OpenAIPdfTitleService(cfg.ApiKey, cfg.PdfTitleModel);
+            });
+            services.AddSingleton<IPdfTableClassificationService>(sp =>
+            {
+                var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
+                return new OpenAIPdfTableClassificationService(cfg.ApiKey, cfg.PdfTableClassificationModel);
             });
             if (options.UsePdfBookmarks)
             {
@@ -150,5 +177,9 @@ public static class IngestServiceCollectionExtensions
             ?? configuration["OpenAI__ApiKey"];
     }
 
-    private sealed record OpenAiRemediationConfig(string ApiKey, string AltTextModel, string PdfTitleModel);
+    private sealed record OpenAiRemediationConfig(
+        string ApiKey,
+        string AltTextModel,
+        string PdfTitleModel,
+        string PdfTableClassificationModel);
 }
