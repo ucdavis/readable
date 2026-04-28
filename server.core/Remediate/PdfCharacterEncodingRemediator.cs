@@ -13,12 +13,21 @@ internal static partial class PdfCharacterEncodingRemediator
 {
     private const string Placeholder = "<?>";
     private const int MaxAiGroups = 40;
+    private const int MaxAiActualTextIssues = 40;
     private const int MaxContextsPerGroup = 6;
     private const int ContextCharsPerSide = 120;
     private static readonly Regex ExplicitBfCharRegex =
         new(@"<(?<src>[0-9A-Fa-f]+)>\s*<(?<dst>[0-9A-Fa-f]*)>", RegexOptions.Compiled);
     private static readonly Regex TimestampPlaceholderRegex =
         new(@"\b\d<\?>\d{2}\s*(?:AM|PM)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex MarkedContentDictionaryRegex =
+        new(@"/(?<role>[A-Za-z0-9]+)\s*<<(?<dict>[^<>]*?/MCID\s+(?<mcid>\d+)[^<>]*?)>>\s*BDC", RegexOptions.Compiled);
+    private static readonly Regex MarkedContentBlockRegex =
+        new(@"/(?<role>[A-Za-z0-9]+)\s*<<(?<dict>[^<>]*?/MCID\s+(?<mcid>\d+)[^<>]*?)>>\s*BDC(?<body>.*?)EMC", RegexOptions.Compiled | RegexOptions.Singleline);
+    private static readonly Regex TextFontOperatorRegex =
+        new(@"/(?<font>[A-Za-z0-9_.-]+)\s+[-+]?(?:\d+|\d*\.\d+)\s+Tf", RegexOptions.Compiled);
+    private static readonly Regex HexTextShowRegex =
+        new(@"<(?<hex>[0-9A-Fa-f]+)>\s*Tj", RegexOptions.Compiled);
 
     public static async Task<PdfCharacterEncodingRemediationResult> RemediateAsync(
         PdfDocument pdf,
@@ -33,17 +42,33 @@ internal static partial class PdfCharacterEncodingRemediator
         var scan = Scan(pdf, cancellationToken);
         if (scan.Anomalies.Count == 0)
         {
-            logger.LogInformation("PDF character encoding remediation: no rendered text anomalies detected.");
-            return new PdfCharacterEncodingRemediationResult(0, 0, 0, 0);
+            var earlyFontEncodingsApplied = ApplyObservedSimpleFontEncodings(scan.FontsByObjectId, logger);
+            var earlyCidToGidMapsApplied = ApplyIdentityCidToGidMaps(scan.FontsByObjectId, logger);
+            logger.LogInformation(
+                "PDF character encoding remediation: no rendered text anomalies detected; fontEncodingsApplied={fontEncodingsApplied} cidToGidMapsApplied={cidToGidMapsApplied}.",
+                earlyFontEncodingsApplied,
+                earlyCidToGidMapsApplied);
+            return new PdfCharacterEncodingRemediationResult(
+                0,
+                0,
+                0,
+                0,
+                ActualTextRepairsApplied: 0,
+                FontEncodingRepairsApplied: earlyFontEncodingsApplied,
+                CidToGidMapRepairsApplied: earlyCidToGidMapsApplied);
         }
 
         var groups = GroupAnomalies(scan.Anomalies);
+        var repairableGroups = groups.Where(HasRepairableTextAnomaly).ToArray();
+        var coverageGroups = groups.Where(IsMissingToUnicodeCoverageGroup).ToArray();
         var proposed = new List<RepairCandidate>();
-        proposed.AddRange(BuildNullPaddingRepairs(groups));
-        proposed.AddRange(BuildKnownControlCodeRepairs(groups));
-        proposed.AddRange(BuildExistingMappingRepairs(groups, scan.FontsByObjectId));
-        proposed.AddRange(BuildTimestampRepairs(groups));
-        proposed.AddRange(BuildFillerRepairs(groups));
+        proposed.AddRange(BuildObservedTextCoverageRepairs(coverageGroups));
+        proposed.AddRange(BuildSymbolPrivateUseRepairs(repairableGroups));
+        proposed.AddRange(BuildNullPaddingRepairs(repairableGroups));
+        proposed.AddRange(BuildKnownControlCodeRepairs(repairableGroups));
+        proposed.AddRange(BuildExistingMappingRepairs(repairableGroups, scan.FontsByObjectId));
+        proposed.AddRange(BuildTimestampRepairs(repairableGroups));
+        proposed.AddRange(BuildFillerRepairs(repairableGroups));
 
         var deterministicApplied = ApplyValidatedRepairs(pdf, groups, scan.FontsByObjectId, proposed, logger);
 
@@ -52,6 +77,7 @@ internal static partial class PdfCharacterEncodingRemediator
         {
             var afterDeterministic = deterministicApplied > 0 ? Scan(pdf, cancellationToken) : scan;
             var remainingGroups = GroupAnomalies(afterDeterministic.Anomalies)
+                .Where(HasRepairableTextAnomaly)
                 .Where(g => !HasAcceptedRepair(proposed, g.Key))
                 .Take(MaxAiGroups)
                 .ToArray();
@@ -102,12 +128,16 @@ internal static partial class PdfCharacterEncodingRemediator
         if (verification.Anomalies.Count > 0 && deterministicApplied + aiApplied > 0)
         {
             var secondPassGroups = GroupAnomalies(verification.Anomalies);
+            var secondPassRepairableGroups = secondPassGroups.Where(HasRepairableTextAnomaly).ToArray();
+            var secondPassCoverageGroups = secondPassGroups.Where(IsMissingToUnicodeCoverageGroup).ToArray();
             var secondPassProposed = new List<RepairCandidate>();
-            secondPassProposed.AddRange(BuildNullPaddingRepairs(secondPassGroups));
-            secondPassProposed.AddRange(BuildKnownControlCodeRepairs(secondPassGroups));
-            secondPassProposed.AddRange(BuildExistingMappingRepairs(secondPassGroups, verification.FontsByObjectId));
-            secondPassProposed.AddRange(BuildTimestampRepairs(secondPassGroups));
-            secondPassProposed.AddRange(BuildFillerRepairs(secondPassGroups));
+            secondPassProposed.AddRange(BuildObservedTextCoverageRepairs(secondPassCoverageGroups));
+            secondPassProposed.AddRange(BuildSymbolPrivateUseRepairs(secondPassRepairableGroups));
+            secondPassProposed.AddRange(BuildNullPaddingRepairs(secondPassRepairableGroups));
+            secondPassProposed.AddRange(BuildKnownControlCodeRepairs(secondPassRepairableGroups));
+            secondPassProposed.AddRange(BuildExistingMappingRepairs(secondPassRepairableGroups, verification.FontsByObjectId));
+            secondPassProposed.AddRange(BuildTimestampRepairs(secondPassRepairableGroups));
+            secondPassProposed.AddRange(BuildFillerRepairs(secondPassRepairableGroups));
 
             var secondPassApplied = ApplyValidatedRepairs(
                 pdf,
@@ -123,13 +153,56 @@ internal static partial class PdfCharacterEncodingRemediator
             }
         }
 
+        var actualTextApplied = options.UseAiCharacterEncodingRepair
+            ? await ApplyMarkedContentActualTextRepairsAsync(
+                pdf,
+                repairService,
+                options,
+                primaryLanguage,
+                logger,
+                cancellationToken)
+            : 0;
+        var fontEncodingsApplied = ApplyObservedSimpleFontEncodings(verification.FontsByObjectId, logger);
+        var cidToGidMapsApplied = ApplyIdentityCidToGidMaps(verification.FontsByObjectId, logger);
+        if (actualTextApplied + fontEncodingsApplied + cidToGidMapsApplied > 0)
+        {
+            verification = Scan(pdf, cancellationToken);
+        }
+
         logger.LogInformation(
-            "PDF character encoding remediation summary: detected={detected} groups={groups} deterministicApplied={deterministicApplied} aiApplied={aiApplied} remaining={remaining}",
+            "PDF character encoding remediation summary: detected={detected} groups={groups} repairableGroups={repairableGroups} deterministicApplied={deterministicApplied} aiApplied={aiApplied} actualTextApplied={actualTextApplied} fontEncodingsApplied={fontEncodingsApplied} cidToGidMapsApplied={cidToGidMapsApplied} remaining={remaining}",
             scan.Anomalies.Count,
             groups.Count,
+            repairableGroups.Length,
             deterministicApplied,
             aiApplied,
+            actualTextApplied,
+            fontEncodingsApplied,
+            cidToGidMapsApplied,
             verification.Anomalies.Count);
+
+        var remainingIssueGroups = BuildRemainingIssueGroups(verification.Anomalies);
+        logger.LogInformation(
+            "PDF character encoding remaining issue groups: count={count} visible={visible} coverage={coverage}",
+            remainingIssueGroups.Count,
+            remainingIssueGroups.Count(g => g.Category == "visible_text_anomaly"),
+            remainingIssueGroups.Count(g => g.Category == "missing_tounicode_coverage"));
+
+        foreach (var group in remainingIssueGroups.Take(20))
+        {
+            logger.LogInformation(
+                "Remaining PDF character encoding issue group: category={category} fontObject={fontObject} font={font} pages={pages} mcids={mcids} sourceCodeCount={sourceCodeCount} sourceCodes={sourceCodes} occurrences={occurrences} visibleOccurrences={visibleOccurrences} sample={sample}",
+                group.Category,
+                group.FontObjectId,
+                group.FontName,
+                group.Pages,
+                group.Mcids,
+                group.SourceCodeCount,
+                group.SourceCodes,
+                group.Occurrences,
+                group.VisibleOccurrences,
+                group.Sample);
+        }
 
         foreach (var anomaly in verification.Anomalies.Take(20))
         {
@@ -148,7 +221,10 @@ internal static partial class PdfCharacterEncodingRemediator
             scan.Anomalies.Count,
             groups.Count,
             deterministicApplied,
-            aiApplied);
+            aiApplied,
+            actualTextApplied,
+            fontEncodingsApplied,
+            cidToGidMapsApplied);
     }
 
     private static ScanResult Scan(PdfDocument pdf, CancellationToken cancellationToken)
@@ -174,6 +250,83 @@ internal static partial class PdfCharacterEncodingRemediator
             .Select(g => new AnomalyGroup(g.Key, g.ToArray()))
             .ToArray();
 
+    private static bool HasRepairableTextAnomaly(AnomalyGroup group)
+        => group.Anomalies.Any(a => a.Kind is not "missing_tounicode");
+
+    private static bool IsMissingToUnicodeCoverageGroup(AnomalyGroup group)
+        => group.Anomalies.All(a => a.Kind is "missing_tounicode");
+
+    private static IReadOnlyList<RemainingIssueGroup> BuildRemainingIssueGroups(IReadOnlyList<DetectedAnomaly> anomalies)
+        => anomalies
+            .GroupBy(a => new
+            {
+                a.Key.FontObjectId,
+                a.FontName,
+                Category = a.Kind == "missing_tounicode" ? "missing_tounicode_coverage" : "visible_text_anomaly",
+            })
+            .Select(g =>
+            {
+                var sourceCodes = g
+                    .Select(a => a.Key.SourceCode)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(c => c, StringComparer.Ordinal)
+                    .ToArray();
+
+                return new RemainingIssueGroup(
+                    g.Key.Category,
+                    g.Key.FontObjectId,
+                    g.Key.FontName,
+                    FormatRanges(g.Select(a => a.PageNumber)),
+                    FormatRanges(g.Select(a => a.Mcid).Where(m => m is not null).Select(m => m!.Value)),
+                    sourceCodes.Length,
+                    JoinSample(sourceCodes, 40),
+                    g.Count(),
+                    g.Count(a => a.Kind is not "missing_tounicode"),
+                    g.Select(a => a.LineWithPlaceholder).FirstOrDefault() ?? string.Empty);
+            })
+            .OrderByDescending(g => g.VisibleOccurrences > 0)
+            .ThenByDescending(g => g.Occurrences)
+            .ToArray();
+
+    private static string JoinSample(IReadOnlyList<string> values, int maxItems)
+    {
+        if (values.Count == 0)
+        {
+            return "(none)";
+        }
+
+        var sample = string.Join(",", values.Take(maxItems));
+        return values.Count <= maxItems ? sample : $"{sample},...";
+    }
+
+    private static string FormatRanges(IEnumerable<int> values)
+    {
+        var sorted = values.Distinct().OrderBy(v => v).ToArray();
+        if (sorted.Length == 0)
+        {
+            return "(none)";
+        }
+
+        var parts = new List<string>();
+        var start = sorted[0];
+        var previous = sorted[0];
+        foreach (var value in sorted.Skip(1))
+        {
+            if (value == previous + 1)
+            {
+                previous = value;
+                continue;
+            }
+
+            parts.Add(start == previous ? start.ToString() : $"{start}-{previous}");
+            start = value;
+            previous = value;
+        }
+
+        parts.Add(start == previous ? start.ToString() : $"{start}-{previous}");
+        return string.Join(",", parts);
+    }
+
     private static IEnumerable<RepairCandidate> BuildNullPaddingRepairs(IReadOnlyList<AnomalyGroup> groups)
     {
         foreach (var group in groups)
@@ -194,6 +347,75 @@ internal static partial class PdfCharacterEncodingRemediator
                 Confidence: 1,
                 Source: "null_padding",
                 Reason: "Used all-zero source code decodes to replacement characters; mapping to a space avoids invalid Unicode output.");
+        }
+    }
+
+    private static IEnumerable<RepairCandidate> BuildObservedTextCoverageRepairs(IReadOnlyList<AnomalyGroup> groups)
+    {
+        foreach (var group in groups)
+        {
+            var replacements = group.Anomalies
+                .Select(a => NormalizeCoverageReplacement(a.ExtractedText))
+                .Where(r => r is not null)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
+            if (replacements.Length != 1)
+            {
+                continue;
+            }
+
+            yield return new RepairCandidate(
+                group.Key,
+                replacements[0]!,
+                Confidence: 1,
+                Source: "observed_text_coverage",
+                Reason: "Source code is missing from /ToUnicode, but all observed rendered text resolves to the same safe Unicode value.");
+        }
+    }
+
+    private static IEnumerable<RepairCandidate> BuildSymbolPrivateUseRepairs(IReadOnlyList<AnomalyGroup> groups)
+    {
+        foreach (var group in groups)
+        {
+            if (group.Anomalies.Any(a => a.Kind is not "private_use"))
+            {
+                continue;
+            }
+
+            var fontName = group.Anomalies[0].FontName;
+            if (!fontName.Contains("Wingdings", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var extractedValues = group.Anomalies
+                .Select(a => a.ExtractedText)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
+            if (extractedValues.Length != 1)
+            {
+                continue;
+            }
+
+            var replacement = extractedValues[0] switch
+            {
+                "\uF076" => "\u2756",
+                _ => null,
+            };
+
+            if (replacement is null)
+            {
+                continue;
+            }
+
+            yield return new RepairCandidate(
+                group.Key,
+                replacement,
+                Confidence: 1,
+                Source: "symbol_private_use",
+                Reason: "Known Wingdings private-use character maps to a printable Unicode symbol.");
         }
     }
 
@@ -371,7 +593,7 @@ internal static partial class PdfCharacterEncodingRemediator
             var key = candidateGroup.Key;
             var candidateItems = candidateGroup
                 .Where(c => c.Confidence >= minimumConfidence)
-                .Select(c => c.Source == "null_padding" ? c : c with { Replacement = c.Replacement.Trim() })
+                .Select(c => PreserveReplacementWhitespace(c.Source) ? c : c with { Replacement = c.Replacement.Trim() })
                 .Where(IsSafeRepairCandidate)
                 .ToArray();
 
@@ -454,13 +676,745 @@ internal static partial class PdfCharacterEncodingRemediator
     private static int GetRepairPriority(string source) => source switch
     {
         "null_padding" => 100,
+        "symbol_private_use" => 95,
         "known_control_code" => 90,
+        "observed_text_coverage" => 85,
         "timestamp_pattern" => 80,
         "filler_pattern" => 70,
         "existing_mapping" => 60,
         "ai" => 50,
         _ => 0,
     };
+
+    private static int ApplyObservedSimpleFontEncodings(
+        IReadOnlyDictionary<string, FontInfo> fontsByObjectId,
+        ILogger logger)
+    {
+        var applied = 0;
+        foreach (var font in fontsByObjectId.Values)
+        {
+            if (!PdfName.TrueType.Equals(font.FontDictionary.GetAsName(PdfName.Subtype))
+                || font.FontDictionary.Get(PdfName.Encoding) is not null)
+            {
+                continue;
+            }
+
+            var firstChar = font.FontDictionary.GetAsNumber(PdfName.FirstChar)?.IntValue();
+            var lastChar = font.FontDictionary.GetAsNumber(PdfName.LastChar)?.IntValue();
+            if (firstChar is null || lastChar is null || firstChar > lastChar)
+            {
+                continue;
+            }
+
+            var differences = BuildSimpleFontDifferences(font.ToUnicode.ExplicitMappings, firstChar.Value, lastChar.Value);
+            if (differences is null || differences.Size() == 0)
+            {
+                continue;
+            }
+
+            var encoding = new PdfDictionary();
+            encoding.Put(PdfName.Type, PdfName.Encoding);
+            encoding.Put(new PdfName("BaseEncoding"), PdfName.WinAnsiEncoding);
+            encoding.Put(new PdfName("Differences"), differences);
+            font.FontDictionary.Put(PdfName.Encoding, encoding);
+            applied++;
+
+            logger.LogInformation(
+                "Applied PDF character encoding font dictionary: fontObject={fontObject} font={font} entries={entries}",
+                font.FontObjectId,
+                font.FontName,
+                CountDifferenceNames(differences));
+        }
+
+        return applied;
+    }
+
+    private static int ApplyIdentityCidToGidMaps(
+        IReadOnlyDictionary<string, FontInfo> fontsByObjectId,
+        ILogger logger)
+    {
+        var applied = 0;
+        var cidToGidMapName = new PdfName("CIDToGIDMap");
+
+        foreach (var font in fontsByObjectId.Values)
+        {
+            if (!PdfName.Type0.Equals(font.FontDictionary.GetAsName(PdfName.Subtype)))
+            {
+                continue;
+            }
+
+            var descendants = font.FontDictionary.GetAsArray(PdfName.DescendantFonts);
+            if (descendants is null)
+            {
+                continue;
+            }
+
+            for (var i = 0; i < descendants.Size(); i++)
+            {
+                if (Dereference(descendants.Get(i)) is not PdfDictionary descendant
+                    || !new PdfName("CIDFontType2").Equals(descendant.GetAsName(PdfName.Subtype))
+                    || descendant.Get(cidToGidMapName) is not null)
+                {
+                    continue;
+                }
+
+                descendant.Put(cidToGidMapName, PdfName.Identity);
+                applied++;
+
+                var descendantRef = descendant.GetIndirectReference();
+                var descendantId = descendantRef is null
+                    ? $"direct:{descendant.GetHashCode():X}"
+                    : $"{descendantRef.GetObjNumber()} {descendantRef.GetGenNumber()} R";
+
+                logger.LogInformation(
+                    "Applied PDF character encoding CIDToGIDMap repair: fontObject={fontObject} descendantFont={descendantFont} font={font}",
+                    font.FontObjectId,
+                    descendantId,
+                    font.FontName);
+            }
+        }
+
+        return applied;
+    }
+
+    private static async Task<int> ApplyMarkedContentActualTextRepairsAsync(
+        PdfDocument pdf,
+        IPdfCharacterEncodingRepairService repairService,
+        PdfRemediationOptions options,
+        string? primaryLanguage,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var requestIssues = new List<PdfCharacterEncodingActualTextIssue>();
+
+        for (var pageNumber = 1; pageNumber <= pdf.GetNumberOfPages(); pageNumber++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var listener = new ActualTextIssueListener(pageNumber);
+            var page = pdf.GetPage(pageNumber);
+            new PdfCanvasProcessor(listener).ProcessPageContent(page);
+            var pageIssues = listener.GetIssues();
+            if (pageIssues.Count == 0)
+            {
+                pageIssues = CollectActualTextIssuesFromContentStream(page, pageNumber);
+            }
+
+            if (pageIssues.Count == 0)
+            {
+                continue;
+            }
+
+            requestIssues.AddRange(pageIssues.Take(Math.Max(0, MaxAiActualTextIssues - requestIssues.Count)));
+            if (requestIssues.Count >= MaxAiActualTextIssues)
+            {
+                break;
+            }
+        }
+
+        if (requestIssues.Count == 0)
+        {
+            return 0;
+        }
+
+        PdfCharacterEncodingActualTextRepairResponse response;
+        try
+        {
+            response = await repairService.ProposeActualTextRepairsAsync(
+                new PdfCharacterEncodingActualTextRepairRequest(requestIssues, primaryLanguage),
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "PDF character encoding ActualText AI repair proposal failed.");
+            return 0;
+        }
+
+        var threshold = Math.Clamp(options.CharacterEncodingRepairConfidenceThreshold, 0, 1);
+        var proposals = ValidateActualTextRepairProposals(response.Repairs, requestIssues, threshold, logger);
+        var missingProposalIssues = GetIssuesWithoutAcceptedActualTextRepair(requestIssues, proposals);
+        if (missingProposalIssues.Count > 0)
+        {
+            try
+            {
+                response = await repairService.ProposeActualTextRepairsAsync(
+                    new PdfCharacterEncodingActualTextRepairRequest(missingProposalIssues, primaryLanguage),
+                    cancellationToken);
+                var retryProposals = ValidateActualTextRepairProposals(response.Repairs, missingProposalIssues, threshold, logger);
+                if (retryProposals.Count > 0)
+                {
+                    proposals = proposals.Concat(retryProposals).ToArray();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "PDF character encoding ActualText AI repair retry failed.");
+            }
+        }
+
+        var fallbackIssues = GetIssuesWithoutAcceptedActualTextRepair(requestIssues, proposals);
+        if (fallbackIssues.Count > 0)
+        {
+            var fallbackRepairs = BuildSanitizedActualTextFallbacks(fallbackIssues);
+            if (fallbackRepairs.Count > 0)
+            {
+                proposals = proposals.Concat(fallbackRepairs).ToArray();
+            }
+        }
+
+        if (proposals.Count == 0)
+        {
+            return 0;
+        }
+
+        var applied = 0;
+        foreach (var pageGroup in proposals.GroupBy(p => p.PageNumber))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var page = pdf.GetPage(pageGroup.Key);
+            var content = Encoding.Latin1.GetString(page.GetContentBytes());
+            var changed = false;
+
+            foreach (var repair in pageGroup)
+            {
+                var before = content;
+                content = AddOrReplaceActualTextForMcid(content, repair.Mcid, repair.ActualText);
+                if (!string.Equals(before, content, StringComparison.Ordinal))
+                {
+                    applied++;
+                    changed = true;
+                    logger.LogInformation(
+                        "Applied PDF character encoding ActualText repair: page={page} mcid={mcid} actualText={actualText} confidence={confidence} reason={reason}",
+                        pageGroup.Key,
+                        repair.Mcid,
+                        repair.ActualText,
+                        repair.Confidence,
+                        repair.Reason);
+                }
+            }
+
+            if (changed)
+            {
+                var stream = new PdfStream(Encoding.Latin1.GetBytes(content));
+                stream.MakeIndirect(pdf);
+                page.GetPdfObject().Put(PdfName.Contents, stream);
+            }
+        }
+
+        return applied;
+    }
+
+    private static IReadOnlyList<ActualTextRepair> BuildSanitizedActualTextFallbacks(
+        IReadOnlyList<PdfCharacterEncodingActualTextIssue> issues)
+        => issues
+            .Select(i => new
+            {
+                Issue = i,
+                ActualText = SanitizeActualText(i.RawText),
+            })
+            .Where(i => i.ActualText is not null)
+            .Select(i => new ActualTextRepair(
+                i.Issue.PageNumber,
+                i.Issue.Mcid,
+                i.ActualText!,
+                1,
+                "No AI proposal was accepted; removed invalid Unicode from the marked-content text to provide valid /ActualText."))
+            .ToArray();
+
+    private static string? SanitizeActualText(string rawText)
+    {
+        var sanitized = RemediationHelpers.NormalizeWhitespace(
+            new string(rawText
+                .Where(ch => !IsBadExtractedChar(ch))
+                .ToArray()));
+        if (string.IsNullOrWhiteSpace(sanitized)
+            || sanitized.Count(char.IsLetterOrDigit) < 3
+            || !IsSafeActualTextReplacement(sanitized)
+            || !IsPlausibleActualTextLength(rawText, sanitized))
+        {
+            return null;
+        }
+
+        return sanitized;
+    }
+
+    private static IReadOnlyList<PdfCharacterEncodingActualTextIssue> GetIssuesWithoutAcceptedActualTextRepair(
+        IReadOnlyList<PdfCharacterEncodingActualTextIssue> issues,
+        IReadOnlyList<ActualTextRepair> acceptedRepairs)
+    {
+        var accepted = acceptedRepairs
+            .Select(r => new ActualTextRepairKey(r.PageNumber, r.Mcid))
+            .ToHashSet();
+
+        return issues
+            .Where(i => !accepted.Contains(new ActualTextRepairKey(i.PageNumber, i.Mcid)))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<PdfCharacterEncodingActualTextIssue> CollectActualTextIssuesFromContentStream(
+        PdfPage page,
+        int pageNumber)
+    {
+        var content = Encoding.Latin1.GetString(page.GetContentBytes());
+        var pageFonts = ReadPageFontToUnicodeMaps(page);
+        if (pageFonts.Count == 0)
+        {
+            return Array.Empty<PdfCharacterEncodingActualTextIssue>();
+        }
+
+        var issues = new List<PdfCharacterEncodingActualTextIssue>();
+        foreach (Match block in MarkedContentBlockRegex.Matches(content))
+        {
+            if (!int.TryParse(block.Groups["mcid"].Value, out var mcid)
+                || block.Groups["dict"].Value.Contains("/ActualText", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var body = block.Groups["body"].Value;
+            var fontMatch = TextFontOperatorRegex.Match(body);
+            if (!fontMatch.Success || !pageFonts.TryGetValue(fontMatch.Groups["font"].Value, out var toUnicode))
+            {
+                continue;
+            }
+
+            var decoded = DecodeMarkedContentHexText(body, toUnicode);
+            decoded = RemediationHelpers.NormalizeWhitespace(decoded);
+            if (string.IsNullOrWhiteSpace(decoded) || !ContainsBadActualText(decoded))
+            {
+                continue;
+            }
+
+            var beforeStart = Math.Max(0, block.Index - ContextCharsPerSide);
+            var afterEnd = Math.Min(content.Length, block.Index + block.Length + ContextCharsPerSide);
+            issues.Add(new PdfCharacterEncodingActualTextIssue(
+                pageNumber,
+                mcid,
+                decoded,
+                RemediationHelpers.NormalizeWhitespace(content[beforeStart..block.Index]),
+                RemediationHelpers.NormalizeWhitespace(content[(block.Index + block.Length)..afterEnd])));
+        }
+
+        return issues;
+    }
+
+    private static IReadOnlyDictionary<string, ToUnicodeInfo> ReadPageFontToUnicodeMaps(PdfPage page)
+    {
+        var resources = page.GetPdfObject().GetAsDictionary(PdfName.Resources);
+        var fonts = resources?.GetAsDictionary(PdfName.Font);
+        if (fonts is null)
+        {
+            return new Dictionary<string, ToUnicodeInfo>(StringComparer.Ordinal);
+        }
+
+        var result = new Dictionary<string, ToUnicodeInfo>(StringComparer.Ordinal);
+        foreach (var fontResourceName in fonts.KeySet())
+        {
+            if (Dereference(fonts.Get(fontResourceName)) is not PdfDictionary fontDict)
+            {
+                continue;
+            }
+
+            var toUnicode = ReadToUnicodeInfo(fontDict);
+            if (toUnicode.Stream is not null && toUnicode.ExplicitMappings.Count > 0)
+            {
+                result[fontResourceName.GetValue()] = toUnicode;
+            }
+        }
+
+        return result;
+    }
+
+    private static string DecodeMarkedContentHexText(string body, ToUnicodeInfo toUnicode)
+    {
+        var sb = new StringBuilder();
+        foreach (Match textShow in HexTextShowRegex.Matches(body))
+        {
+            var hex = textShow.Groups["hex"].Value.ToUpperInvariant();
+            sb.Append(DecodeHexText(hex, toUnicode));
+        }
+
+        return sb.ToString();
+    }
+
+    private static string DecodeHexText(string hex, ToUnicodeInfo toUnicode)
+    {
+        var codeLengths = toUnicode.ExplicitMappings.Keys
+            .Select(k => k.Length)
+            .Distinct()
+            .OrderByDescending(length => length)
+            .ToArray();
+        if (codeLengths.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder();
+        for (var i = 0; i < hex.Length;)
+        {
+            var matched = false;
+            foreach (var length in codeLengths)
+            {
+                if (i + length > hex.Length)
+                {
+                    continue;
+                }
+
+                var code = hex.Substring(i, length);
+                if (!toUnicode.ExplicitMappings.TryGetValue(code, out var value))
+                {
+                    continue;
+                }
+
+                sb.Append(value);
+                i += length;
+                matched = true;
+                break;
+            }
+
+            if (!matched)
+            {
+                i += 2;
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static IReadOnlyList<ActualTextRepair> ValidateActualTextRepairProposals(
+        IReadOnlyList<PdfCharacterEncodingActualTextRepairProposal> proposals,
+        IReadOnlyList<PdfCharacterEncodingActualTextIssue> requestedIssues,
+        double minimumConfidence,
+        ILogger logger)
+    {
+        var requested = requestedIssues
+            .GroupBy(i => new ActualTextRepairKey(i.PageNumber, i.Mcid))
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var accepted = new List<ActualTextRepair>();
+        foreach (var group in proposals.GroupBy(p => new ActualTextRepairKey(p.PageNumber, p.Mcid)))
+        {
+            if (!requested.TryGetValue(group.Key, out var issue))
+            {
+                logger.LogInformation(
+                    "Skipped PDF character encoding ActualText repair proposal for unrequested marked content: page={page} mcid={mcid}",
+                    group.Key.PageNumber,
+                    group.Key.Mcid);
+                continue;
+            }
+
+            var normalized = group
+                .Select(p => p with { ActualText = RemediationHelpers.NormalizeWhitespace(p.ActualText) })
+                .Where(p => p.Confidence >= minimumConfidence
+                    && IsSafeActualTextReplacement(p.ActualText)
+                    && IsPlausibleActualTextLength(issue.RawText, p.ActualText))
+                .ToArray();
+            if (normalized.Length == 0)
+            {
+                logger.LogInformation(
+                    "Skipped PDF character encoding ActualText repair proposal: page={page} mcid={mcid} reason=no valid proposal above threshold",
+                    group.Key.PageNumber,
+                    group.Key.Mcid);
+                continue;
+            }
+
+            var replacements = normalized
+                .Select(p => p.ActualText)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (replacements.Length != 1)
+            {
+                logger.LogInformation(
+                    "Skipped PDF character encoding ActualText repair proposal: page={page} mcid={mcid} reason=conflicting replacements",
+                    group.Key.PageNumber,
+                    group.Key.Mcid);
+                continue;
+            }
+
+            var best = normalized.OrderByDescending(p => p.Confidence).First();
+            accepted.Add(new ActualTextRepair(
+                best.PageNumber,
+                best.Mcid,
+                best.ActualText,
+                best.Confidence,
+                best.Reason));
+        }
+
+        return accepted;
+    }
+
+    private static bool IsSafeActualTextReplacement(string actualText)
+    {
+        if (string.IsNullOrWhiteSpace(actualText) || actualText.Length > 80)
+        {
+            return false;
+        }
+
+        return actualText.All(ch => !IsBadExtractedChar(ch) && !IsInvalidControl(ch));
+    }
+
+    private static bool IsPlausibleActualTextLength(string rawText, string actualText)
+    {
+        var rawVisibleLength = rawText.Count(ch => !char.IsWhiteSpace(ch));
+        var actualVisibleLength = actualText.Count(ch => !char.IsWhiteSpace(ch));
+        if (rawVisibleLength == 0 || actualVisibleLength == 0)
+        {
+            return false;
+        }
+
+        if (rawText.Any(char.IsWhiteSpace))
+        {
+            return actualVisibleLength <= rawVisibleLength + 8;
+        }
+
+        return actualVisibleLength <= Math.Max(rawVisibleLength + 4, rawVisibleLength * 2);
+    }
+
+    private static bool ContainsBadActualText(string text)
+        => text.Any(ch => ch == '\uFFFD' || IsPrivateUse(ch) || IsInvalidControl(ch));
+
+    private static string AddOrReplaceActualTextForMcid(string content, int mcid, string actualText)
+        => MarkedContentDictionaryRegex.Replace(
+            content,
+            match =>
+            {
+                if (!int.TryParse(match.Groups["mcid"].Value, out var matchedMcid)
+                    || matchedMcid != mcid)
+                {
+                    return match.Value;
+                }
+
+                var role = match.Groups["role"].Value;
+                var (dict, replaced) = ReplaceSimpleActualText(match.Groups["dict"].Value.TrimEnd(), actualText);
+                if (!replaced)
+                {
+                    dict = $"{dict} /ActualText <{ToPdfTextStringHex(actualText)}>";
+                }
+
+                return $"/{role} <<{dict} >> BDC";
+            });
+
+    private static (string DictionaryContent, bool Replaced) ReplaceSimpleActualText(string dictionaryContent, string actualText)
+    {
+        var replacement = $"/ActualText <{ToPdfTextStringHex(actualText)}>";
+        var hexActualText = Regex.Replace(
+            dictionaryContent,
+            @"/ActualText\s*<[^<>]*>",
+            replacement,
+            RegexOptions.CultureInvariant);
+        if (!string.Equals(hexActualText, dictionaryContent, StringComparison.Ordinal))
+        {
+            return (hexActualText, true);
+        }
+
+        var literalActualText = Regex.Replace(
+            dictionaryContent,
+            @"/ActualText\s*\([^()]*\)",
+            replacement,
+            RegexOptions.CultureInvariant);
+        return string.Equals(literalActualText, dictionaryContent, StringComparison.Ordinal)
+            ? (dictionaryContent, false)
+            : (literalActualText, true);
+    }
+
+    private static string ToPdfTextStringHex(string text)
+        => "FEFF" + Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes(text));
+
+    private sealed class ActualTextIssueListener : IEventListener
+    {
+        private readonly List<ActualTextEvent> _events = new();
+        private readonly int _pageNumber;
+
+        public ActualTextIssueListener(int pageNumber)
+        {
+            _pageNumber = pageNumber;
+        }
+
+        public void EventOccurred(IEventData data, EventType type)
+        {
+            if (type != EventType.RENDER_TEXT || data is not TextRenderInfo tri || tri.GetMcid() < 0)
+            {
+                return;
+            }
+
+            var raw = tri.GetText() ?? string.Empty;
+            var actual = tri.GetActualText() ?? string.Empty;
+            _events.Add(new ActualTextEvent(tri.GetMcid(), raw, actual));
+        }
+
+        public ICollection<EventType> GetSupportedEvents() => new[] { EventType.RENDER_TEXT };
+
+        public IReadOnlyList<PdfCharacterEncodingActualTextIssue> GetIssues()
+        {
+            var pageText = RemediationHelpers.NormalizeWhitespace(string.Join(" ", _events.Select(e => e.RawText)));
+            var issues = new List<PdfCharacterEncodingActualTextIssue>();
+
+            foreach (var mcidGroup in _events.GroupBy(e => e.Mcid))
+            {
+                var raw = RemediationHelpers.NormalizeWhitespace(string.Concat(mcidGroup.Select(e => e.RawText)));
+                var actual = RemediationHelpers.NormalizeWhitespace(string.Concat(mcidGroup.Select(e => e.ActualText)));
+                if (string.IsNullOrWhiteSpace(raw)
+                    || !ContainsBadActualText(raw)
+                    || (!string.IsNullOrWhiteSpace(actual) && !ContainsBadActualText(actual)))
+                {
+                    continue;
+                }
+
+                var (contextBefore, contextAfter) = GetContextAroundFirst(pageText, raw);
+                issues.Add(new PdfCharacterEncodingActualTextIssue(
+                    _pageNumber,
+                    mcidGroup.Key,
+                    raw,
+                    contextBefore,
+                    contextAfter));
+            }
+
+            return issues;
+        }
+
+        private static (string Before, string After) GetContextAroundFirst(string pageText, string raw)
+        {
+            var index = pageText.IndexOf(raw, StringComparison.Ordinal);
+            if (index < 0)
+            {
+                return (KeepFirstChars(pageText, ContextCharsPerSide), KeepLastChars(pageText, ContextCharsPerSide));
+            }
+
+            return (
+                KeepLastChars(pageText[..index], ContextCharsPerSide),
+                KeepFirstChars(pageText[(index + raw.Length)..], ContextCharsPerSide));
+        }
+    }
+
+    private sealed record ActualTextEvent(int Mcid, string RawText, string ActualText);
+
+    private sealed record ActualTextRepairKey(int PageNumber, int Mcid);
+
+    private sealed record ActualTextRepair(
+        int PageNumber,
+        int Mcid,
+        string ActualText,
+        double Confidence,
+        string Reason);
+
+    private static PdfArray? BuildSimpleFontDifferences(
+        IReadOnlyDictionary<string, string> mappings,
+        int firstChar,
+        int lastChar)
+    {
+        var entries = mappings
+            .Select(kvp => new
+            {
+                Code = TryParseSingleByteCode(kvp.Key),
+                GlyphName = TryGetGlyphName(kvp.Value),
+            })
+            .Where(e => e.Code is not null
+                && e.Code >= firstChar
+                && e.Code <= lastChar
+                && e.GlyphName is not null)
+            .Select(e => (Code: e.Code!.Value, GlyphName: e.GlyphName!))
+            .OrderBy(e => e.Code)
+            .ToArray();
+
+        if (entries.Length == 0)
+        {
+            return null;
+        }
+
+        var differences = new PdfArray();
+        int? previous = null;
+        foreach (var (code, glyphName) in entries)
+        {
+            if (previous is null || code != previous + 1)
+            {
+                differences.Add(new PdfNumber(code));
+            }
+
+            differences.Add(new PdfName(glyphName));
+            previous = code;
+        }
+
+        return differences;
+    }
+
+    private static int CountDifferenceNames(PdfArray differences)
+    {
+        var count = 0;
+        for (var i = 0; i < differences.Size(); i++)
+        {
+            if (differences.Get(i) is PdfName)
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static int? TryParseSingleByteCode(string sourceCode)
+    {
+        if (sourceCode.Length != 2 || !IsHex(sourceCode))
+        {
+            return null;
+        }
+
+        return Convert.ToInt32(sourceCode, 16);
+    }
+
+    private static string? TryGetGlyphName(string replacement)
+    {
+        if (replacement.Length != 1)
+        {
+            return null;
+        }
+
+        var ch = replacement[0];
+        if (ch is >= 'A' and <= 'Z' or >= 'a' and <= 'z')
+        {
+            return ch.ToString();
+        }
+
+        return ch switch
+        {
+            ' ' => "space",
+            '0' => "zero",
+            '1' => "one",
+            '2' => "two",
+            '3' => "three",
+            '4' => "four",
+            '5' => "five",
+            '6' => "six",
+            '7' => "seven",
+            '8' => "eight",
+            '9' => "nine",
+            '#' => "numbersign",
+            '&' => "ampersand",
+            '(' => "parenleft",
+            ')' => "parenright",
+            '*' => "asterisk",
+            ',' => "comma",
+            '-' => "hyphen",
+            '.' => "period",
+            '/' => "slash",
+            ':' => "colon",
+            ';' => "semicolon",
+            '=' => "equal",
+            '?' => "question",
+            '[' => "bracketleft",
+            ']' => "bracketright",
+            '\u2013' => "endash",
+            _ => null,
+        };
+    }
 
     private static bool HasAcceptedRepair(IEnumerable<RepairCandidate> candidates, RepairKey key)
         => candidates.Any(c => c.Key.Equals(key) && IsSafeRepairCandidate(c));
@@ -673,12 +1627,59 @@ internal static partial class PdfCharacterEncodingRemediator
             return candidate.Replacement == " ";
         }
 
+        if (candidate.Source is "observed_text_coverage")
+        {
+            return IsSafeCoverageReplacement(candidate.Replacement);
+        }
+
         if (candidate.Source is "known_control_code" && candidate.Replacement == " ")
         {
             return true;
         }
 
         return IsSafeReplacement(candidate.Replacement);
+    }
+
+    private static bool PreserveReplacementWhitespace(string source)
+        => source is "null_padding" or "observed_text_coverage"
+            || source is "known_control_code";
+
+    private static string? NormalizeCoverageReplacement(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return null;
+        }
+
+        if (text.All(char.IsWhiteSpace))
+        {
+            return " ";
+        }
+
+        return text;
+    }
+
+    private static bool IsSafeCoverageReplacement(string replacement)
+    {
+        if (string.IsNullOrEmpty(replacement) || replacement.Length > 4)
+        {
+            return false;
+        }
+
+        if (replacement == " ")
+        {
+            return true;
+        }
+
+        foreach (var ch in replacement)
+        {
+            if (IsBadExtractedChar(ch) || char.IsControl(ch) || char.IsWhiteSpace(ch))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool IsBadExtractedChar(char ch)
@@ -793,6 +1794,7 @@ internal static partial class PdfCharacterEncodingRemediator
                             new RepairKey(ch.Font.FontObjectId, ch.SourceCode),
                             ch.Font.FontName,
                             kind,
+                            ch.Text,
                             textEvent.PageNumber,
                             textEvent.Mcid,
                             textEvent.EventText,
@@ -918,6 +1920,7 @@ internal static partial class PdfCharacterEncodingRemediator
         RepairKey Key,
         string FontName,
         string Kind,
+        string ExtractedText,
         int PageNumber,
         int? Mcid,
         string EventText,
@@ -926,6 +1929,18 @@ internal static partial class PdfCharacterEncodingRemediator
         string ContextAfter);
 
     private sealed record AnomalyGroup(RepairKey Key, IReadOnlyList<DetectedAnomaly> Anomalies);
+
+    private sealed record RemainingIssueGroup(
+        string Category,
+        string FontObjectId,
+        string FontName,
+        string Pages,
+        string Mcids,
+        int SourceCodeCount,
+        string SourceCodes,
+        int Occurrences,
+        int VisibleOccurrences,
+        string Sample);
 
     private sealed record RepairKey(string FontObjectId, string SourceCode);
 
@@ -941,4 +1956,7 @@ internal sealed record PdfCharacterEncodingRemediationResult(
     int DetectedAnomalies,
     int Groups,
     int DeterministicRepairsApplied,
-    int AiRepairsApplied);
+    int AiRepairsApplied,
+    int ActualTextRepairsApplied = 0,
+    int FontEncodingRepairsApplied = 0,
+    int CidToGidMapRepairsApplied = 0);
