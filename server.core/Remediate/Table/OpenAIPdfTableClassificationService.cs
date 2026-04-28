@@ -16,7 +16,7 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
             "properties": {
                 "kind": {
                     "type": "string",
-                    "enum": ["data_table", "layout_or_form_table", "uncertain"]
+                    "enum": ["data_table", "not_data_table"]
                 },
                 "confidence": {
                     "type": "number"
@@ -77,10 +77,11 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
     private static string BuildSystemInstructions() =>
         """
         You classify PDF tag-tree tables for accessibility remediation.
+        Decide whether the table is a semantic data table.
         Classify based on the table's apparent semantic purpose, not on whether every row is filled in.
         A data table organizes repeated records, choices, measurements, or values by rows and columns.
-        A layout_or_form_table positions labels, instructions, or form fields without conveying tabular relationships.
-        Use "uncertain" when the evidence is weak or both interpretations are plausible.
+        Return not_data_table when the table appears to position labels, instructions, or form fields without conveying tabular relationships.
+        Return not_data_table when the evidence is weak or both interpretations are plausible.
         Set confidence from 0 to 1 and keep the reason short.
         """;
 
@@ -128,7 +129,7 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
         text = RemediationHelpers.NormalizeWhitespace(text);
         if (string.IsNullOrWhiteSpace(text))
         {
-            return new PdfTableClassificationResult(PdfTableKind.Uncertain, 0, "Empty classifier response.");
+            return new PdfTableClassificationResult(PdfTableKind.NotDataTable, 0, "Empty classifier response.");
         }
 
         var start = text.IndexOf('{');
@@ -161,7 +162,7 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
         }
         catch (JsonException)
         {
-            return new PdfTableClassificationResult(PdfTableKind.Uncertain, 0, "Classifier response was not valid JSON.");
+            return new PdfTableClassificationResult(PdfTableKind.NotDataTable, 0, "Classifier response was not valid JSON.");
         }
     }
 
@@ -169,8 +170,8 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
         RemediationHelpers.NormalizeWhitespace(value ?? string.Empty).ToLowerInvariant() switch
         {
             "data_table" or "data table" or "datatable" => PdfTableKind.DataTable,
-            "layout_or_form_table" or "layout or form table" or "layout_table" or "form_table" =>
-                PdfTableKind.LayoutOrFormTable,
-            _ => PdfTableKind.Uncertain,
+            "not_data_table" or "not data table" or "notdatatable" or "layout_or_form_table" or
+                "layout or form table" or "layout_table" or "form_table" => PdfTableKind.NotDataTable,
+            _ => PdfTableKind.NotDataTable,
         };
 }

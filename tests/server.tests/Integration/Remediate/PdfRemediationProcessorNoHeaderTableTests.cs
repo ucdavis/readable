@@ -22,6 +22,8 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
     private static readonly PdfName AttrOwnerTable = new("Table");
     private static readonly PdfName AttrScopeKey = new("Scope");
     private static readonly PdfName AttrScopeColumn = new("Column");
+    private static readonly PdfName AttrHeadersKey = new("Headers");
+    private static readonly PdfName StructElemIdKey = new("ID");
 
     [Fact]
     public async Task ProcessAsync_NoHeaderDataTable_PromotesFirstRowCellsToColumnHeaders()
@@ -39,6 +41,10 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
                 var headers = ListStructElementsByRole(outputPdf, RoleTh);
                 headers.Should().HaveCount(3);
                 headers.Should().OnlyContain(header => HasColumnScope(header));
+                headers.Should().OnlyContain(header => !string.IsNullOrWhiteSpace(GetHeaderId(header)));
+                ListStructElementsByRole(outputPdf, RoleTd)
+                    .Should()
+                    .OnlyContain(cell => HasHeaderReference(cell));
             });
     }
 
@@ -49,7 +55,7 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             "no-header-form-layout-table",
             CreateNoHeaderContactFormTablePdf,
             new QueuePdfTableClassificationService([
-                new PdfTableClassificationResult(PdfTableKind.LayoutOrFormTable, 0.95, "Looks like a form layout."),
+                new PdfTableClassificationResult(PdfTableKind.NotDataTable, 0.95, "Does not look like a data table."),
             ]),
             outputPdf =>
             {
@@ -73,19 +79,36 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
     }
 
     [Fact]
-    public async Task ProcessAsync_AmbiguousNoHeaderTable_LeavesTableUnchanged()
+    public async Task ProcessAsync_AmbiguousNoHeaderTable_DefaultsToNonDataAndDemotesTable()
     {
         await RunPdfTestAsync(
             "ambiguous-no-header-table",
             CreateAmbiguousNoHeaderTablePdf,
             new QueuePdfTableClassificationService([
-                new PdfTableClassificationResult(PdfTableKind.Uncertain, 0.95, "Both interpretations are plausible."),
+                new PdfTableClassificationResult(PdfTableKind.NotDataTable, 0.3, "Low confidence that this is a data table."),
             ]),
             outputPdf =>
             {
-                ListStructElementsByRole(outputPdf, RoleTable).Should().HaveCount(1);
+                ListStructElementsByRole(outputPdf, RoleTable).Should().BeEmpty();
                 ListStructElementsByRole(outputPdf, RoleTh).Should().BeEmpty();
-                ListStructElementsByRole(outputPdf, RoleTd).Should().HaveCount(4);
+                ListStructElementsByRole(outputPdf, RoleTd).Should().BeEmpty();
+            });
+    }
+
+    [Fact]
+    public async Task ProcessAsync_LowConfidenceDataTable_DefaultsToNonDataAndDemotesTable()
+    {
+        await RunPdfTestAsync(
+            "low-confidence-data-table",
+            CreateNoHeaderServiceDatesTablePdf,
+            new QueuePdfTableClassificationService([
+                new PdfTableClassificationResult(PdfTableKind.DataTable, 0.4, "Possibly data, but confidence is low."),
+            ]),
+            outputPdf =>
+            {
+                ListStructElementsByRole(outputPdf, RoleTable).Should().BeEmpty();
+                ListStructElementsByRole(outputPdf, RoleTh).Should().BeEmpty();
+                ListStructElementsByRole(outputPdf, RoleTd).Should().BeEmpty();
             });
     }
 
@@ -96,7 +119,7 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             "verification-pdf-shape",
             CreateVerificationPdfShape,
             new QueuePdfTableClassificationService([
-                new PdfTableClassificationResult(PdfTableKind.LayoutOrFormTable, 0.95, "Top table is a form layout."),
+                new PdfTableClassificationResult(PdfTableKind.NotDataTable, 0.95, "Top table is not a data table."),
                 new PdfTableClassificationResult(PdfTableKind.DataTable, 0.95, "Service dates are tabular records."),
             ]),
             outputPdf =>
@@ -106,6 +129,10 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
                 var headers = ListStructElementsByRole(outputPdf, RoleTh);
                 headers.Should().HaveCount(3);
                 headers.Should().OnlyContain(header => HasColumnScope(header));
+                headers.Should().OnlyContain(header => !string.IsNullOrWhiteSpace(GetHeaderId(header)));
+                ListStructElementsByRole(outputPdf, RoleTd)
+                    .Should()
+                    .OnlyContain(cell => HasHeaderReference(cell));
             });
     }
 
@@ -293,6 +320,43 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
         var owner = dict.GetAsName(AttrOwnerKey);
         var scope = dict.GetAsName(AttrScopeKey);
         return AttrOwnerTable.Equals(owner) && AttrScopeColumn.Equals(scope);
+    }
+
+    private static string? GetHeaderId(PdfDictionary structElem) =>
+        structElem.GetAsString(StructElemIdKey)?.ToUnicodeString();
+
+    private static bool HasHeaderReference(PdfDictionary structElem)
+    {
+        var attrs = Dereference(structElem.Get(PdfName.A));
+        if (attrs is PdfDictionary dict)
+        {
+            return HasHeaderReferenceAttribute(dict);
+        }
+
+        if (attrs is PdfArray array)
+        {
+            foreach (var item in array)
+            {
+                if (Dereference(item) is PdfDictionary itemDict && HasHeaderReferenceAttribute(itemDict))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasHeaderReferenceAttribute(PdfDictionary dict)
+    {
+        var owner = dict.GetAsName(AttrOwnerKey);
+        if (!AttrOwnerTable.Equals(owner))
+        {
+            return false;
+        }
+
+        var headers = Dereference(dict.Get(AttrHeadersKey));
+        return headers is PdfArray array && array.Size() > 0;
     }
 
     private static List<PdfDictionary> ListStructElementsByRole(PdfDocument pdf, PdfName role)

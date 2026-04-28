@@ -3,8 +3,7 @@ namespace server.core.Remediate.Table;
 public enum PdfTableKind
 {
     DataTable,
-    LayoutOrFormTable,
-    Uncertain,
+    NotDataTable,
 }
 
 public sealed record PdfTableClassificationRequest(

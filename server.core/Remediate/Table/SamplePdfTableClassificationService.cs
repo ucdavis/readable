@@ -8,6 +8,6 @@ public sealed class SamplePdfTableClassificationService : IPdfTableClassificatio
     {
         _ = request;
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(new PdfTableClassificationResult(PdfTableKind.Uncertain, 0, "No classifier configured."));
+        return Task.FromResult(new PdfTableClassificationResult(PdfTableKind.DataTable, 1, "Sample classifier preserves table semantics."));
     }
 }
