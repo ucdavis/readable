@@ -25,12 +25,14 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
     [Fact]
     public async Task ProcessAsync_NoHeaderDataTable_MovesFirstRowIntoTableHead()
     {
+        var tableClassificationService = new QueuePdfTableClassificationService([
+            new PdfTableClassificationResult(PdfTableKind.DataTable, 0.95, "Looks like a data table."),
+        ]);
+
         await RunPdfTestAsync(
             "no-header-data-table",
             CreateNoHeaderServiceDatesTablePdf,
-            new QueuePdfTableClassificationService([
-                new PdfTableClassificationResult(PdfTableKind.DataTable, 0.95, "Looks like a data table."),
-            ]),
+            tableClassificationService,
             outputPdf =>
             {
                 ListStructElementsByRole(outputPdf, RoleTable).Should().HaveCount(1);
@@ -39,7 +41,18 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
                 ListStructElementsByRole(outputPdf, RoleTr).Should().HaveCount(3);
                 ListStructElementsByRole(outputPdf, RoleTh).Should().HaveCount(3);
                 ListStructElementsByRole(outputPdf, RoleTd).Should().HaveCount(6);
+                AssertPromotedHeaderStructure(outputPdf);
             });
+
+        tableClassificationService.Requests.Should().ContainSingle();
+        var request = tableClassificationService.Requests.Single();
+        request.RowCount.Should().Be(3);
+        request.MaxColumnCount.Should().Be(3);
+        request.HasNestedTable.Should().BeFalse();
+        request.Rows.Should().HaveCount(3);
+        request.Rows[0].Should().Equal("From / To", "Department", "Status (Staff, Academic)");
+        request.Rows[1].Should().Equal("Jan 2024 - Feb 2024", "Human Resources", "Staff");
+        request.Rows[2].Should().Equal("Mar 2024 - Apr 2024", "Finance", "Academic");
     }
 
     [Fact]
@@ -110,6 +123,57 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
                 ListStructElementsByRole(outputPdf, RoleTable).Should().BeEmpty();
                 ListStructElementsByRole(outputPdf, RoleTd).Should().BeEmpty();
             });
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WhenDemoteNoHeaderTablesDisabled_LeavesEligibleNoHeaderTableUnchanged()
+    {
+        var runRoot = Path.Combine(
+            Path.GetTempPath(),
+            "readable-tests",
+            $"no-header-demotion-disabled-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateNoHeaderContactFormTablePdf(inputPdfPath);
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            var tableClassificationService = new QueuePdfTableClassificationService([]);
+            var sut = new PdfRemediationProcessor(
+                new ThrowingAltTextService(),
+                new NoopPdfBookmarkService(),
+                NoopPdfPageRasterizer.Instance,
+                tableClassificationService,
+                new StablePdfTitleService(),
+                Options.Create(new PdfRemediationOptions
+                {
+                    DemoteNoHeaderTables = false,
+                }),
+                NullLogger<PdfRemediationProcessor>.Instance);
+
+            await sut.ProcessAsync(
+                fileId: "no-header-demotion-disabled",
+                inputPdfPath: inputPdfPath,
+                outputPdfPath: outputPdfPath,
+                cancellationToken: CancellationToken.None);
+
+            using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
+            ListStructElementsByRole(outputPdf, RoleTable).Should().HaveCount(1);
+            ListStructElementsByRole(outputPdf, RoleTr).Should().HaveCount(5);
+            ListStructElementsByRole(outputPdf, RoleTh).Should().BeEmpty();
+            ListStructElementsByRole(outputPdf, RoleTd).Should().HaveCount(10);
+            tableClassificationService.Requests.Should().BeEmpty();
+            tableClassificationService.AssertAllResponsesConsumed();
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
     }
 
     [Fact]
@@ -492,6 +556,37 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
         section.Put(PdfName.K, kids);
     }
 
+    private static void AssertPromotedHeaderStructure(PdfDocument pdf)
+    {
+        var table = ListStructElementsByRole(pdf, RoleTable).Single();
+        var tableChildren = ListDirectStructElementChildren(table);
+        tableChildren.Select(c => c.GetAsName(PdfName.S)).Should().Equal(RoleTHead, RoleTBody);
+
+        var thead = tableChildren[0];
+        var tbody = tableChildren[1];
+        IsSameStructElement(thead.Get(PdfName.P), table).Should().BeTrue();
+        IsSameStructElement(tbody.Get(PdfName.P), table).Should().BeTrue();
+
+        var headerRows = ListDirectStructElementChildren(thead);
+        headerRows.Should().ContainSingle();
+        IsSameStructElement(headerRows[0].Get(PdfName.P), thead).Should().BeTrue();
+        ListDirectStructElementChildren(headerRows[0])
+            .Select(c => c.GetAsName(PdfName.S))
+            .Should()
+            .Equal(RoleTh, RoleTh, RoleTh);
+
+        var bodyRows = ListDirectStructElementChildren(tbody);
+        bodyRows.Should().HaveCount(2);
+        bodyRows.Should().OnlyContain(row => IsSameStructElement(row.Get(PdfName.P), tbody));
+        foreach (var row in bodyRows)
+        {
+            ListDirectStructElementChildren(row)
+                .Select(c => c.GetAsName(PdfName.S))
+                .Should()
+                .Equal(RoleTd, RoleTd, RoleTd);
+        }
+    }
+
     private static List<PdfDictionary> ListStructElementsByRole(PdfDocument pdf, PdfName role)
     {
         var results = new List<PdfDictionary>();
@@ -511,6 +606,64 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
 
         Traverse(rootKids, role, results);
         return results;
+    }
+
+    private static List<PdfDictionary> ListDirectStructElementChildren(PdfDictionary structElem)
+    {
+        var kids = structElem.Get(PdfName.K);
+        if (kids is null)
+        {
+            return [];
+        }
+
+        var dereferenced = Dereference(kids);
+        if (dereferenced is PdfDictionary kidDict)
+        {
+            return kidDict.ContainsKey(PdfName.S) ? [kidDict] : [];
+        }
+
+        if (dereferenced is not PdfArray array)
+        {
+            return [];
+        }
+
+        var results = new List<PdfDictionary>(array.Size());
+        foreach (var item in array)
+        {
+            if (Dereference(item) is PdfDictionary itemDict && itemDict.ContainsKey(PdfName.S))
+            {
+                results.Add(itemDict);
+            }
+        }
+
+        return results;
+    }
+
+    private static bool IsSameStructElement(PdfObject? candidate, PdfDictionary target)
+    {
+        var targetRef = target.GetIndirectReference();
+        if (targetRef is not null && candidate is PdfIndirectReference candidateRef)
+        {
+            return candidateRef.GetObjNumber() == targetRef.GetObjNumber()
+                && candidateRef.GetGenNumber() == targetRef.GetGenNumber();
+        }
+
+        var candidateDict = Dereference(candidate) as PdfDictionary;
+        if (candidateDict is null)
+        {
+            return false;
+        }
+
+        if (ReferenceEquals(candidateDict, target))
+        {
+            return true;
+        }
+
+        var candidateRefFromDict = candidateDict.GetIndirectReference();
+        return targetRef is not null
+            && candidateRefFromDict is not null
+            && candidateRefFromDict.GetObjNumber() == targetRef.GetObjNumber()
+            && candidateRefFromDict.GetGenNumber() == targetRef.GetGenNumber();
     }
 
     private static void Traverse(PdfObject node, PdfName role, List<PdfDictionary> results)
@@ -582,11 +735,14 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
     private sealed class QueuePdfTableClassificationService : IPdfTableClassificationService
     {
         private readonly Queue<PdfTableClassificationResult> _responses;
+        private readonly List<PdfTableClassificationRequest> _requests = [];
 
         public QueuePdfTableClassificationService(IEnumerable<PdfTableClassificationResult> responses)
         {
             _responses = new Queue<PdfTableClassificationResult>(responses);
         }
+
+        public IReadOnlyList<PdfTableClassificationRequest> Requests => _requests;
 
         public Task<PdfTableClassificationResult> ClassifyAsync(
             PdfTableClassificationRequest request,
@@ -596,6 +752,7 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             request.MaxColumnCount.Should().BeGreaterThanOrEqualTo(2);
             request.Rows.Should().NotBeEmpty();
             cancellationToken.ThrowIfCancellationRequested();
+            _requests.Add(request);
 
             if (_responses.Count == 0)
             {
