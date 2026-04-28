@@ -19,7 +19,7 @@ public sealed class PdfRemediationOptions
     /// <summary>
     /// Minimum confidence required before applying an AI-proposed character-encoding repair.
     /// </summary>
-    public double CharacterEncodingRepairConfidenceThreshold { get; set; } = 0.90;
+    public double CharacterEncodingRepairConfidenceThreshold { get; set; } = 0.50;
 
     /// <summary>
     /// When enabled, demotes small <c>/Table</c> tag-tree elements that have no <c>/TH</c> header cells to <c>/Div</c>.

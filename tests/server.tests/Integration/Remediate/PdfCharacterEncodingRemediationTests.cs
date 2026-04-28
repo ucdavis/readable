@@ -172,7 +172,7 @@ public sealed class PdfCharacterEncodingRemediationTests
                 mappings: BuildAsciiMappingsExcept("12"));
 
             var fakeRepairService = new FakeCharacterEncodingRepairService(
-                new PdfCharacterEncodingRepairProposal("*", "*", "/", 0.50, "Weak evidence."),
+                new PdfCharacterEncodingRepairProposal("*", "*", "/", 0.49, "Weak evidence."),
                 new PdfCharacterEncodingRepairProposal("*", "*", "\u0019", 0.99, "Invalid replacement."));
 
             var outputPdfPath = Path.Combine(runRoot, "output.pdf");

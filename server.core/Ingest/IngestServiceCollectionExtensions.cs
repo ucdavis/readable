@@ -103,7 +103,7 @@ public static class IngestServiceCollectionExtensions
                 o.CharacterEncodingRepairConfidenceThreshold =
                     configuration.GetValue<double?>("Ingest:CharacterEncodingRepairConfidenceThreshold")
                     ?? configuration.GetValue<double?>("INGEST_CHARACTER_ENCODING_REPAIR_CONFIDENCE_THRESHOLD")
-                    ?? 0.90;
+                    ?? 0.50;
             });
 
             services.AddSingleton<OpenAiRemediationConfig>(sp =>
