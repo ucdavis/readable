@@ -887,7 +887,7 @@ internal static class PdfTableRoleRemediator
             if (dict.ContainsKey(PdfName.S))
             {
                 var role = dict.GetAsName(PdfName.S);
-                if (RoleTr.Equals(role) || RoleTd.Equals(role) || RoleTh.Equals(role) || RoleTable.Equals(role))
+                if (IsTableStructureRole(role))
                 {
                     dict.Put(PdfName.S, RoleDiv);
                 }
@@ -900,6 +900,15 @@ internal static class PdfTableRoleRemediator
             }
         }
     }
+
+    private static bool IsTableStructureRole(PdfName? role) =>
+        RoleTable.Equals(role)
+        || RoleTHead.Equals(role)
+        || RoleTBody.Equals(role)
+        || RoleTFoot.Equals(role)
+        || RoleTr.Equals(role)
+        || RoleTh.Equals(role)
+        || RoleTd.Equals(role);
 
     private static List<PdfDictionary> ListStructElementsByRole(
         PdfDocument pdf,

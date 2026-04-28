@@ -18,6 +18,7 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
     private static readonly PdfName RoleTable = new("Table");
     private static readonly PdfName RoleTHead = new("THead");
     private static readonly PdfName RoleTBody = new("TBody");
+    private static readonly PdfName RoleTFoot = new("TFoot");
     private static readonly PdfName RoleTr = new("TR");
     private static readonly PdfName RoleTh = new("TH");
     private static readonly PdfName RoleTd = new("TD");
@@ -53,6 +54,26 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
             outputPdf =>
             {
                 ListStructElementsByRole(outputPdf, RoleTable).Should().BeEmpty();
+                ListStructElementsByRole(outputPdf, RoleTd).Should().BeEmpty();
+            });
+    }
+
+    [Fact]
+    public async Task ProcessAsync_NoHeaderSectionedFormLayoutTable_DemotesTableSectionRoles()
+    {
+        await RunPdfTestAsync(
+            "no-header-sectioned-form-layout-table",
+            CreateSectionedNoHeaderContactFormTablePdf,
+            new QueuePdfTableClassificationService([
+                new PdfTableClassificationResult(PdfTableKind.NotDataTable, 0.95, "Does not look like a data table."),
+            ]),
+            outputPdf =>
+            {
+                ListStructElementsByRole(outputPdf, RoleTable).Should().BeEmpty();
+                ListStructElementsByRole(outputPdf, RoleTHead).Should().BeEmpty();
+                ListStructElementsByRole(outputPdf, RoleTBody).Should().BeEmpty();
+                ListStructElementsByRole(outputPdf, RoleTFoot).Should().BeEmpty();
+                ListStructElementsByRole(outputPdf, RoleTr).Should().BeEmpty();
                 ListStructElementsByRole(outputPdf, RoleTd).Should().BeEmpty();
             });
     }
@@ -200,6 +221,28 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
         AddContactFormTable(doc);
     }
 
+    private static void CreateSectionedNoHeaderContactFormTablePdf(string path)
+    {
+        var basePath = Path.Combine(
+            Path.GetDirectoryName(path) ?? Path.GetTempPath(),
+            $"{Path.GetFileNameWithoutExtension(path)}.base.pdf");
+
+        try
+        {
+            CreateNoHeaderContactFormTablePdf(basePath);
+
+            using var pdf = new PdfDocument(new PdfReader(basePath), new PdfWriter(path));
+            WrapFirstTableRowsInSections(pdf);
+        }
+        finally
+        {
+            if (File.Exists(basePath))
+            {
+                File.Delete(basePath);
+            }
+        }
+    }
+
     private static void CreateTableWithHeadersPdf(string path)
     {
         using var writer = new PdfWriter(path);
@@ -281,6 +324,69 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
         table.AddCell(new Cell().Add(new Paragraph("")));
         table.AddCell(new Cell().Add(new Paragraph("")));
         doc.Add(table);
+    }
+
+    private static void WrapFirstTableRowsInSections(PdfDocument pdf)
+    {
+        var table = ListStructElementsByRole(pdf, RoleTable).Single();
+        var kids = Dereference(table.Get(PdfName.K)) as PdfArray
+            ?? throw new InvalidOperationException("Expected table children to be an array.");
+
+        var rowObjects = new List<PdfObject>();
+        foreach (var item in kids)
+        {
+            if (Dereference(item) is PdfDictionary dict && RoleTr.Equals(dict.GetAsName(PdfName.S)))
+            {
+                rowObjects.Add(item);
+            }
+        }
+
+        rowObjects.Count.Should().BeGreaterThanOrEqualTo(3);
+
+        var thead = CreateStructElement(RoleTHead, table);
+        var tbody = CreateStructElement(RoleTBody, table);
+        var tfoot = CreateStructElement(RoleTFoot, table);
+
+        AddRowsToSection(thead, rowObjects.Take(1));
+        AddRowsToSection(tbody, rowObjects.Skip(1).Take(rowObjects.Count - 2));
+        AddRowsToSection(tfoot, rowObjects.TakeLast(1));
+
+        var sectionedKids = new PdfArray();
+        sectionedKids.Add(thead);
+        sectionedKids.Add(tbody);
+        sectionedKids.Add(tfoot);
+        table.Put(PdfName.K, sectionedKids);
+    }
+
+    private static PdfDictionary CreateStructElement(PdfName role, PdfDictionary parent)
+    {
+        var structElem = new PdfDictionary();
+        structElem.Put(PdfName.Type, new PdfName("StructElem"));
+        structElem.Put(PdfName.S, role);
+        structElem.Put(PdfName.P, parent);
+
+        var page = parent.Get(PdfName.Pg);
+        if (page is not null)
+        {
+            structElem.Put(PdfName.Pg, page);
+        }
+
+        return structElem;
+    }
+
+    private static void AddRowsToSection(PdfDictionary section, IEnumerable<PdfObject> rows)
+    {
+        var kids = new PdfArray();
+        foreach (var row in rows)
+        {
+            kids.Add(row);
+            if (Dereference(row) is PdfDictionary rowDict)
+            {
+                rowDict.Put(PdfName.P, section);
+            }
+        }
+
+        section.Put(PdfName.K, kids);
     }
 
     private static List<PdfDictionary> ListStructElementsByRole(PdfDocument pdf, PdfName role)
