@@ -95,6 +95,15 @@ public static class IngestServiceCollectionExtensions
                     configuration.GetValue<int?>("Ingest:NoHeaderTableClassificationTimeoutSeconds")
                     ?? configuration.GetValue<int?>("INGEST_NO_HEADER_TABLE_CLASSIFICATION_TIMEOUT_SECONDS")
                     ?? 30;
+
+                o.UseAiCharacterEncodingRepair =
+                    configuration.GetValue<bool>("Ingest:UseAiCharacterEncodingRepair")
+                    || configuration.GetValue<bool>("INGEST_USE_AI_CHARACTER_ENCODING_REPAIR");
+
+                o.CharacterEncodingRepairConfidenceThreshold =
+                    configuration.GetValue<double?>("Ingest:CharacterEncodingRepairConfidenceThreshold")
+                    ?? configuration.GetValue<double?>("INGEST_CHARACTER_ENCODING_REPAIR_CONFIDENCE_THRESHOLD")
+                    ?? 0.50;
             });
 
             services.AddSingleton<OpenAiRemediationConfig>(sp =>
@@ -125,11 +134,18 @@ public static class IngestServiceCollectionExtensions
                     ?? configuration["OpenAI__PdfTableClassificationModel"]
                     ?? "gpt-5-mini";
 
+                var pdfCharacterEncodingModel =
+                    configuration["OPENAI_PDF_CHARACTER_ENCODING_MODEL"]
+                    ?? configuration["OpenAI:PdfCharacterEncodingModel"]
+                    ?? configuration["OpenAI__PdfCharacterEncodingModel"]
+                    ?? "gpt-5-mini";
+
                 return new OpenAiRemediationConfig(
                     apiKey,
                     altTextModel,
                     pdfTitleModel,
-                    pdfTableClassificationModel);
+                    pdfTableClassificationModel,
+                    pdfCharacterEncodingModel);
             });
             services.AddSingleton<IAltTextService>(sp =>
             {
@@ -145,6 +161,11 @@ public static class IngestServiceCollectionExtensions
             {
                 var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
                 return new OpenAIPdfTableClassificationService(cfg.ApiKey, cfg.PdfTableClassificationModel);
+            });
+            services.AddSingleton<IPdfCharacterEncodingRepairService>(sp =>
+            {
+                var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
+                return new OpenAIPdfCharacterEncodingRepairService(cfg.ApiKey, cfg.PdfCharacterEncodingModel);
             });
             if (options.UsePdfBookmarks)
             {
@@ -193,5 +214,6 @@ public static class IngestServiceCollectionExtensions
         string ApiKey,
         string AltTextModel,
         string PdfTitleModel,
-        string PdfTableClassificationModel);
+        string PdfTableClassificationModel,
+        string PdfCharacterEncodingModel);
 }

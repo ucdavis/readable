@@ -72,6 +72,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
     private readonly IPdfPageRasterizer _pageRasterizer;
     private readonly IPdfTableClassificationService _tableClassificationService;
     private readonly IPdfTitleService _pdfTitleService;
+    private readonly IPdfCharacterEncodingRepairService _characterEncodingRepairService;
     private readonly PdfRemediationOptions _options;
     private readonly ILogger<PdfRemediationProcessor> _logger;
 
@@ -87,6 +88,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             bookmarkService,
             pageRasterizer,
             new SamplePdfTableClassificationService(),
+            NoopPdfCharacterEncodingRepairService.Instance,
             pdfTitleService,
             options,
             logger)
@@ -101,11 +103,33 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         IPdfTitleService pdfTitleService,
         IOptions<PdfRemediationOptions> options,
         ILogger<PdfRemediationProcessor> logger)
+        : this(
+            altTextService,
+            bookmarkService,
+            pageRasterizer,
+            tableClassificationService,
+            NoopPdfCharacterEncodingRepairService.Instance,
+            pdfTitleService,
+            options,
+            logger)
+    {
+    }
+
+    public PdfRemediationProcessor(
+        IAltTextService altTextService,
+        IPdfBookmarkService bookmarkService,
+        IPdfPageRasterizer pageRasterizer,
+        IPdfTableClassificationService tableClassificationService,
+        IPdfCharacterEncodingRepairService characterEncodingRepairService,
+        IPdfTitleService pdfTitleService,
+        IOptions<PdfRemediationOptions> options,
+        ILogger<PdfRemediationProcessor> logger)
     {
         _altTextService = altTextService ?? throw new ArgumentNullException(nameof(altTextService));
         _bookmarkService = bookmarkService ?? throw new ArgumentNullException(nameof(bookmarkService));
         _pageRasterizer = pageRasterizer ?? throw new ArgumentNullException(nameof(pageRasterizer));
         _tableClassificationService = tableClassificationService ?? throw new ArgumentNullException(nameof(tableClassificationService));
+        _characterEncodingRepairService = characterEncodingRepairService ?? throw new ArgumentNullException(nameof(characterEncodingRepairService));
         _pdfTitleService = pdfTitleService ?? throw new ArgumentNullException(nameof(pdfTitleService));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -185,6 +209,22 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             using (LogStage.Begin(_logger, fileId, "ensure_marked_as_tagged", null, kind: "Remediation stage"))
             {
                 EnsurePdfMarkedAsTagged(pdf, cancellationToken);
+            }
+
+            using (LogStage.Begin(
+                       _logger,
+                       fileId,
+                       "remediate_character_encoding",
+                       new { useAiCharacterEncodingRepair = _options.UseAiCharacterEncodingRepair },
+                       kind: "Remediation stage"))
+            {
+                await PdfCharacterEncodingRemediator.RemediateAsync(
+                    pdf,
+                    _characterEncodingRepairService,
+                    _options,
+                    primaryLanguage,
+                    _logger,
+                    cancellationToken);
             }
 
             var isTagged = pdf.IsTagged();
