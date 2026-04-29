@@ -259,6 +259,34 @@ public sealed class PdfCharacterEncodingRemediationTests
     }
 
     [Fact]
+    public async Task ProcessAsync_InlineBfCharToUnicode_ReplacesExistingMapping()
+    {
+        var runRoot = CreateRunRoot("char-encoding-inline-bfchar");
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreatePdfWithCustomToUnicode(
+                inputPdfPath,
+                renderedHex: "612D",
+                mappings: new Dictionary<string, string>(),
+                toUnicodeCMap: BuildToUnicodeInlineBfCharCMap("<61> <FFFD>", "<2D> <002D>"));
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            await CreateProcessor().ProcessAsync("fixture", inputPdfPath, outputPdfPath, CancellationToken.None);
+
+            using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
+            var cmap = ReadFirstToUnicodeCMap(outputPdf);
+            cmap.Should().Contain("2 beginbfchar <61> <002D> <2D> <002D> endbfchar");
+            cmap.Should().NotContain("<61> <FFFD>");
+        }
+        finally
+        {
+            Directory.Delete(runRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ProcessAsync_WingdingsPrivateUse_PatchesKnownUnicodeSymbol()
     {
         var runRoot = CreateRunRoot("char-encoding-wingdings");
@@ -412,6 +440,24 @@ public sealed class PdfCharacterEncodingRemediationTests
         mappings.Should().Contain("61", "a");
         mappings.Should().Contain("62", "bb");
         mappings.Should().Contain("63", "c");
+    }
+
+    [Fact]
+    public void ParseExplicitBfCharMappings_IncludesInlineBfCharAndBfRangeMappings()
+    {
+        var mappings = ParseExplicitBfCharMappings(
+            """
+            begincmap
+            2 beginbfchar <20> <0020> <2D> <002D> endbfchar
+            1 beginbfrange <41> <43> <0041> endbfrange
+            endcmap
+            """);
+
+        mappings.Should().Contain("20", " ");
+        mappings.Should().Contain("2D", "-");
+        mappings.Should().Contain("41", "A");
+        mappings.Should().Contain("42", "B");
+        mappings.Should().Contain("43", "C");
     }
 
     [Fact]
@@ -947,6 +993,26 @@ public sealed class PdfCharacterEncodingRemediationTests
         }
 
         sb.AppendLine("endbfrange");
+        sb.AppendLine("endcmap");
+        sb.AppendLine("CMapName currentdict /CMap defineresource pop");
+        sb.AppendLine("end");
+        sb.AppendLine("end");
+        return sb.ToString();
+    }
+
+    private static string BuildToUnicodeInlineBfCharCMap(params string[] mappings)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("/CIDInit /ProcSet findresource begin");
+        sb.AppendLine("12 dict begin");
+        sb.AppendLine("begincmap");
+        sb.AppendLine("/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def");
+        sb.AppendLine("/CMapName /ReadableTest def");
+        sb.AppendLine("/CMapType 2 def");
+        sb.AppendLine("1 begincodespacerange");
+        sb.AppendLine("<00> <FF>");
+        sb.AppendLine("endcodespacerange");
+        sb.AppendLine($"{mappings.Length} beginbfchar {string.Join(' ', mappings)} endbfchar");
         sb.AppendLine("endcmap");
         sb.AppendLine("CMapName currentdict /CMap defineresource pop");
         sb.AppendLine("end");

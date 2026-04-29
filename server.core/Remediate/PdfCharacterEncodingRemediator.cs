@@ -18,6 +18,10 @@ internal static partial class PdfCharacterEncodingRemediator
     private const int MaxContextsPerGroup = 6;
     private const int ContextCharsPerSide = 120;
     private const int MaxBfRangeEntries = 4096;
+    private static readonly Regex BfCharBlockRegex =
+        new(@"\b\d+\s+beginbfchar(?<body>.*?)endbfchar", RegexOptions.Compiled | RegexOptions.Singleline);
+    private static readonly Regex BfRangeBlockRegex =
+        new(@"\b\d+\s+beginbfrange(?<body>.*?)endbfrange", RegexOptions.Compiled | RegexOptions.Singleline);
     private static readonly Regex ExplicitBfCharRegex =
         new(@"<(?<src>[0-9A-Fa-f]+)>\s*<(?<dst>[0-9A-Fa-f]*)>", RegexOptions.Compiled);
     private static readonly Regex ExplicitBfRangeRegex =
@@ -643,6 +647,10 @@ internal static partial class PdfCharacterEncodingRemediator
             var replacement = alternatives[0].Key;
             var chosen = alternatives[0].OrderByDescending(c => c.Confidence).First();
             var existing = font.ToUnicode.Lookup(key.SourceCode);
+            var occurrences = groupsByKey[key].Anomalies
+                .Select(a => $"p{a.PageNumber}/mcid{(a.Mcid is null ? "-" : a.Mcid.Value.ToString(CultureInfo.InvariantCulture))}")
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
             if (GetRepairPriority(chosen.Source) < GetRepairPriority("known_control_code")
                 && IsSafeReplacement(existing)
                 && !string.Equals(existing, replacement, StringComparison.Ordinal))
@@ -678,9 +686,12 @@ internal static partial class PdfCharacterEncodingRemediator
             applied++;
 
             logger.LogInformation(
-                "Applied PDF character encoding repair: fontObject={fontObject} sourceCode={sourceCode} replacement={replacement} action={action} source={source} confidence={confidence} reason={reason}",
+                "Applied PDF character encoding repair: occurrences={occurrences} fontObject={fontObject} font={font} sourceCode={sourceCode} previous={previous} replacement={replacement} action={action} source={source} confidence={confidence} reason={reason}",
+                string.Join(",", occurrences),
                 key.FontObjectId,
+                font.FontName,
                 key.SourceCode,
+                existing ?? "(none)",
                 replacement,
                 action,
                 chosen.Source,
@@ -812,13 +823,13 @@ internal static partial class PdfCharacterEncodingRemediator
             var listener = new ActualTextIssueListener(pageNumber);
             var page = pdf.GetPage(pageNumber);
             new PdfCanvasProcessor(listener).ProcessPageContent(page);
-            var pageIssues = listener.GetIssues();
-            if (pageIssues.Count == 0)
-            {
-                pageIssues = CollectActualTextIssuesFromContentStream(page, pageNumber);
-            }
+            var pageIssues = listener.GetIssues()
+                .Concat(CollectActualTextIssuesFromContentStream(page, pageNumber))
+                .GroupBy(i => new ActualTextRepairKey(i.PageNumber, i.Mcid))
+                .Select(g => g.First())
+                .ToArray();
 
-            if (pageIssues.Count == 0)
+            if (pageIssues.Length == 0)
             {
                 continue;
             }
@@ -1483,47 +1494,51 @@ internal static partial class PdfCharacterEncodingRemediator
         var destinationHex = ToUtf16BeHex(replacement);
         var replaced = false;
 
-        var lines = cmap.Replace("\r\n", "\n").Split('\n');
-        var inBfChar = false;
-        for (var i = 0; i < lines.Length; i++)
-        {
-            var line = lines[i];
-            if (line.Contains("beginbfchar", StringComparison.Ordinal))
+        cmap = BfCharBlockRegex.Replace(
+            cmap,
+            blockMatch =>
             {
-                inBfChar = true;
-                continue;
-            }
+                if (replaced)
+                {
+                    return blockMatch.Value;
+                }
 
-            if (line.Contains("endbfchar", StringComparison.Ordinal))
-            {
-                inBfChar = false;
-                continue;
-            }
+                var body = blockMatch.Groups["body"].Value;
+                var bodyReplaced = false;
+                var updatedBody = ExplicitBfCharRegex.Replace(
+                    body,
+                    mappingMatch =>
+                    {
+                        if (bodyReplaced)
+                        {
+                            return mappingMatch.Value;
+                        }
 
-            if (!inBfChar)
-            {
-                continue;
-            }
+                        var src = mappingMatch.Groups["src"].Value.ToUpperInvariant();
+                        if (!string.Equals(src, sourceCode, StringComparison.Ordinal))
+                        {
+                            return mappingMatch.Value;
+                        }
 
-            var match = ExplicitBfCharRegex.Match(line);
-            if (!match.Success)
-            {
-                continue;
-            }
+                        bodyReplaced = true;
+                        return $"<{sourceCode}> <{destinationHex}>";
+                    });
 
-            var src = match.Groups["src"].Value.ToUpperInvariant();
-            if (!string.Equals(src, sourceCode, StringComparison.Ordinal))
-            {
-                continue;
-            }
+                if (!bodyReplaced)
+                {
+                    return blockMatch.Value;
+                }
 
-            lines[i] = ExplicitBfCharRegex.Replace(line, $"<{sourceCode}> <{destinationHex}>", count: 1);
-            replaced = true;
-        }
+                replaced = true;
+                var bodyStart = blockMatch.Groups["body"].Index - blockMatch.Index;
+                var bodyEnd = bodyStart + body.Length;
+                return blockMatch.Value[..bodyStart]
+                    + updatedBody
+                    + blockMatch.Value[bodyEnd..];
+            });
 
         if (replaced)
         {
-            cmap = string.Join('\n', lines);
             toUnicodeStream.SetData(Encoding.ASCII.GetBytes(cmap));
             action = "replace";
             return true;
@@ -1563,76 +1578,42 @@ internal static partial class PdfCharacterEncodingRemediator
     private static Dictionary<string, string> ParseExplicitBfCharMappings(string cmap)
     {
         var mappings = new Dictionary<string, string>(StringComparer.Ordinal);
-        var inBfChar = false;
-        var inBfRange = false;
-        foreach (var line in cmap.Replace("\r\n", "\n").Split('\n'))
+        foreach (Match block in BfCharBlockRegex.Matches(cmap))
         {
-            if (line.Contains("beginbfchar", StringComparison.Ordinal))
-            {
-                inBfChar = true;
-                continue;
-            }
+            AddBfCharMappings(block.Groups["body"].Value, mappings);
+        }
 
-            if (line.Contains("endbfchar", StringComparison.Ordinal))
-            {
-                inBfChar = false;
-                continue;
-            }
-
-            if (line.Contains("beginbfrange", StringComparison.Ordinal))
-            {
-                inBfRange = true;
-                continue;
-            }
-
-            if (line.Contains("endbfrange", StringComparison.Ordinal))
-            {
-                inBfRange = false;
-                continue;
-            }
-
-            if (inBfChar)
-            {
-                AddBfCharMapping(line, mappings);
-                continue;
-            }
-
-            if (inBfRange)
-            {
-                AddBfRangeMappings(line, mappings);
-            }
+        foreach (Match block in BfRangeBlockRegex.Matches(cmap))
+        {
+            AddBfRangeMappings(block.Groups["body"].Value, mappings);
         }
 
         return mappings;
     }
 
-    private static void AddBfCharMapping(string line, Dictionary<string, string> mappings)
+    private static void AddBfCharMappings(string block, Dictionary<string, string> mappings)
     {
-        var match = ExplicitBfCharRegex.Match(line);
-        if (!match.Success)
+        foreach (Match match in ExplicitBfCharRegex.Matches(block))
         {
-            return;
-        }
+            var source = match.Groups["src"].Value.ToUpperInvariant();
+            var destination = DecodeUtf16BeHex(match.Groups["dst"].Value);
+            if (destination is not null)
+            {
+                mappings[source] = destination;
+            }
 
-        var source = match.Groups["src"].Value.ToUpperInvariant();
-        var destination = DecodeUtf16BeHex(match.Groups["dst"].Value);
-        if (destination is not null)
-        {
-            mappings[source] = destination;
         }
     }
 
-    private static void AddBfRangeMappings(string line, Dictionary<string, string> mappings)
+    private static void AddBfRangeMappings(string block, Dictionary<string, string> mappings)
     {
-        var arrayMatch = ExplicitBfRangeArrayRegex.Match(line);
-        if (arrayMatch.Success)
+        foreach (Match arrayMatch in ExplicitBfRangeArrayRegex.Matches(block))
         {
             AddBfRangeArrayMappings(arrayMatch, mappings);
-            return;
         }
 
-        var rangeMatch = ExplicitBfRangeRegex.Match(line);
-        if (rangeMatch.Success)
+        var blockWithoutArrays = ExplicitBfRangeArrayRegex.Replace(block, string.Empty);
+        foreach (Match rangeMatch in ExplicitBfRangeRegex.Matches(blockWithoutArrays))
         {
             AddBfRangeIncrementalMappings(rangeMatch, mappings);
         }
