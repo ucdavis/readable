@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using iText.Kernel.Font;
@@ -16,14 +17,21 @@ internal static partial class PdfCharacterEncodingRemediator
     private const int MaxAiActualTextIssues = 40;
     private const int MaxContextsPerGroup = 6;
     private const int ContextCharsPerSide = 120;
+    private const int MaxBfRangeEntries = 4096;
     private static readonly Regex ExplicitBfCharRegex =
         new(@"<(?<src>[0-9A-Fa-f]+)>\s*<(?<dst>[0-9A-Fa-f]*)>", RegexOptions.Compiled);
+    private static readonly Regex ExplicitBfRangeRegex =
+        new(@"<(?<start>[0-9A-Fa-f]+)>\s*<(?<end>[0-9A-Fa-f]+)>\s*<(?<dst>[0-9A-Fa-f]*)>", RegexOptions.Compiled);
+    private static readonly Regex ExplicitBfRangeArrayRegex =
+        new(@"<(?<start>[0-9A-Fa-f]+)>\s*<(?<end>[0-9A-Fa-f]+)>\s*\[(?<dsts>(?:\s*<[0-9A-Fa-f]*>\s*)+)\]", RegexOptions.Compiled);
+    private static readonly Regex ExplicitBfRangeDestinationRegex =
+        new(@"<(?<dst>[0-9A-Fa-f]*)>", RegexOptions.Compiled);
     private static readonly Regex TimestampPlaceholderRegex =
         new(@"\b\d<\?>\d{2}\s*(?:AM|PM)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex MarkedContentDictionaryRegex =
-        new(@"/(?<role>[A-Za-z0-9]+)\s*<<(?<dict>[^<>]*?/MCID\s+(?<mcid>\d+)[^<>]*?)>>\s*BDC", RegexOptions.Compiled);
+        new(@"/(?<role>[A-Za-z0-9]+)\s*<<(?<dict>(?:(?:<[^>]*>)|[^<>])*?/MCID\s+(?<mcid>\d+)(?:(?:<[^>]*>)|[^<>])*?)>>\s*BDC", RegexOptions.Compiled);
     private static readonly Regex MarkedContentBlockRegex =
-        new(@"/(?<role>[A-Za-z0-9]+)\s*<<(?<dict>[^<>]*?/MCID\s+(?<mcid>\d+)[^<>]*?)>>\s*BDC(?<body>.*?)EMC", RegexOptions.Compiled | RegexOptions.Singleline);
+        new(@"/(?<role>[A-Za-z0-9]+)\s*<<(?<dict>(?:(?:<[^>]*>)|[^<>])*?/MCID\s+(?<mcid>\d+)(?:(?:<[^>]*>)|[^<>])*?)>>\s*BDC(?<body>.*?)EMC", RegexOptions.Compiled | RegexOptions.Singleline);
     private static readonly Regex TextFontOperatorRegex =
         new(@"/(?<font>[A-Za-z0-9_.-]+)\s+[-+]?(?:\d+|\d*\.\d+)\s+Tf", RegexOptions.Compiled);
     private static readonly Regex HexTextShowRegex =
@@ -42,10 +50,20 @@ internal static partial class PdfCharacterEncodingRemediator
         var scan = Scan(pdf, cancellationToken);
         if (scan.Anomalies.Count == 0)
         {
+            var earlyActualTextApplied = options.UseAiCharacterEncodingRepair
+                ? await ApplyMarkedContentActualTextRepairsAsync(
+                    pdf,
+                    repairService,
+                    options,
+                    primaryLanguage,
+                    logger,
+                    cancellationToken)
+                : 0;
             var earlyFontEncodingsApplied = ApplyObservedSimpleFontEncodings(scan.FontsByObjectId, logger);
             var earlyCidToGidMapsApplied = ApplyIdentityCidToGidMaps(scan.FontsByObjectId, logger);
             logger.LogInformation(
-                "PDF character encoding remediation: no rendered text anomalies detected; fontEncodingsApplied={fontEncodingsApplied} cidToGidMapsApplied={cidToGidMapsApplied}.",
+                "PDF character encoding remediation: no rendered text anomalies detected; actualTextApplied={actualTextApplied} fontEncodingsApplied={fontEncodingsApplied} cidToGidMapsApplied={cidToGidMapsApplied}.",
+                earlyActualTextApplied,
                 earlyFontEncodingsApplied,
                 earlyCidToGidMapsApplied);
             return new PdfCharacterEncodingRemediationResult(
@@ -53,7 +71,7 @@ internal static partial class PdfCharacterEncodingRemediator
                 0,
                 0,
                 0,
-                ActualTextRepairsApplied: 0,
+                ActualTextRepairsApplied: earlyActualTextApplied,
                 FontEncodingRepairsApplied: earlyFontEncodingsApplied,
                 CidToGidMapRepairsApplied: earlyCidToGidMapsApplied);
         }
@@ -1262,9 +1280,22 @@ internal static partial class PdfCharacterEncodingRemediator
             {
                 var raw = RemediationHelpers.NormalizeWhitespace(string.Concat(mcidGroup.Select(e => e.RawText)));
                 var actual = RemediationHelpers.NormalizeWhitespace(string.Concat(mcidGroup.Select(e => e.ActualText)));
-                if (string.IsNullOrWhiteSpace(raw)
-                    || !ContainsBadActualText(raw)
-                    || (!string.IsNullOrWhiteSpace(actual) && !ContainsBadActualText(actual)))
+                if (string.IsNullOrWhiteSpace(raw))
+                {
+                    continue;
+                }
+
+                string issueText;
+                if (ContainsBadActualText(raw)
+                    && (string.IsNullOrWhiteSpace(actual) || ContainsBadActualText(actual)))
+                {
+                    issueText = raw;
+                }
+                else if (!string.IsNullOrWhiteSpace(actual) && ContainsBadActualText(actual))
+                {
+                    issueText = actual;
+                }
+                else
                 {
                     continue;
                 }
@@ -1273,7 +1304,7 @@ internal static partial class PdfCharacterEncodingRemediator
                 issues.Add(new PdfCharacterEncodingActualTextIssue(
                     _pageNumber,
                     mcidGroup.Key,
-                    raw,
+                    issueText,
                     contextBefore,
                     contextAfter));
             }
@@ -1533,6 +1564,7 @@ internal static partial class PdfCharacterEncodingRemediator
     {
         var mappings = new Dictionary<string, string>(StringComparer.Ordinal);
         var inBfChar = false;
+        var inBfRange = false;
         foreach (var line in cmap.Replace("\r\n", "\n").Split('\n'))
         {
             if (line.Contains("beginbfchar", StringComparison.Ordinal))
@@ -1547,26 +1579,174 @@ internal static partial class PdfCharacterEncodingRemediator
                 continue;
             }
 
-            if (!inBfChar)
+            if (line.Contains("beginbfrange", StringComparison.Ordinal))
             {
+                inBfRange = true;
                 continue;
             }
 
-            var match = ExplicitBfCharRegex.Match(line);
-            if (!match.Success)
+            if (line.Contains("endbfrange", StringComparison.Ordinal))
             {
+                inBfRange = false;
                 continue;
             }
 
-            var source = match.Groups["src"].Value.ToUpperInvariant();
-            var destination = DecodeUtf16BeHex(match.Groups["dst"].Value);
-            if (destination is not null)
+            if (inBfChar)
             {
-                mappings[source] = destination;
+                AddBfCharMapping(line, mappings);
+                continue;
+            }
+
+            if (inBfRange)
+            {
+                AddBfRangeMappings(line, mappings);
             }
         }
 
         return mappings;
+    }
+
+    private static void AddBfCharMapping(string line, Dictionary<string, string> mappings)
+    {
+        var match = ExplicitBfCharRegex.Match(line);
+        if (!match.Success)
+        {
+            return;
+        }
+
+        var source = match.Groups["src"].Value.ToUpperInvariant();
+        var destination = DecodeUtf16BeHex(match.Groups["dst"].Value);
+        if (destination is not null)
+        {
+            mappings[source] = destination;
+        }
+    }
+
+    private static void AddBfRangeMappings(string line, Dictionary<string, string> mappings)
+    {
+        var arrayMatch = ExplicitBfRangeArrayRegex.Match(line);
+        if (arrayMatch.Success)
+        {
+            AddBfRangeArrayMappings(arrayMatch, mappings);
+            return;
+        }
+
+        var rangeMatch = ExplicitBfRangeRegex.Match(line);
+        if (rangeMatch.Success)
+        {
+            AddBfRangeIncrementalMappings(rangeMatch, mappings);
+        }
+    }
+
+    private static void AddBfRangeArrayMappings(Match match, Dictionary<string, string> mappings)
+    {
+        if (!TryReadBfRange(match, out var start, out var end, out var sourceWidth, out var count))
+        {
+            return;
+        }
+
+        var destinations = ExplicitBfRangeDestinationRegex
+            .Matches(match.Groups["dsts"].Value)
+            .Select(m => m.Groups["dst"].Value)
+            .ToArray();
+        for (ulong offset = 0; offset < count && offset < (ulong)destinations.Length; offset++)
+        {
+            var destination = DecodeUtf16BeHex(destinations[(int)offset]);
+            if (destination is null)
+            {
+                continue;
+            }
+
+            mappings[(start + offset).ToString($"X{sourceWidth}", CultureInfo.InvariantCulture)] = destination;
+        }
+    }
+
+    private static void AddBfRangeIncrementalMappings(Match match, Dictionary<string, string> mappings)
+    {
+        if (!TryReadBfRange(match, out var start, out _, out var sourceWidth, out var count))
+        {
+            return;
+        }
+
+        var destinationStart = RemediationHelpers.NormalizeWhitespace(match.Groups["dst"].Value).ToUpperInvariant();
+        for (ulong offset = 0; offset < count; offset++)
+        {
+            var destinationHex = IncrementHexString(destinationStart, offset);
+            if (destinationHex is null)
+            {
+                continue;
+            }
+
+            var destination = DecodeUtf16BeHex(destinationHex);
+            if (destination is null)
+            {
+                continue;
+            }
+
+            mappings[(start + offset).ToString($"X{sourceWidth}", CultureInfo.InvariantCulture)] = destination;
+        }
+    }
+
+    private static bool TryReadBfRange(
+        Match match,
+        out ulong start,
+        out ulong end,
+        out int sourceWidth,
+        out ulong count)
+    {
+        var startHex = match.Groups["start"].Value.ToUpperInvariant();
+        var endHex = match.Groups["end"].Value.ToUpperInvariant();
+        sourceWidth = startHex.Length;
+        count = 0;
+        if (startHex.Length != endHex.Length
+            || !TryParseHexUInt64(startHex, out start)
+            || !TryParseHexUInt64(endHex, out end)
+            || end < start)
+        {
+            start = 0;
+            end = 0;
+            return false;
+        }
+
+        count = end - start + 1;
+        return count <= MaxBfRangeEntries;
+    }
+
+    private static bool TryParseHexUInt64(string hex, out ulong value)
+        => ulong.TryParse(
+            hex,
+            NumberStyles.AllowHexSpecifier,
+            CultureInfo.InvariantCulture,
+            out value);
+
+    private static string? IncrementHexString(string hex, ulong offset)
+    {
+        if (hex.Length == 0 || hex.Length % 2 != 0 || !IsHex(hex))
+        {
+            return null;
+        }
+
+        var bytes = Convert.FromHexString(hex);
+        for (ulong i = 0; i < offset; i++)
+        {
+            var carry = true;
+            for (var byteIndex = bytes.Length - 1; byteIndex >= 0; byteIndex--)
+            {
+                bytes[byteIndex]++;
+                if (bytes[byteIndex] != 0)
+                {
+                    carry = false;
+                    break;
+                }
+            }
+
+            if (carry)
+            {
+                return null;
+            }
+        }
+
+        return Convert.ToHexString(bytes);
     }
 
     private static PdfObject? Dereference(PdfObject? obj)

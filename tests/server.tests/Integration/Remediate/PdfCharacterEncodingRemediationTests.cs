@@ -225,6 +225,40 @@ public sealed class PdfCharacterEncodingRemediationTests
     }
 
     [Fact]
+    public async Task ProcessAsync_BfRangeToUnicodeMappings_AreNotClassifiedAsMissingCoverage()
+    {
+        var runRoot = CreateRunRoot("char-encoding-bfrange");
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreatePdfWithCustomToUnicode(
+                inputPdfPath,
+                renderedHex: "414243",
+                mappings: new Dictionary<string, string>(),
+                toUnicodeCMap: BuildToUnicodeBfRangeCMap("<41> <43> <0041>"));
+
+            var fakeRepairService = new FakeCharacterEncodingRepairService(
+                new PdfCharacterEncodingRepairProposal("*", "*", "X", 0.99, "Should not be requested."));
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            await CreateProcessor(fakeRepairService, useAi: true).ProcessAsync("fixture", inputPdfPath, outputPdfPath, CancellationToken.None);
+
+            fakeRepairService.Requests.Should().BeEmpty();
+
+            using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
+            PdfTextExtractor.GetTextFromPage(outputPdf.GetPage(1), new SimpleTextExtractionStrategy())
+                .Should()
+                .Contain("ABC");
+            ReadFirstToUnicodeCMap(outputPdf).Should().NotContain("beginbfchar");
+        }
+        finally
+        {
+            Directory.Delete(runRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ProcessAsync_WingdingsPrivateUse_PatchesKnownUnicodeSymbol()
     {
         var runRoot = CreateRunRoot("char-encoding-wingdings");
@@ -345,11 +379,107 @@ public sealed class PdfCharacterEncodingRemediationTests
     }
 
     [Fact]
+    public async Task AddOrReplaceActualTextForMcid_ReplacesHexActualTextInDictionary()
+    {
+        await Task.CompletedTask;
+
+        var patched = AddOrReplaceActualTextForMcid(
+            "/P <</Lang <656E2D5553> /MCID 7 /ActualText <FEFFFFFFD>>> BDC BT /F1 12 Tf 72 720 Td <61> Tj ET EMC",
+            7,
+            "applicable");
+
+        patched.Should().Contain("/Lang <656E2D5553>");
+        patched.Should().Contain("/ActualText <FEFF006100700070006C0069006300610062006C0065>");
+        patched.Should().NotContain("/ActualText <FEFFFFFFD>");
+    }
+
+    [Fact]
+    public void ParseExplicitBfCharMappings_IncludesBfRangeMappings()
+    {
+        var mappings = ParseExplicitBfCharMappings(
+            """
+            begincmap
+            2 beginbfrange
+            <41> <43> <0041>
+            <61> <63> [<0061> <00620062> <0063>]
+            endbfrange
+            endcmap
+            """);
+
+        mappings.Should().Contain("41", "A");
+        mappings.Should().Contain("42", "B");
+        mappings.Should().Contain("43", "C");
+        mappings.Should().Contain("61", "a");
+        mappings.Should().Contain("62", "bb");
+        mappings.Should().Contain("63", "c");
+    }
+
+    [Fact]
+    public async Task ProcessAsync_MalformedExistingActualText_ReplacesHexActualText()
+    {
+        var runRoot = CreateRunRoot("char-encoding-existing-actualtext");
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreatePdfWithMarkedContentText(
+                inputPdfPath,
+                renderedHex: "6170706C696361626C65",
+                mappings: BuildAsciiMappingsExcept("00"),
+                mcid: 7,
+                dictionarySuffix: " /ActualText <FEFF006100700070006CFFFD006300610062006C0065>");
+
+            var fakeRepairService = FakeCharacterEncodingRepairService.WithActualTextRepairs(
+                new PdfCharacterEncodingActualTextRepairProposal(1, 7, "applicable", 0.99, "Clean replacement."));
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            await CreateProcessor(fakeRepairService, useAi: true).ProcessAsync("fixture", inputPdfPath, outputPdfPath, CancellationToken.None);
+
+            fakeRepairService.ActualTextRequests.Should().ContainSingle();
+
+            using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
+            var content = Encoding.Latin1.GetString(outputPdf.GetPage(1).GetContentBytes());
+            content.Should().Contain("/ActualText <FEFF006100700070006C0069006300610062006C0065>");
+            content.Should().NotContain("/ActualText <FEFF006100700070006CFFFD006300610062006C0065>");
+        }
+        finally
+        {
+            Directory.Delete(runRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ActualTextRepairValidation_RejectsBadReplacementText()
     {
         IsSafeActualTextReplacement("applicable").Should().BeTrue();
         IsSafeActualTextReplacement("\uFFFD").Should().BeFalse();
         IsSafeActualTextReplacement("bad\u0019text").Should().BeFalse();
+    }
+
+    [Fact]
+    public void OpenAiCharacterEncodingRepairPrompt_IncludesBeforeAndAfterContext()
+    {
+        var prompt = BuildOpenAiCharacterEncodingRepairPrompt(
+            new PdfCharacterEncodingRepairRequest(
+                [
+                    new PdfCharacterEncodingAnomalyGroup(
+                        "7 0 R",
+                        "F1",
+                        "12",
+                        "invalid_control",
+                        [
+                            new PdfCharacterEncodingAnomalyContext(
+                                1,
+                                3,
+                                "testing<?>monitoring",
+                                "before signal",
+                                "after signal"),
+                        ]),
+                ],
+                "en-US"));
+
+        prompt.Should().Contain("Page 1 mcid=3: testing<?>monitoring");
+        prompt.Should().Contain("contextBefore: before signal");
+        prompt.Should().Contain("contextAfter: after signal");
     }
 
     [Fact]
@@ -501,7 +631,8 @@ public sealed class PdfCharacterEncodingRemediationTests
         bool tagged = false,
         string baseFontName = "Helvetica",
         bool includeEncoding = true,
-        PdfName? fontSubtype = null)
+        PdfName? fontSubtype = null,
+        string? toUnicodeCMap = null)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
 
@@ -535,7 +666,7 @@ public sealed class PdfCharacterEncodingRemediationTests
             font.Put(PdfName.Encoding, PdfName.WinAnsiEncoding);
         }
 
-        var toUnicode = new PdfStream(Encoding.ASCII.GetBytes(BuildToUnicodeCMap(mappings)));
+        var toUnicode = new PdfStream(Encoding.ASCII.GetBytes(toUnicodeCMap ?? BuildToUnicodeCMap(mappings)));
         toUnicode.MakeIndirect(pdf);
         font.Put(PdfName.ToUnicode, toUnicode);
 
@@ -561,7 +692,8 @@ public sealed class PdfCharacterEncodingRemediationTests
         string outputPath,
         string renderedHex,
         IReadOnlyDictionary<string, string> mappings,
-        int mcid)
+        int mcid,
+        string dictionarySuffix = "")
     {
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
 
@@ -586,7 +718,7 @@ public sealed class PdfCharacterEncodingRemediationTests
         resources.Put(PdfName.Font, fonts);
         page.GetPdfObject().Put(PdfName.Resources, resources);
 
-        var content = $"BT /P <</MCID {mcid}>> BDC /F1 12 Tf 72 720 Td <{renderedHex}> Tj EMC ET";
+        var content = $"BT /P <</MCID {mcid}{dictionarySuffix}>> BDC /F1 12 Tf 72 720 Td <{renderedHex}> Tj EMC ET";
         var contentStream = new PdfStream(Encoding.ASCII.GetBytes(content));
         contentStream.MakeIndirect(pdf);
         page.GetPdfObject().Put(PdfName.Contents, contentStream);
@@ -796,6 +928,32 @@ public sealed class PdfCharacterEncodingRemediationTests
         return sb.ToString();
     }
 
+    private static string BuildToUnicodeBfRangeCMap(params string[] ranges)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("/CIDInit /ProcSet findresource begin");
+        sb.AppendLine("12 dict begin");
+        sb.AppendLine("begincmap");
+        sb.AppendLine("/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def");
+        sb.AppendLine("/CMapName /ReadableTest def");
+        sb.AppendLine("/CMapType 2 def");
+        sb.AppendLine("1 begincodespacerange");
+        sb.AppendLine("<00> <FF>");
+        sb.AppendLine("endcodespacerange");
+        sb.AppendLine($"{ranges.Length} beginbfrange");
+        foreach (var range in ranges)
+        {
+            sb.AppendLine(range);
+        }
+
+        sb.AppendLine("endbfrange");
+        sb.AppendLine("endcmap");
+        sb.AppendLine("CMapName currentdict /CMap defineresource pop");
+        sb.AppendLine("end");
+        sb.AppendLine("end");
+        return sb.ToString();
+    }
+
     private static string ReadFirstToUnicodeCMap(PdfDocument pdf)
     {
         var resources = pdf.GetPage(1).GetPdfObject().GetAsDictionary(PdfName.Resources);
@@ -809,6 +967,10 @@ public sealed class PdfCharacterEncodingRemediationTests
         => (string)GetCharacterEncodingRemediatorMethod(nameof(AddOrReplaceActualTextForMcid))
             .Invoke(null, [content, mcid, actualText])!;
 
+    private static IReadOnlyDictionary<string, string> ParseExplicitBfCharMappings(string cmap)
+        => (IReadOnlyDictionary<string, string>)GetCharacterEncodingRemediatorMethod(nameof(ParseExplicitBfCharMappings))
+            .Invoke(null, [cmap])!;
+
     private static bool IsSafeActualTextReplacement(string actualText)
         => (bool)GetCharacterEncodingRemediatorMethod(nameof(IsSafeActualTextReplacement))
             .Invoke(null, [actualText])!;
@@ -819,6 +981,15 @@ public sealed class PdfCharacterEncodingRemediationTests
         return type.GetMethod(
             name,
             System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+    }
+
+    private static string BuildOpenAiCharacterEncodingRepairPrompt(PdfCharacterEncodingRepairRequest request)
+    {
+        var type = typeof(OpenAIPdfCharacterEncodingRepairService);
+        return (string)type.GetMethod(
+            "BuildPrompt",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(null, [request])!;
     }
 
     private sealed class FakeCharacterEncodingRepairService : IPdfCharacterEncodingRepairService

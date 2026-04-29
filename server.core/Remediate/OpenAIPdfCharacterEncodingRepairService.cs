@@ -202,6 +202,10 @@ public sealed class OpenAIPdfCharacterEncodingRepairService : IPdfCharacterEncod
 
                 sb.Append(": ");
                 sb.AppendLine(Truncate(context.Line, MaxCharsPerContext));
+                sb.Append("contextBefore: ");
+                sb.AppendLine(Truncate(context.ContextBefore, MaxCharsPerContext));
+                sb.Append("contextAfter: ");
+                sb.AppendLine(Truncate(context.ContextAfter, MaxCharsPerContext));
             }
         }
 
