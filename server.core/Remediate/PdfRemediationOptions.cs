@@ -14,7 +14,7 @@ public sealed class PdfRemediationOptions
     /// <summary>
     /// When enabled, unresolved character-encoding anomalies may be sent to an AI service for proposed repairs.
     /// </summary>
-    public bool UseAiCharacterEncodingRepair { get; set; }
+    public bool UseAiCharacterEncodingRepair { get; set; } = true;
 
     /// <summary>
     /// Minimum confidence required before applying an AI-proposed character-encoding repair.

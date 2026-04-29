@@ -97,8 +97,9 @@ public static class IngestServiceCollectionExtensions
                     ?? 30;
 
                 o.UseAiCharacterEncodingRepair =
-                    configuration.GetValue<bool>("Ingest:UseAiCharacterEncodingRepair")
-                    || configuration.GetValue<bool>("INGEST_USE_AI_CHARACTER_ENCODING_REPAIR");
+                    configuration.GetValue<bool?>("Ingest:UseAiCharacterEncodingRepair")
+                    ?? configuration.GetValue<bool?>("INGEST_USE_AI_CHARACTER_ENCODING_REPAIR")
+                    ?? true;
 
                 o.CharacterEncodingRepairConfidenceThreshold =
                     configuration.GetValue<double?>("Ingest:CharacterEncodingRepairConfidenceThreshold")
