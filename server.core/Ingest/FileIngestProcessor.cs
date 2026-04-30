@@ -306,12 +306,23 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
 
             if (!string.IsNullOrWhiteSpace(intakeResult.BeforeAccessibilityReportJson))
             {
-                await SaveAccessibilityReportAsync(
-                    fileId,
-                    tool: "AdobePdfServices",
-                    stage: AccessibilityReport.Stages.Before,
-                    reportJson: intakeResult.BeforeAccessibilityReportJson,
-                    CancellationToken.None);
+                try
+                {
+                    await SaveAccessibilityReportAsync(
+                        fileId,
+                        tool: "AdobePdfServices",
+                        stage: AccessibilityReport.Stages.Before,
+                        reportJson: intakeResult.BeforeAccessibilityReportJson,
+                        CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(
+                        ex,
+                        "Failed to persist accessibility report for {fileId} stage={stage}",
+                        request.FileId,
+                        AccessibilityReport.Stages.Before);
+                }
             }
 
             var correlationId = Guid.NewGuid().ToString("N");
@@ -506,12 +517,23 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
 
             if (!string.IsNullOrWhiteSpace(pdfResult.AfterAccessibilityReportJson))
             {
-                await SaveAccessibilityReportAsync(
-                    fileId,
-                    tool: "AdobePdfServices",
-                    stage: AccessibilityReport.Stages.After,
-                    reportJson: pdfResult.AfterAccessibilityReportJson,
-                    CancellationToken.None);
+                try
+                {
+                    await SaveAccessibilityReportAsync(
+                        fileId,
+                        tool: "AdobePdfServices",
+                        stage: AccessibilityReport.Stages.After,
+                        reportJson: pdfResult.AfterAccessibilityReportJson,
+                        CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(
+                        ex,
+                        "Failed to persist accessibility report for {fileId} stage={stage}",
+                        message.FileId,
+                        AccessibilityReport.Stages.After);
+                }
             }
 
             using (LogStage.Begin(_logger, message.FileId, "complete_attempt", new { outcome = FileProcessingAttempt.Outcomes.Succeeded }))
