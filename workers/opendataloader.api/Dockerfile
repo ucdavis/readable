@@ -2,6 +2,7 @@ FROM mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim AS build
 WORKDIR /src
 
 COPY ["workers/opendataloader.api/opendataloader.api.csproj", "workers/opendataloader.api/"]
+COPY ["server.core/server.core.csproj", "server.core/"]
 RUN dotnet restore "workers/opendataloader.api/opendataloader.api.csproj"
 
 COPY . .
