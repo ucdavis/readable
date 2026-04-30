@@ -391,33 +391,9 @@ public class FileIngestProcessorTests
 
         var dbContextFactory = new InMemoryDbContextFactory(options);
         var opener = new FakeBlobStreamOpener();
-        var pdf = new FakePipelineProcessor
-        {
-            FinalizeResult = new PdfProcessResult(
-                OutputPdfPath: CreateTempPdf(),
-                AfterAccessibilityReportJson: "{\"Summary\":{\"Failed\":0}}",
-                PageCount: 5,
-                Autotag: new PdfAutotagMetadata(
-                    FileIngestOptions.AutotagProviders.OpenDataLoader,
-                    Required: true,
-                    SkippedReason: null,
-                    ChunkCount: 1,
-                    LocalReportPaths: ["https://example.blob.core.windows.net/reports/report.json"]))
-        };
         var blobStorage = new FakeBlobStorage();
         var configuration = new ConfigurationBuilder().Build();
         using var loggerFactory = LoggerFactory.Create(_ => { });
-
-        var sut = new FileIngestProcessor(
-            dbContextFactory,
-            opener,
-            pdf,
-            blobStorage,
-            configuration,
-            new FakeIngestQueueClient(),
-            new IngestQueueOptions("files", "autotag-odl", "pdf-finalize", "pdf-failed"),
-            Options.Create(new PdfProcessorOptions()),
-            loggerFactory.CreateLogger<FileIngestProcessor>());
 
         var message = new FinalizePdfMessage(
             FileId: fileId.ToString(),
@@ -436,27 +412,53 @@ public class FileIngestProcessorTests
             CorrelationId: Guid.NewGuid().ToString("N"),
             EnqueuedAt: DateTimeOffset.UtcNow);
 
+        var tempDirectory = CreateTempDirectory();
         try
         {
+            var pdf = new FakePipelineProcessor
+            {
+                FinalizeResult = new PdfProcessResult(
+                    OutputPdfPath: CreateTempPdf(tempDirectory),
+                    AfterAccessibilityReportJson: "{\"Summary\":{\"Failed\":0}}",
+                    PageCount: 5,
+                    Autotag: new PdfAutotagMetadata(
+                        FileIngestOptions.AutotagProviders.OpenDataLoader,
+                        Required: true,
+                        SkippedReason: null,
+                        ChunkCount: 1,
+                        LocalReportPaths: ["https://example.blob.core.windows.net/reports/report.json"]))
+            };
+
+            var sut = new FileIngestProcessor(
+                dbContextFactory,
+                opener,
+                pdf,
+                blobStorage,
+                configuration,
+                new FakeIngestQueueClient(),
+                new IngestQueueOptions("files", "autotag-odl", "pdf-finalize", "pdf-failed"),
+                Options.Create(new PdfProcessorOptions()),
+                loggerFactory.CreateLogger<FileIngestProcessor>());
+
             await sut.FinalizeAsync(message, CancellationToken.None);
+
+            pdf.FinalizeCalls.Should().Be(1);
+            blobStorage.UploadedTo.Should().Be(new Uri("https://example.blob.core.windows.net/processed/queued.pdf"));
+            blobStorage.Deleted.Should().Be(message.OriginalBlobUri);
+
+            await using var verify = new AppDbContext(options);
+            var file = await verify.Files.SingleAsync(x => x.FileId == fileId);
+            file.Status.Should().Be(FileRecord.Statuses.Completed);
+            file.PageCount.Should().Be(5);
+
+            var attempt = await verify.FileProcessingAttempts.SingleAsync(x => x.FileId == fileId);
+            attempt.Outcome.Should().Be(FileProcessingAttempt.Outcomes.Succeeded);
+            attempt.FinishedAt.Should().NotBeNull();
         }
         finally
         {
-            File.Delete(pdf.FinalizeResult!.OutputPdfPath);
+            DeleteTempDirectory(tempDirectory);
         }
-
-        pdf.FinalizeCalls.Should().Be(1);
-        blobStorage.UploadedTo.Should().Be(new Uri("https://example.blob.core.windows.net/processed/queued.pdf"));
-        blobStorage.Deleted.Should().Be(message.OriginalBlobUri);
-
-        await using var verify = new AppDbContext(options);
-        var file = await verify.Files.SingleAsync(x => x.FileId == fileId);
-        file.Status.Should().Be(FileRecord.Statuses.Completed);
-        file.PageCount.Should().Be(5);
-
-        var attempt = await verify.FileProcessingAttempts.SingleAsync(x => x.FileId == fileId);
-        attempt.Outcome.Should().Be(FileProcessingAttempt.Outcomes.Succeeded);
-        attempt.FinishedAt.Should().NotBeNull();
     }
 
     [Fact]
@@ -487,33 +489,8 @@ public class FileIngestProcessorTests
         }
 
         var dbContextFactory = new InMemoryDbContextFactory(options);
-        var outputPath = CreateTempPdf();
-        var pdf = new FakePipelineProcessor
-        {
-            FinalizeResult = new PdfProcessResult(
-                OutputPdfPath: outputPath,
-                AfterAccessibilityReportJson: "{\"Summary\":{\"Failed\":0}}",
-                PageCount: 5,
-                Autotag: new PdfAutotagMetadata(
-                    FileIngestOptions.AutotagProviders.OpenDataLoader,
-                    Required: true,
-                    SkippedReason: null,
-                    ChunkCount: 1,
-                    LocalReportPaths: ["https://example.blob.core.windows.net/reports/report.json"]))
-        };
         var blobStorage = new FakeBlobStorage();
         using var loggerFactory = LoggerFactory.Create(_ => { });
-
-        var sut = new FileIngestProcessor(
-            dbContextFactory,
-            new FakeBlobStreamOpener(),
-            pdf,
-            blobStorage,
-            new ConfigurationBuilder().Build(),
-            new FakeIngestQueueClient(),
-            new IngestQueueOptions("files", "autotag-odl", "pdf-finalize", "pdf-failed"),
-            Options.Create(new PdfProcessorOptions()),
-            loggerFactory.CreateLogger<FileIngestProcessor>());
 
         var message = new FinalizePdfMessage(
             FileId: fileId.ToString(),
@@ -532,31 +509,57 @@ public class FileIngestProcessorTests
             CorrelationId: Guid.NewGuid().ToString("N"),
             EnqueuedAt: DateTimeOffset.UtcNow);
 
+        var tempDirectory = CreateTempDirectory();
         try
         {
+            var pdf = new FakePipelineProcessor
+            {
+                FinalizeResult = new PdfProcessResult(
+                    OutputPdfPath: CreateTempPdf(tempDirectory),
+                    AfterAccessibilityReportJson: "{\"Summary\":{\"Failed\":0}}",
+                    PageCount: 5,
+                    Autotag: new PdfAutotagMetadata(
+                        FileIngestOptions.AutotagProviders.OpenDataLoader,
+                        Required: true,
+                        SkippedReason: null,
+                        ChunkCount: 1,
+                        LocalReportPaths: ["https://example.blob.core.windows.net/reports/report.json"]))
+            };
+
+            var sut = new FileIngestProcessor(
+                dbContextFactory,
+                new FakeBlobStreamOpener(),
+                pdf,
+                blobStorage,
+                new ConfigurationBuilder().Build(),
+                new FakeIngestQueueClient(),
+                new IngestQueueOptions("files", "autotag-odl", "pdf-finalize", "pdf-failed"),
+                Options.Create(new PdfProcessorOptions()),
+                loggerFactory.CreateLogger<FileIngestProcessor>());
+
             await sut.FinalizeAsync(message, CancellationToken.None);
             await sut.FinalizeAsync(message, CancellationToken.None);
+
+            pdf.FinalizeCalls.Should().Be(2);
+            blobStorage.Uploads.Should().HaveCount(2);
+            blobStorage.Uploads.Distinct().Should().ContainSingle()
+                .Which.Should().Be(new Uri("https://example.blob.core.windows.net/processed/queued.pdf"));
+            blobStorage.Deletes.Should().HaveCount(2);
+
+            await using var verify = new AppDbContext(options);
+            var reports = await verify.AccessibilityReports
+                .Where(x => x.FileId == fileId && x.Stage == AccessibilityReport.Stages.After)
+                .ToListAsync();
+            reports.Should().ContainSingle();
+
+            var attempts = await verify.FileProcessingAttempts.Where(x => x.FileId == fileId).ToListAsync();
+            attempts.Should().ContainSingle();
+            attempts[0].Outcome.Should().Be(FileProcessingAttempt.Outcomes.Succeeded);
         }
         finally
         {
-            File.Delete(outputPath);
+            DeleteTempDirectory(tempDirectory);
         }
-
-        pdf.FinalizeCalls.Should().Be(2);
-        blobStorage.Uploads.Should().HaveCount(2);
-        blobStorage.Uploads.Distinct().Should().ContainSingle()
-            .Which.Should().Be(new Uri("https://example.blob.core.windows.net/processed/queued.pdf"));
-        blobStorage.Deletes.Should().HaveCount(2);
-
-        await using var verify = new AppDbContext(options);
-        var reports = await verify.AccessibilityReports
-            .Where(x => x.FileId == fileId && x.Stage == AccessibilityReport.Stages.After)
-            .ToListAsync();
-        reports.Should().ContainSingle();
-
-        var attempts = await verify.FileProcessingAttempts.Where(x => x.FileId == fileId).ToListAsync();
-        attempts.Should().ContainSingle();
-        attempts[0].Outcome.Should().Be(FileProcessingAttempt.Outcomes.Succeeded);
     }
 
     [Fact]
@@ -861,11 +864,26 @@ public class FileIngestProcessorTests
         await seed.SaveChangesAsync();
     }
 
-    private static string CreateTempPdf()
+    private static string CreateTempDirectory()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"readable-test-{Guid.NewGuid():N}.pdf");
+        var path = Path.Combine(Path.GetTempPath(), "readable-tests", $"file-ingest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private static string CreateTempPdf(string directory)
+    {
+        var path = Path.Combine(directory, $"readable-test-{Guid.NewGuid():N}.pdf");
         File.WriteAllBytes(path, "%PDF-1.7\n%final"u8.ToArray());
         return path;
+    }
+
+    private static void DeleteTempDirectory(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
+        }
     }
 
     private sealed class InMemoryDbContextFactory : IDbContextFactory<AppDbContext>

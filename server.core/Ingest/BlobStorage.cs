@@ -22,7 +22,7 @@ public sealed class AzureBlobStorage : IBlobStorage
     public async Task UploadAsync(Uri destinationBlobUri, Stream content, string contentType, CancellationToken cancellationToken)
     {
         var client = CreateClient(destinationBlobUri);
-        await client.UploadAsync(content, overwrite: true, cancellationToken);
+        await client.UploadAsync(content, overwrite: true, cancellationToken: cancellationToken);
         await client.SetHttpHeadersAsync(
             new BlobHttpHeaders { ContentType = contentType },
             cancellationToken: cancellationToken);

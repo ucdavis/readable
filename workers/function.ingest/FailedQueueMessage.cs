@@ -15,11 +15,16 @@ public class FailedQueueMessage
 {
     private readonly ILogger<FailedQueueMessage> _logger;
     private readonly IFileIngestProcessor _fileIngestProcessor;
+    private readonly string _queueName;
 
-    public FailedQueueMessage(ILogger<FailedQueueMessage> logger, IFileIngestProcessor fileIngestProcessor)
+    public FailedQueueMessage(
+        ILogger<FailedQueueMessage> logger,
+        IFileIngestProcessor fileIngestProcessor,
+        IngestQueueOptions queueOptions)
     {
         _logger = logger;
         _fileIngestProcessor = fileIngestProcessor;
+        _queueName = queueOptions.FailedQueueName;
     }
 
     [Function(nameof(FailedQueueMessage))]
@@ -34,13 +39,13 @@ public class FailedQueueMessage
             ActivityKind.Consumer);
 
         activity?.SetTag("messaging.system", "azure.servicebus");
-        activity?.SetTag("messaging.destination.name", "pdf-failed");
+        activity?.SetTag("messaging.destination.name", _queueName);
         activity?.SetTag("messaging.message.id", message.MessageId);
 
         using var messageScope = _logger.BeginScope(new Dictionary<string, object?>
         {
             ["messaging.system"] = "azure.servicebus",
-            ["messaging.destination.name"] = "pdf-failed",
+            ["messaging.destination.name"] = _queueName,
             ["messaging.message.id"] = message.MessageId
         });
 

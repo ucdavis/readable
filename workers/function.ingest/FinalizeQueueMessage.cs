@@ -15,11 +15,16 @@ public class FinalizeQueueMessage
 {
     private readonly ILogger<FinalizeQueueMessage> _logger;
     private readonly IFileIngestProcessor _fileIngestProcessor;
+    private readonly string _queueName;
 
-    public FinalizeQueueMessage(ILogger<FinalizeQueueMessage> logger, IFileIngestProcessor fileIngestProcessor)
+    public FinalizeQueueMessage(
+        ILogger<FinalizeQueueMessage> logger,
+        IFileIngestProcessor fileIngestProcessor,
+        IngestQueueOptions queueOptions)
     {
         _logger = logger;
         _fileIngestProcessor = fileIngestProcessor;
+        _queueName = queueOptions.FinalizeQueueName;
     }
 
     [Function(nameof(FinalizeQueueMessage))]
@@ -34,13 +39,13 @@ public class FinalizeQueueMessage
             ActivityKind.Consumer);
 
         activity?.SetTag("messaging.system", "azure.servicebus");
-        activity?.SetTag("messaging.destination.name", "pdf-finalize");
+        activity?.SetTag("messaging.destination.name", _queueName);
         activity?.SetTag("messaging.message.id", message.MessageId);
 
         using var messageScope = _logger.BeginScope(new Dictionary<string, object?>
         {
             ["messaging.system"] = "azure.servicebus",
-            ["messaging.destination.name"] = "pdf-finalize",
+            ["messaging.destination.name"] = _queueName,
             ["messaging.message.id"] = message.MessageId
         });
 

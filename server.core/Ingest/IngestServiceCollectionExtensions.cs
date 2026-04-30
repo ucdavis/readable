@@ -60,24 +60,12 @@ public static class IngestServiceCollectionExtensions
 
         if (options.UseAdobePdfServices)
         {
-            if (IsOpenDataLoaderAutotagProvider(options.AutotagProvider))
+            services.AddSingleton<IAdobePdfServices>(sp =>
             {
-                services.AddSingleton<IAdobePdfServices>(sp =>
-                {
-                    var configuration = sp.GetRequiredService<IConfiguration>();
-                    EnsureAdobeCredentialsConfigured(configuration);
-                    return new AdobePdfServices(configuration, sp.GetRequiredService<ILogger<AdobePdfServices>>());
-                });
-            }
-            else
-            {
-                services.AddSingleton<IAdobePdfServices>(sp =>
-                {
-                    var configuration = sp.GetRequiredService<IConfiguration>();
-                    EnsureAdobeCredentialsConfigured(configuration);
-                    return new AdobePdfServices(configuration, sp.GetRequiredService<ILogger<AdobePdfServices>>());
-                });
-            }
+                var configuration = sp.GetRequiredService<IConfiguration>();
+                EnsureAdobeCredentialsConfigured(configuration);
+                return new AdobePdfServices(configuration, sp.GetRequiredService<ILogger<AdobePdfServices>>());
+            });
         }
         else
         {
@@ -220,14 +208,6 @@ public static class IngestServiceCollectionExtensions
     private static void EnsureAdobeCredentialsConfigured(IConfiguration configuration)
     {
         AdobePdfServices.EnsureCredentialsConfigured(configuration);
-    }
-
-    private static bool IsOpenDataLoaderAutotagProvider(string? value)
-    {
-        return string.Equals(
-            value,
-            FileIngestOptions.AutotagProviders.OpenDataLoader,
-            StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? GetOpenAiApiKey(IConfiguration configuration)
