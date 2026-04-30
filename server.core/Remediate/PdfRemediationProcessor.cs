@@ -356,6 +356,8 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
             var imageOccurrences = 0;
             var imageAltSet = 0;
+            var imageAltSkippedUnsupported = 0;
+            var imageAltFailures = 0;
             var linkOccurrences = 0;
             var linkAltSet = 0;
 
@@ -384,9 +386,39 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                         }
 
                         var (bytes, mimeType) = ExtractImageBytes(occ.Image);
-                        var altText = await _altTextService.GetAltTextForImageAsync(
-                            new ImageAltTextRequest(bytes, mimeType, occ.ContextBefore, occ.ContextAfter, primaryLanguage),
-                            cancellationToken);
+                        if (!IsSupportedAltTextImageMimeType(mimeType))
+                        {
+                            imageAltSkippedUnsupported++;
+                            _logger.LogWarning(
+                                "Skipping raster image alt text for {fileId} page={pageNumber}: unsupported image MIME type {mimeType}. Figure will remain without Alt for manual remediation.",
+                                fileId,
+                                pageNumber,
+                                mimeType);
+                            continue;
+                        }
+
+                        string altText;
+                        try
+                        {
+                            altText = await _altTextService.GetAltTextForImageAsync(
+                                new ImageAltTextRequest(bytes, mimeType, occ.ContextBefore, occ.ContextAfter, primaryLanguage),
+                                cancellationToken);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            imageAltFailures++;
+                            _logger.LogWarning(
+                                ex,
+                                "Failed to generate raster image alt text for {fileId} page={pageNumber}. Figure will remain without Alt for manual remediation.",
+                                fileId,
+                                pageNumber);
+                            continue;
+                        }
+
                         SetAlt(figure, altText);
                         if (!string.IsNullOrWhiteSpace(altText))
                         {
@@ -689,9 +721,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 }
             }
 
-            // Fallback safety-net: ensure any remaining tagged Figures get *some* alt text.
-            // This keeps remediation robust even when we can't reliably match content-stream occurrences to tag-tree elements.
-            var fallbackImageAltSet = 0;
+            // Clean up objectively broken structure, but do not hide unresolved figures behind placeholder alt text.
+            // Remaining /Figure nodes without /Alt should still be visible to accessibility QA/manual remediation.
+            var remainingFiguresMissingAlt = 0;
             var contentlessFiguresRemoved = 0;
             var contentlessFiguresDemoted = 0;
             foreach (var figure in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Figure))
@@ -714,14 +746,13 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
                 if (!HasNonEmptyAlt(figure))
                 {
-                    SetAlt(figure, _altTextService.GetFallbackAltTextForImage());
-                    fallbackImageAltSet++;
+                    remainingFiguresMissingAlt++;
                 }
             }
 
             if (_options.GenerateLinkAltText)
             {
-                var fallbackLinkAltSet = 0;
+                var remainingLinksMissingAlt = 0;
                 var contentlessLinksRemoved = 0;
                 var contentlessLinksDemoted = 0;
                 foreach (var link in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Link))
@@ -744,27 +775,28 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
                     if (!HasNonEmptyAlt(link))
                     {
-                        SetAlt(link, _altTextService.GetFallbackAltTextForLink());
-                        fallbackLinkAltSet++;
+                        remainingLinksMissingAlt++;
                     }
                 }
 
                 _logger.LogInformation(
-                    "PDF remediation link alt summary: {fileId} linkOccurrences={linkOccurrences} linkAltSet={linkAltSet} fallbackLinkAltSet={fallbackLinkAltSet} contentlessLinksRemoved={contentlessLinksRemoved} contentlessLinksDemoted={contentlessLinksDemoted}",
+                    "PDF remediation link alt summary: {fileId} linkOccurrences={linkOccurrences} linkAltSet={linkAltSet} remainingLinksMissingAlt={remainingLinksMissingAlt} contentlessLinksRemoved={contentlessLinksRemoved} contentlessLinksDemoted={contentlessLinksDemoted}",
                     fileId,
                     linkOccurrences,
                     linkAltSet,
-                    fallbackLinkAltSet,
+                    remainingLinksMissingAlt,
                     contentlessLinksRemoved,
                     contentlessLinksDemoted);
             }
 
             _logger.LogInformation(
-                "PDF remediation image alt summary: {fileId} imageOccurrences={imageOccurrences} imageAltSet={imageAltSet} fallbackImageAltSet={fallbackImageAltSet} contentlessFiguresRemoved={contentlessFiguresRemoved} contentlessFiguresDemoted={contentlessFiguresDemoted}",
+                "PDF remediation image alt summary: {fileId} imageOccurrences={imageOccurrences} imageAltSet={imageAltSet} imageAltSkippedUnsupported={imageAltSkippedUnsupported} imageAltFailures={imageAltFailures} remainingFiguresMissingAlt={remainingFiguresMissingAlt} contentlessFiguresRemoved={contentlessFiguresRemoved} contentlessFiguresDemoted={contentlessFiguresDemoted}",
                 fileId,
                 imageOccurrences,
                 imageAltSet,
-                fallbackImageAltSet,
+                imageAltSkippedUnsupported,
+                imageAltFailures,
+                remainingFiguresMissingAlt,
                 contentlessFiguresRemoved,
                 contentlessFiguresDemoted);
 
@@ -1089,6 +1121,10 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
         return null;
     }
+
+    private static bool IsSupportedAltTextImageMimeType(string mimeType) =>
+        string.Equals(mimeType, "image/png", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(mimeType, "image/jpeg", StringComparison.OrdinalIgnoreCase);
 
     private static bool LooksLikePng(byte[] bytes) =>
         bytes.Length >= 8
