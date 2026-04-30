@@ -10,28 +10,18 @@ using server.core.Remediate.Rasterize;
 
 namespace server.tests.Integration.Remediate;
 
-public sealed class PdfRemediationProcessorVectorFigureAltTests
+public sealed class PdfRemediationProcessorDecorativeFigureTests
 {
     [Fact]
-    public async Task ProcessAsync_TaggedHasPlaceholderAlt_ReplacesPlaceholderAltForVectorFigures()
+    public async Task ProcessAsync_TinyVectorFigure_DemotesWithoutCallingAltTextService()
     {
-        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-vector-alt-{Guid.NewGuid():N}");
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-vector-tiny-{Guid.NewGuid():N}");
         Directory.CreateDirectory(runRoot);
 
         try
         {
             var inputPdfPath = Path.Combine(runRoot, "input.pdf");
-            CreateTaggedPdfWithPlaceholderVectorFigure(inputPdfPath);
-
-            var inputPlaceholderCount = 0;
-            using (var inputPdf = new PdfDocument(new PdfReader(inputPdfPath)))
-            {
-                inputPdf.IsTagged().Should().BeTrue("fixture should be tagged");
-                var inputFigures = ListStructElementsByRole(inputPdf, PdfName.Figure);
-                inputFigures.Count.Should().BeGreaterThan(0);
-                inputPlaceholderCount = inputFigures.Count(f => IsPlaceholderAlt(f));
-                inputPlaceholderCount.Should().BeGreaterThan(0, "fixture should contain placeholder alt text");
-            }
+            CreateTaggedPdfWithPlaceholderVectorFigure(inputPdfPath, figureWidth: 4, figureHeight: 4);
 
             var outputPdfPath = Path.Combine(runRoot, "output.pdf");
 
@@ -40,7 +30,7 @@ public sealed class PdfRemediationProcessorVectorFigureAltTests
                 altText,
                 new NoopPdfBookmarkService(),
                 new FakePdfTitleService(),
-                new FakePdfPageRasterizer(),
+                new DetailPdfPageRasterizer(),
                 NullLogger<PdfRemediationProcessor>.Instance);
 
             await sut.ProcessAsync(
@@ -51,10 +41,9 @@ public sealed class PdfRemediationProcessorVectorFigureAltTests
 
             using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
             var outputFigures = ListStructElementsByRole(outputPdf, PdfName.Figure);
-            var outputPlaceholderCount = outputFigures.Count(f => IsPlaceholderAlt(f));
 
-            outputPlaceholderCount.Should().BeLessThan(inputPlaceholderCount, "vector figure remediation should reduce placeholder alt text");
-            altText.ImageCalls.Should().BeGreaterThan(0, "vector figure remediation should call the alt text service at least once");
+            outputFigures.Should().BeEmpty("tiny figure artifacts should be removed or demoted before AI alt text");
+            altText.ImageCalls.Should().Be(0);
         }
         finally
         {
@@ -65,7 +54,52 @@ public sealed class PdfRemediationProcessorVectorFigureAltTests
         }
     }
 
-    private static void CreateTaggedPdfWithPlaceholderVectorFigure(string outputPath)
+    [Fact]
+    public async Task ProcessAsync_BlankVectorFigureCrop_DemotesWithoutCallingAltTextService()
+    {
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-vector-blank-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateTaggedPdfWithPlaceholderVectorFigure(inputPdfPath);
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+
+            var altText = new FakeAltTextService();
+            var sut = new PdfRemediationProcessor(
+                altText,
+                new NoopPdfBookmarkService(),
+                new FakePdfTitleService(),
+                new BlankPdfPageRasterizer(),
+                NullLogger<PdfRemediationProcessor>.Instance);
+
+            await sut.ProcessAsync(
+                fileId: "fixture",
+                inputPdfPath: inputPdfPath,
+                outputPdfPath: outputPdfPath,
+                cancellationToken: CancellationToken.None);
+
+            using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
+            var outputFigures = ListStructElementsByRole(outputPdf, PdfName.Figure);
+
+            outputFigures.Should().BeEmpty("blank figure crops should be removed or demoted before AI alt text");
+            altText.ImageCalls.Should().Be(0);
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
+    private static void CreateTaggedPdfWithPlaceholderVectorFigure(
+        string outputPath,
+        float figureWidth = 120,
+        float figureHeight = 80)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
 
@@ -125,7 +159,7 @@ public sealed class PdfRemediationProcessorVectorFigureAltTests
         canvas.BeginMarkedContent(PdfName.Figure, markedContentProperties);
         canvas.SaveState();
         canvas.SetFillColor(ColorConstants.BLACK);
-        canvas.Rectangle(100, 500, 120, 80);
+        canvas.Rectangle(100, 500, figureWidth, figureHeight);
         canvas.Fill();
         canvas.RestoreState();
         canvas.EndMarkedContent();
@@ -166,7 +200,7 @@ public sealed class PdfRemediationProcessorVectorFigureAltTests
         }
     }
 
-    private sealed class FakePdfPageRasterizer : IPdfPageRasterizer
+    private sealed class DetailPdfPageRasterizer : IPdfPageRasterizer
     {
         private static readonly BgraBitmap PageWithVisualDetail = CreatePageWithVisualDetail(widthPx: 200, heightPx: 200);
 
@@ -214,10 +248,47 @@ public sealed class PdfRemediationProcessorVectorFigureAltTests
         }
     }
 
-    private static bool IsPlaceholderAlt(PdfDictionary structElem)
+    private sealed class BlankPdfPageRasterizer : IPdfPageRasterizer
     {
-        var alt = structElem.GetAsString(PdfName.Alt)?.ToUnicodeString() ?? string.Empty;
-        return string.Equals(alt.Trim(), "alt text for image", StringComparison.OrdinalIgnoreCase);
+        private static readonly BgraBitmap BlankPage = CreateBlankPage(widthPx: 200, heightPx: 200);
+
+        public bool IsAvailable => true;
+
+        public IPdfRasterDocument OpenDocument(string pdfPath, int dpi)
+        {
+            _ = pdfPath;
+            _ = dpi;
+            return new Doc();
+        }
+
+        private sealed class Doc : IPdfRasterDocument
+        {
+            public void Dispose()
+            {
+            }
+
+            public BgraBitmap RenderPage(int pageNumber1Based, CancellationToken cancellationToken)
+            {
+                _ = pageNumber1Based;
+                cancellationToken.ThrowIfCancellationRequested();
+                return BlankPage;
+            }
+        }
+
+        private static BgraBitmap CreateBlankPage(int widthPx, int heightPx)
+        {
+            var stride = widthPx * 4;
+            var bytes = new byte[stride * heightPx];
+            for (var i = 0; i < bytes.Length; i += 4)
+            {
+                bytes[i + 0] = 255; // B
+                bytes[i + 1] = 255; // G
+                bytes[i + 2] = 255; // R
+                bytes[i + 3] = 255; // A
+            }
+
+            return new BgraBitmap(bytes, widthPx, heightPx, stride);
+        }
     }
 
     private static List<PdfDictionary> ListStructElementsByRole(PdfDocument pdf, PdfName role)

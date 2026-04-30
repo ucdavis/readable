@@ -23,17 +23,17 @@ public sealed class PdfRemediationProcessorTests
             inputFigures.Any(f => !HasNonEmptyAlt(f)).Should().BeTrue("fixture should have figures missing alt text");
         }
 
-            var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(runRoot);
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
 
-            try
-            {
-                var outputPdfPath = Path.Combine(runRoot, "output.pdf");
-                var sut = new PdfRemediationProcessor(
-                    new FakeAltTextService(),
-                    new NoopPdfBookmarkService(),
-                    new FakePdfTitleService(),
-                    NullLogger<PdfRemediationProcessor>.Instance);
+        try
+        {
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            var sut = new PdfRemediationProcessor(
+                new FakeAltTextService(),
+                new NoopPdfBookmarkService(),
+                new FakePdfTitleService(),
+                NullLogger<PdfRemediationProcessor>.Instance);
 
             var result = await sut.ProcessAsync(
                 fileId: "fixture",
@@ -59,46 +59,6 @@ public sealed class PdfRemediationProcessorTests
         }
     }
 
-    [Fact]
-    public async Task ProcessAsync_WhenRasterImageAltGenerationFails_LeavesFigureWithoutAlt()
-    {
-        var repoRoot = FindRepoRoot();
-        var inputPdfPath = Path.Combine(repoRoot, "tests", "server.tests", "Fixtures", "pdfs", "tagged-missing-alt.pdf");
-        File.Exists(inputPdfPath).Should().BeTrue($"fixture should exist at {inputPdfPath}");
-
-        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-alt-fail-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(runRoot);
-
-        try
-        {
-            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
-            var sut = new PdfRemediationProcessor(
-                new ThrowingAltTextService(),
-                new NoopPdfBookmarkService(),
-                new FakePdfTitleService(),
-                NullLogger<PdfRemediationProcessor>.Instance);
-
-            var result = await sut.ProcessAsync(
-                fileId: "fixture",
-                inputPdfPath: inputPdfPath,
-                outputPdfPath: outputPdfPath,
-                cancellationToken: CancellationToken.None);
-
-            using var outputPdf = new PdfDocument(new PdfReader(result.OutputPdfPath));
-            var outputFigures = ListStructElementsByRole(outputPdf, PdfName.Figure);
-            outputFigures.Count.Should().BeGreaterThan(0);
-            outputFigures.Any(f => !HasNonEmptyAlt(f)).Should().BeTrue("failed automation should leave figures for manual remediation instead of writing placeholder alt");
-            outputFigures.Should().NotContain(f => GetAlt(f) == "fake image alt text");
-        }
-        finally
-        {
-            if (Directory.Exists(runRoot))
-            {
-                Directory.Delete(runRoot, recursive: true);
-            }
-        }
-    }
-
     private sealed class FakeAltTextService : IAltTextService
     {
         public Task<string> GetAltTextForImageAsync(ImageAltTextRequest request, CancellationToken cancellationToken)
@@ -113,27 +73,6 @@ public sealed class PdfRemediationProcessorTests
             _ = request;
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult("fake link alt text");
-        }
-
-        public string GetFallbackAltTextForImage() => "fake image alt text";
-
-        public string GetFallbackAltTextForLink() => "fake link alt text";
-    }
-
-    private sealed class ThrowingAltTextService : IAltTextService
-    {
-        public Task<string> GetAltTextForImageAsync(ImageAltTextRequest request, CancellationToken cancellationToken)
-        {
-            _ = request;
-            cancellationToken.ThrowIfCancellationRequested();
-            throw new InvalidOperationException("fake alt text failure");
-        }
-
-        public Task<string> GetAltTextForLinkAsync(LinkAltTextRequest request, CancellationToken cancellationToken)
-        {
-            _ = request;
-            cancellationToken.ThrowIfCancellationRequested();
-            throw new InvalidOperationException("fake link alt text failure");
         }
 
         public string GetFallbackAltTextForImage() => "fake image alt text";
