@@ -115,6 +115,53 @@ public sealed class AdobePdfServices : IAdobePdfServices
         int? pageEnd,
         CancellationToken cancellationToken)
     {
+        var maxRetries = GetAccessibilityCheckerMaxRetries();
+        var maxAttempts = maxRetries + 1;
+        var baseDelay = GetAccessibilityCheckerRetryBaseDelay();
+        var maxDelay = GetAccessibilityCheckerRetryMaxDelay();
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await RunAccessibilityCheckerOnceAsync(
+                    inputPdfPath,
+                    outputPdfPath,
+                    outputReportPath,
+                    pageStart,
+                    pageEnd,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (
+                attempt < maxAttempts
+                && IsRetryableAccessibilityCheckerException(ex))
+            {
+                var delay = ComputeRetryDelay(attempt, baseDelay, maxDelay);
+                _logger.LogWarning(
+                    ex,
+                    "Adobe Accessibility Checker failed with a retryable error for {input}; retrying attempt {nextAttempt}/{maxAttempts} after {delayMs}ms",
+                    inputPdfPath,
+                    attempt + 1,
+                    maxAttempts,
+                    delay.TotalMilliseconds);
+
+                await Task.Delay(delay, cancellationToken);
+            }
+        }
+    }
+
+    private async Task<AdobeAccessibilityCheckOutput> RunAccessibilityCheckerOnceAsync(
+        string inputPdfPath,
+        string outputPdfPath,
+        string outputReportPath,
+        int? pageStart,
+        int? pageEnd,
+        CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
 
         var pdfServices = CreateClient();
@@ -166,6 +213,75 @@ public sealed class AdobePdfServices : IAdobePdfServices
             outputReportPath);
 
         return new AdobeAccessibilityCheckOutput(outputPdfPath, outputReportPath, reportJson);
+    }
+
+    private int GetAccessibilityCheckerMaxRetries()
+    {
+        var configured =
+            _configuration.GetValue<int?>("AdobePdfServices:AccessibilityCheckerMaxRetries")
+            ?? _configuration.GetValue<int?>("AdobePdfServices__AccessibilityCheckerMaxRetries")
+            ?? _configuration.GetValue<int?>("ADOBE_ACCESSIBILITY_CHECKER_MAX_RETRIES");
+
+        return Math.Max(0, configured ?? 3);
+    }
+
+    private TimeSpan GetAccessibilityCheckerRetryBaseDelay()
+    {
+        var configuredSeconds =
+            _configuration.GetValue<double?>("AdobePdfServices:AccessibilityCheckerRetryBaseDelaySeconds")
+            ?? _configuration.GetValue<double?>("AdobePdfServices__AccessibilityCheckerRetryBaseDelaySeconds")
+            ?? _configuration.GetValue<double?>("ADOBE_ACCESSIBILITY_CHECKER_RETRY_BASE_DELAY_SECONDS");
+
+        return TimeSpan.FromSeconds(Math.Max(0, configuredSeconds ?? 2));
+    }
+
+    private TimeSpan GetAccessibilityCheckerRetryMaxDelay()
+    {
+        var configuredSeconds =
+            _configuration.GetValue<double?>("AdobePdfServices:AccessibilityCheckerRetryMaxDelaySeconds")
+            ?? _configuration.GetValue<double?>("AdobePdfServices__AccessibilityCheckerRetryMaxDelaySeconds")
+            ?? _configuration.GetValue<double?>("ADOBE_ACCESSIBILITY_CHECKER_RETRY_MAX_DELAY_SECONDS");
+
+        return TimeSpan.FromSeconds(Math.Max(0, configuredSeconds ?? 30));
+    }
+
+    private static TimeSpan ComputeRetryDelay(int failedAttempt, TimeSpan baseDelay, TimeSpan maxDelay)
+    {
+        if (baseDelay <= TimeSpan.Zero || maxDelay <= TimeSpan.Zero)
+        {
+            return TimeSpan.Zero;
+        }
+
+        var exponentialMultiplier = Math.Pow(2, Math.Max(0, failedAttempt - 1));
+        var delayMs = Math.Min(baseDelay.TotalMilliseconds * exponentialMultiplier, maxDelay.TotalMilliseconds);
+        var jitterMultiplier = 0.8 + (Random.Shared.NextDouble() * 0.4);
+
+        return TimeSpan.FromMilliseconds(delayMs * jitterMultiplier);
+    }
+
+    private static bool IsRetryableAccessibilityCheckerException(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (IsAdobeRateLimitException(current))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsAdobeRateLimitException(Exception exception)
+    {
+        var exceptionText = string.Concat(exception.GetType().FullName, " ", exception.Message);
+
+        return exceptionText.Contains("ServiceUsageException", StringComparison.OrdinalIgnoreCase)
+            || exceptionText.Contains("TOO_MANY_REQUESTS", StringComparison.OrdinalIgnoreCase)
+            || exceptionText.Contains("Too Many Requests", StringComparison.OrdinalIgnoreCase)
+            || exceptionText.Contains("httpStatusCode = 429", StringComparison.OrdinalIgnoreCase)
+            || exceptionText.Contains("httpStatusCode=429", StringComparison.OrdinalIgnoreCase)
+            || exceptionText.Contains("StatusCode: 429", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
