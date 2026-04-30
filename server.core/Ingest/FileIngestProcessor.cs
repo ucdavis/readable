@@ -269,7 +269,15 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 "OpenDataLoader queued ingest requires an IPdfPipelineProcessor implementation.");
         }
 
-        var attemptId = await StartProcessingAttemptAsync(fileId, cancellationToken);
+        var attemptId = await StartOrReuseQueuedProcessingAttemptAsync(fileId, cancellationToken);
+        if (attemptId is null)
+        {
+            _logger.LogInformation(
+                "Skipping OpenDataLoader intake for {fileId}; file already has a completed processing attempt.",
+                request.FileId);
+            return;
+        }
+
         var pageCount = 0;
         PdfIntakeResult? intakeResult = null;
 
@@ -304,18 +312,18 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                     request.BlobUri,
                     GetConfiguredContainerName("Storage:TempContainer", "Storage__TempContainer", "temp"),
                     request.FileId,
-                    attemptId,
+                    attemptId.Value,
                     "opendataloader.tagged.pdf");
                 var reportUri = BuildPipelineArtifactUri(
                     request.BlobUri,
                     GetConfiguredContainerName("Storage:ReportsContainer", "Storage__ReportsContainer", "reports"),
                     request.FileId,
-                    attemptId,
+                    attemptId.Value,
                     "opendataloader.autotag-report.json");
 
                 var message = new AutotagJobMessage(
                     FileId: request.FileId,
-                    AttemptId: attemptId,
+                    AttemptId: attemptId.Value,
                     Provider: FileIngestOptions.AutotagProviders.OpenDataLoader,
                     SourceBlobUri: request.BlobUri,
                     OriginalBlobUri: request.BlobUri,
@@ -340,7 +348,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             {
                 var message = new FinalizePdfMessage(
                     FileId: request.FileId,
-                    AttemptId: attemptId,
+                    AttemptId: attemptId.Value,
                     OriginalBlobUri: request.BlobUri,
                     OriginalContainerName: request.ContainerName,
                     OriginalBlobName: request.BlobName,
@@ -376,7 +384,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 totalSw.Elapsed.TotalMilliseconds);
             await CompleteProcessingAttemptAsync(
                 fileId,
-                attemptId,
+                attemptId.Value,
                 outcome: FileProcessingAttempt.Outcomes.Cancelled,
                 error: oce,
                 request,
@@ -399,7 +407,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 totalSw.Elapsed.TotalMilliseconds);
             await CompleteProcessingAttemptAsync(
                 fileId,
-                attemptId,
+                attemptId.Value,
                 outcome: FileProcessingAttempt.Outcomes.Failed,
                 error: ex,
                 request,
@@ -751,6 +759,56 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         {
             FileId = fileId,
             AttemptNumber = lastAttemptNumber + 1,
+            Trigger = FileProcessingAttempt.Triggers.Upload,
+            StartedAt = now,
+            Outcome = null,
+        };
+
+        dbContext.FileProcessingAttempts.Add(attempt);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return attempt.AttemptId;
+    }
+
+    private async Task<long?> StartOrReuseQueuedProcessingAttemptAsync(Guid fileId, CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var file = await dbContext.Files.SingleOrDefaultAsync(x => x.FileId == fileId, cancellationToken);
+        if (file is null)
+        {
+            _logger.LogError("No file record found for ingest fileId={fileId}", fileId);
+            throw new InvalidOperationException($"No file record found for ingest fileId={fileId}");
+        }
+
+        var latestAttempt = await dbContext.FileProcessingAttempts
+            .Where(x => x.FileId == fileId)
+            .OrderByDescending(x => x.AttemptNumber)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (latestAttempt is not null &&
+            latestAttempt.Outcome is null &&
+            string.Equals(file.Status, FileRecord.Statuses.Processing, StringComparison.Ordinal))
+        {
+            file.StatusUpdatedAt = now;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return latestAttempt.AttemptId;
+        }
+
+        if (latestAttempt is not null &&
+            string.Equals(latestAttempt.Outcome, FileProcessingAttempt.Outcomes.Succeeded, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        file.Status = FileRecord.Statuses.Processing;
+        file.StatusUpdatedAt = now;
+
+        var attempt = new FileProcessingAttempt
+        {
+            FileId = fileId,
+            AttemptNumber = (latestAttempt?.AttemptNumber ?? 0) + 1,
             Trigger = FileProcessingAttempt.Triggers.Upload,
             StartedAt = now,
             Outcome = null,

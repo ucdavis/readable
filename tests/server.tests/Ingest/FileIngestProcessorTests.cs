@@ -223,6 +223,146 @@ public class FileIngestProcessorTests
     }
 
     [Fact]
+    public async Task ProcessAsync_WithOpenDataLoaderProvider_WhenPdfDoesNotNeedAutotag_EnqueuesFinalize()
+    {
+        var fileId = Guid.NewGuid();
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"ingest_{Guid.NewGuid():N}")
+            .EnableSensitiveDataLogging()
+            .Options;
+
+        await SeedFileAsync(options, fileId, "already-tagged.pdf");
+
+        var dbContextFactory = new InMemoryDbContextFactory(options);
+        var pdf = new FakePipelineProcessor
+        {
+            IntakeResult = new PdfIntakeResult(
+                RequiresAutotag: false,
+                PageCount: 5,
+                BeforeAccessibilityReportJson: "{\"Summary\":{\"Failed\":0}}",
+                BeforeAccessibilityReportPath: null,
+                Autotag: new PdfAutotagMetadata(
+                    FileIngestOptions.AutotagProviders.None,
+                    Required: false,
+                    SkippedReason: "already-tagged",
+                    ChunkCount: 0,
+                    LocalReportPaths: []))
+        };
+        var queue = new FakeIngestQueueClient();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["INGEST_AUTOTAG_PROVIDER"] = FileIngestOptions.AutotagProviders.OpenDataLoader,
+            })
+            .Build();
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+
+        var sut = new FileIngestProcessor(
+            dbContextFactory,
+            new FakeBlobStreamOpener(),
+            pdf,
+            new FakeBlobStorage(),
+            configuration,
+            queue,
+            new IngestQueueOptions("files", "autotag-odl", "pdf-finalize", "pdf-failed"),
+            Options.Create(new PdfProcessorOptions()),
+            loggerFactory.CreateLogger<FileIngestProcessor>());
+
+        var request = new BlobIngestRequest(
+            new Uri("https://example.blob.core.windows.net/incoming/already-tagged.pdf"),
+            "incoming",
+            "already-tagged.pdf",
+            fileId.ToString());
+
+        await sut.ProcessAsync(request, CancellationToken.None);
+
+        queue.AutotagJobs.Should().BeEmpty();
+        queue.FinalizeMessages.Should().ContainSingle();
+        queue.FinalizeMessages[0].PdfToFinalizeBlobUri.Should().Be(request.BlobUri);
+        queue.FinalizeMessages[0].Autotag.Provider.Should().Be(FileIngestOptions.AutotagProviders.None);
+        queue.FinalizeMessages[0].Autotag.SkippedReason.Should().Be("already-tagged");
+
+        await using var verify = new AppDbContext(options);
+        var file = await verify.Files.SingleAsync(x => x.FileId == fileId);
+        file.Status.Should().Be(FileRecord.Statuses.Processing);
+
+        var attempt = await verify.FileProcessingAttempts.SingleAsync(x => x.FileId == fileId);
+        attempt.Outcome.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithOpenDataLoaderProvider_WhenFilesMessageIsDuplicated_ReusesOpenAttempt()
+    {
+        var fileId = Guid.NewGuid();
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"ingest_{Guid.NewGuid():N}")
+            .EnableSensitiveDataLogging()
+            .Options;
+
+        await SeedFileAsync(options, fileId, "queued.pdf");
+
+        var dbContextFactory = new InMemoryDbContextFactory(options);
+        var pdf = new FakePipelineProcessor
+        {
+            IntakeResult = new PdfIntakeResult(
+                RequiresAutotag: true,
+                PageCount: 5,
+                BeforeAccessibilityReportJson: "{\"Summary\":{\"Failed\":1}}",
+                BeforeAccessibilityReportPath: null,
+                Autotag: new PdfAutotagMetadata(
+                    FileIngestOptions.AutotagProviders.OpenDataLoader,
+                    Required: true,
+                    SkippedReason: null,
+                    ChunkCount: 1,
+                    LocalReportPaths: []))
+        };
+        var queue = new FakeIngestQueueClient();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["INGEST_AUTOTAG_PROVIDER"] = FileIngestOptions.AutotagProviders.OpenDataLoader,
+                ["Storage__TempContainer"] = "temp",
+                ["Storage__ReportsContainer"] = "reports",
+            })
+            .Build();
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+
+        var sut = new FileIngestProcessor(
+            dbContextFactory,
+            new FakeBlobStreamOpener(),
+            pdf,
+            new FakeBlobStorage(),
+            configuration,
+            queue,
+            new IngestQueueOptions("files", "autotag-odl", "pdf-finalize", "pdf-failed"),
+            Options.Create(new PdfProcessorOptions()),
+            loggerFactory.CreateLogger<FileIngestProcessor>());
+
+        var request = new BlobIngestRequest(
+            new Uri("https://example.blob.core.windows.net/incoming/queued.pdf"),
+            "incoming",
+            "queued.pdf",
+            fileId.ToString());
+
+        await sut.ProcessAsync(request, CancellationToken.None);
+        await sut.ProcessAsync(request, CancellationToken.None);
+
+        queue.AutotagJobs.Should().HaveCount(2);
+        queue.AutotagJobs.Select(x => x.AttemptId).Distinct().Should().ContainSingle();
+        queue.AutotagJobs.Select(x => x.OutputTaggedPdfBlobUri).Distinct().Should().ContainSingle();
+        queue.AutotagJobs.Select(x => x.OutputReportBlobUri).Distinct().Should().ContainSingle();
+
+        await using var verify = new AppDbContext(options);
+        var attempts = await verify.FileProcessingAttempts.Where(x => x.FileId == fileId).ToListAsync();
+        attempts.Should().ContainSingle();
+
+        var beforeReports = await verify.AccessibilityReports
+            .Where(x => x.FileId == fileId && x.Stage == AccessibilityReport.Stages.Before)
+            .ToListAsync();
+        beforeReports.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task FinalizeAsync_CompletesQueuedAttemptAndDeletesIncomingBlob()
     {
         var fileId = Guid.NewGuid();
@@ -317,6 +457,106 @@ public class FileIngestProcessorTests
         var attempt = await verify.FileProcessingAttempts.SingleAsync(x => x.FileId == fileId);
         attempt.Outcome.Should().Be(FileProcessingAttempt.Outcomes.Succeeded);
         attempt.FinishedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task FinalizeAsync_WhenMessageIsDuplicated_UpsertsReportsAndOverwritesProcessedBlob()
+    {
+        var fileId = Guid.NewGuid();
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"ingest_{Guid.NewGuid():N}")
+            .EnableSensitiveDataLogging()
+            .Options;
+
+        await SeedFileAsync(options, fileId, "queued.pdf");
+        long attemptId;
+        await using (var db = new AppDbContext(options))
+        {
+            var seededFile = await db.Files.SingleAsync(x => x.FileId == fileId);
+            seededFile.Status = FileRecord.Statuses.Processing;
+            var seededAttempt = new FileProcessingAttempt
+            {
+                FileId = fileId,
+                AttemptNumber = 1,
+                Trigger = FileProcessingAttempt.Triggers.Upload,
+                StartedAt = DateTimeOffset.UtcNow,
+            };
+            db.FileProcessingAttempts.Add(seededAttempt);
+            await db.SaveChangesAsync();
+            attemptId = seededAttempt.AttemptId;
+        }
+
+        var dbContextFactory = new InMemoryDbContextFactory(options);
+        var outputPath = CreateTempPdf();
+        var pdf = new FakePipelineProcessor
+        {
+            FinalizeResult = new PdfProcessResult(
+                OutputPdfPath: outputPath,
+                AfterAccessibilityReportJson: "{\"Summary\":{\"Failed\":0}}",
+                PageCount: 5,
+                Autotag: new PdfAutotagMetadata(
+                    FileIngestOptions.AutotagProviders.OpenDataLoader,
+                    Required: true,
+                    SkippedReason: null,
+                    ChunkCount: 1,
+                    LocalReportPaths: ["https://example.blob.core.windows.net/reports/report.json"]))
+        };
+        var blobStorage = new FakeBlobStorage();
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+
+        var sut = new FileIngestProcessor(
+            dbContextFactory,
+            new FakeBlobStreamOpener(),
+            pdf,
+            blobStorage,
+            new ConfigurationBuilder().Build(),
+            new FakeIngestQueueClient(),
+            new IngestQueueOptions("files", "autotag-odl", "pdf-finalize", "pdf-failed"),
+            Options.Create(new PdfProcessorOptions()),
+            loggerFactory.CreateLogger<FileIngestProcessor>());
+
+        var message = new FinalizePdfMessage(
+            FileId: fileId.ToString(),
+            AttemptId: attemptId,
+            OriginalBlobUri: new Uri("https://example.blob.core.windows.net/incoming/queued.pdf"),
+            OriginalContainerName: "incoming",
+            OriginalBlobName: "queued.pdf",
+            PdfToFinalizeBlobUri: new Uri("https://example.blob.core.windows.net/temp/tagged.pdf"),
+            PageCount: 5,
+            Autotag: new PdfAutotagMessageMetadata(
+                FileIngestOptions.AutotagProviders.OpenDataLoader,
+                Required: true,
+                SkippedReason: null,
+                ChunkCount: 1,
+                ReportUris: ["https://example.blob.core.windows.net/reports/report.json"]),
+            CorrelationId: Guid.NewGuid().ToString("N"),
+            EnqueuedAt: DateTimeOffset.UtcNow);
+
+        try
+        {
+            await sut.FinalizeAsync(message, CancellationToken.None);
+            await sut.FinalizeAsync(message, CancellationToken.None);
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+
+        pdf.FinalizeCalls.Should().Be(2);
+        blobStorage.Uploads.Should().HaveCount(2);
+        blobStorage.Uploads.Distinct().Should().ContainSingle()
+            .Which.Should().Be(new Uri("https://example.blob.core.windows.net/processed/queued.pdf"));
+        blobStorage.Deletes.Should().HaveCount(2);
+
+        await using var verify = new AppDbContext(options);
+        var reports = await verify.AccessibilityReports
+            .Where(x => x.FileId == fileId && x.Stage == AccessibilityReport.Stages.After)
+            .ToListAsync();
+        reports.Should().ContainSingle();
+
+        var attempts = await verify.FileProcessingAttempts.Where(x => x.FileId == fileId).ToListAsync();
+        attempts.Should().ContainSingle();
+        attempts[0].Outcome.Should().Be(FileProcessingAttempt.Outcomes.Succeeded);
     }
 
     [Fact]
@@ -798,10 +1038,13 @@ public class FileIngestProcessorTests
     {
         public Uri? UploadedTo { get; private set; }
         public Uri? Deleted { get; private set; }
+        public List<Uri> Uploads { get; } = [];
+        public List<Uri> Deletes { get; } = [];
 
         public async Task UploadAsync(Uri destinationBlobUri, Stream content, string contentType, CancellationToken cancellationToken)
         {
             UploadedTo = destinationBlobUri;
+            Uploads.Add(destinationBlobUri);
             contentType.Should().Be("application/pdf");
 
             using var ms = new MemoryStream();
@@ -812,6 +1055,7 @@ public class FileIngestProcessorTests
         public Task DeleteIfExistsAsync(Uri blobUri, CancellationToken cancellationToken)
         {
             Deleted = blobUri;
+            Deletes.Add(blobUri);
             return Task.CompletedTask;
         }
     }
