@@ -269,12 +269,21 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 "OpenDataLoader queued ingest requires an IPdfPipelineProcessor implementation.");
         }
 
-        var attemptId = await StartOrReuseQueuedProcessingAttemptAsync(fileId, cancellationToken);
-        if (attemptId is null)
+        var attempt = await StartOrReuseQueuedProcessingAttemptAsync(fileId, cancellationToken);
+        if (attempt is null)
         {
             _logger.LogInformation(
                 "Skipping OpenDataLoader intake for {fileId}; file already has a completed processing attempt.",
                 request.FileId);
+            return;
+        }
+
+        if (!attempt.Started)
+        {
+            _logger.LogInformation(
+                "Skipping duplicate OpenDataLoader intake for {fileId}; attemptId={attemptId} is already processing.",
+                request.FileId,
+                attempt.AttemptId);
             return;
         }
 
@@ -312,18 +321,18 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                     request.BlobUri,
                     GetConfiguredContainerName("Storage:TempContainer", "Storage__TempContainer", "temp"),
                     request.FileId,
-                    attemptId.Value,
+                    attempt.AttemptId,
                     "opendataloader.tagged.pdf");
                 var reportUri = BuildPipelineArtifactUri(
                     request.BlobUri,
                     GetConfiguredContainerName("Storage:ReportsContainer", "Storage__ReportsContainer", "reports"),
                     request.FileId,
-                    attemptId.Value,
+                    attempt.AttemptId,
                     "opendataloader.autotag-report.json");
 
                 var message = new AutotagJobMessage(
                     FileId: request.FileId,
-                    AttemptId: attemptId.Value,
+                    AttemptId: attempt.AttemptId,
                     Provider: FileIngestOptions.AutotagProviders.OpenDataLoader,
                     SourceBlobUri: request.BlobUri,
                     OriginalBlobUri: request.BlobUri,
@@ -348,7 +357,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             {
                 var message = new FinalizePdfMessage(
                     FileId: request.FileId,
-                    AttemptId: attemptId.Value,
+                    AttemptId: attempt.AttemptId,
                     OriginalBlobUri: request.BlobUri,
                     OriginalContainerName: request.ContainerName,
                     OriginalBlobName: request.BlobName,
@@ -384,7 +393,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 totalSw.Elapsed.TotalMilliseconds);
             await CompleteProcessingAttemptAsync(
                 fileId,
-                attemptId.Value,
+                attempt.AttemptId,
                 outcome: FileProcessingAttempt.Outcomes.Cancelled,
                 error: oce,
                 request,
@@ -407,7 +416,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 totalSw.Elapsed.TotalMilliseconds);
             await CompleteProcessingAttemptAsync(
                 fileId,
-                attemptId.Value,
+                attempt.AttemptId,
                 outcome: FileProcessingAttempt.Outcomes.Failed,
                 error: ex,
                 request,
@@ -442,6 +451,15 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
 
         try
         {
+            if (await IsProcessingAttemptCompleteAsync(fileId, message.AttemptId, cancellationToken))
+            {
+                _logger.LogInformation(
+                    "Skipping duplicate PDF finalization for {fileId}; attemptId={attemptId} is already complete.",
+                    message.FileId,
+                    message.AttemptId);
+                return;
+            }
+
             await using var stream = await OpenBlobStreamAsync(message.FileId, message.PdfToFinalizeBlobUri, cancellationToken);
             using (LogStage.Begin(
                        _logger,
@@ -551,6 +569,15 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             message.OriginalContainerName,
             message.OriginalBlobName,
             message.FileId);
+
+        if (await IsProcessingAttemptCompleteAsync(fileId, message.AttemptId, cancellationToken))
+        {
+            _logger.LogInformation(
+                "Skipping duplicate autotag failure for {fileId}; attemptId={attemptId} is already complete.",
+                message.FileId,
+                message.AttemptId);
+            return;
+        }
 
         _logger.LogError(
             "Marking ingest failed after autotag provider failure. fileId={fileId} provider={provider} deliveryCount={deliveryCount} errorCode={errorCode}",
@@ -770,7 +797,9 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         return attempt.AttemptId;
     }
 
-    private async Task<long?> StartOrReuseQueuedProcessingAttemptAsync(Guid fileId, CancellationToken cancellationToken)
+    private async Task<QueuedProcessingAttempt?> StartOrReuseQueuedProcessingAttemptAsync(
+        Guid fileId,
+        CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
@@ -793,7 +822,7 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         {
             file.StatusUpdatedAt = now;
             await dbContext.SaveChangesAsync(cancellationToken);
-            return latestAttempt.AttemptId;
+            return new QueuedProcessingAttempt(latestAttempt.AttemptId, Started: false);
         }
 
         if (latestAttempt is not null &&
@@ -817,7 +846,22 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         dbContext.FileProcessingAttempts.Add(attempt);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return attempt.AttemptId;
+        return new QueuedProcessingAttempt(attempt.AttemptId, Started: true);
+    }
+
+    private async Task<bool> IsProcessingAttemptCompleteAsync(
+        Guid fileId,
+        long attemptId,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.FileProcessingAttempts
+            .AsNoTracking()
+            .AnyAsync(
+                x => x.AttemptId == attemptId &&
+                     x.FileId == fileId &&
+                     x.Outcome != null,
+                cancellationToken);
     }
 
     private async Task CompleteProcessingAttemptAsync(
@@ -845,6 +889,16 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                     "Unable to finalize ingest attempt; attemptId={attemptId} fileId={fileId} not found.",
                     attemptId,
                     fileId);
+                return;
+            }
+
+            if (attempt.Outcome is not null)
+            {
+                _logger.LogInformation(
+                    "Skipping ingest attempt completion for {fileId}; attemptId={attemptId} already has outcome={existingOutcome}.",
+                    fileId,
+                    attemptId,
+                    attempt.Outcome);
                 return;
             }
 
@@ -1029,4 +1083,6 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 : $"{ErrorCode}: {Message}\n\n{Details}";
         }
     }
+
+    private sealed record QueuedProcessingAttempt(long AttemptId, bool Started);
 }

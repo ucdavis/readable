@@ -291,7 +291,7 @@ public class FileIngestProcessorTests
     }
 
     [Fact]
-    public async Task ProcessAsync_WithOpenDataLoaderProvider_WhenFilesMessageIsDuplicated_ReusesOpenAttempt()
+    public async Task ProcessAsync_WithOpenDataLoaderProvider_WhenFilesMessageIsDuplicated_SkipsOpenAttempt()
     {
         var fileId = Guid.NewGuid();
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -347,10 +347,8 @@ public class FileIngestProcessorTests
         await sut.ProcessAsync(request, CancellationToken.None);
         await sut.ProcessAsync(request, CancellationToken.None);
 
-        queue.AutotagJobs.Should().HaveCount(2);
-        queue.AutotagJobs.Select(x => x.AttemptId).Distinct().Should().ContainSingle();
-        queue.AutotagJobs.Select(x => x.OutputTaggedPdfBlobUri).Distinct().Should().ContainSingle();
-        queue.AutotagJobs.Select(x => x.OutputReportBlobUri).Distinct().Should().ContainSingle();
+        pdf.IntakeCalls.Should().Be(1);
+        queue.AutotagJobs.Should().ContainSingle();
 
         await using var verify = new AppDbContext(options);
         var attempts = await verify.FileProcessingAttempts.Where(x => x.FileId == fileId).ToListAsync();
@@ -462,7 +460,7 @@ public class FileIngestProcessorTests
     }
 
     [Fact]
-    public async Task FinalizeAsync_WhenMessageIsDuplicated_UpsertsReportsAndOverwritesProcessedBlob()
+    public async Task FinalizeAsync_WhenMessageIsDuplicated_SkipsCompletedAttempt()
     {
         var fileId = Guid.NewGuid();
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -540,11 +538,11 @@ public class FileIngestProcessorTests
             await sut.FinalizeAsync(message, CancellationToken.None);
             await sut.FinalizeAsync(message, CancellationToken.None);
 
-            pdf.FinalizeCalls.Should().Be(2);
-            blobStorage.Uploads.Should().HaveCount(2);
-            blobStorage.Uploads.Distinct().Should().ContainSingle()
+            pdf.FinalizeCalls.Should().Be(1);
+            blobStorage.Uploads.Should().ContainSingle()
                 .Which.Should().Be(new Uri("https://example.blob.core.windows.net/processed/queued.pdf"));
-            blobStorage.Deletes.Should().HaveCount(2);
+            blobStorage.Deletes.Should().ContainSingle()
+                .Which.Should().Be(message.OriginalBlobUri);
 
             await using var verify = new AppDbContext(options);
             var reports = await verify.AccessibilityReports
@@ -639,6 +637,79 @@ public class FileIngestProcessorTests
         using var metadata = JsonDocument.Parse(attempt.MetadataJson!);
         metadata.RootElement.GetProperty("failure").GetProperty("provider").GetString()
             .Should().Be(FileIngestOptions.AutotagProviders.OpenDataLoader);
+    }
+
+    [Fact]
+    public async Task FailAsync_WhenAttemptAlreadySucceeded_DoesNotOverwriteCompletedFile()
+    {
+        var fileId = Guid.NewGuid();
+        var finishedAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"ingest_{Guid.NewGuid():N}")
+            .EnableSensitiveDataLogging()
+            .Options;
+
+        await SeedFileAsync(options, fileId, "queued.pdf");
+        long attemptId;
+        await using (var db = new AppDbContext(options))
+        {
+            var seededFile = await db.Files.SingleAsync(x => x.FileId == fileId);
+            seededFile.Status = FileRecord.Statuses.Completed;
+            seededFile.PageCount = 5;
+            var seededAttempt = new FileProcessingAttempt
+            {
+                FileId = fileId,
+                AttemptNumber = 1,
+                Trigger = FileProcessingAttempt.Triggers.Upload,
+                StartedAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+                FinishedAt = finishedAt,
+                Outcome = FileProcessingAttempt.Outcomes.Succeeded,
+            };
+            db.FileProcessingAttempts.Add(seededAttempt);
+            await db.SaveChangesAsync();
+            attemptId = seededAttempt.AttemptId;
+        }
+
+        var dbContextFactory = new InMemoryDbContextFactory(options);
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        var sut = new FileIngestProcessor(
+            dbContextFactory,
+            new FakeBlobStreamOpener(),
+            new FakePipelineProcessor(),
+            new FakeBlobStorage(),
+            new ConfigurationBuilder().Build(),
+            new FakeIngestQueueClient(),
+            new IngestQueueOptions("files", "autotag-odl", "pdf-finalize", "pdf-failed"),
+            Options.Create(new PdfProcessorOptions()),
+            loggerFactory.CreateLogger<FileIngestProcessor>());
+
+        var message = new AutotagFailedMessage(
+            FileId: fileId.ToString(),
+            AttemptId: attemptId,
+            OriginalBlobUri: new Uri("https://example.blob.core.windows.net/incoming/queued.pdf"),
+            OriginalContainerName: "incoming",
+            OriginalBlobName: "queued.pdf",
+            Provider: FileIngestOptions.AutotagProviders.OpenDataLoader,
+            ErrorCode: "InvalidOperationException",
+            ErrorMessage: "stale failure",
+            ErrorDetails: "details",
+            DeliveryCount: 10,
+            CorrelationId: Guid.NewGuid().ToString("N"),
+            FailedAt: DateTimeOffset.UtcNow);
+
+        await sut.FailAsync(message, CancellationToken.None);
+
+        await using var verify = new AppDbContext(options);
+        var file = await verify.Files.SingleAsync(x => x.FileId == fileId);
+        file.Status.Should().Be(FileRecord.Statuses.Completed);
+        file.PageCount.Should().Be(5);
+
+        var attempt = await verify.FileProcessingAttempts.SingleAsync(x => x.FileId == fileId);
+        attempt.Outcome.Should().Be(FileProcessingAttempt.Outcomes.Succeeded);
+        attempt.FinishedAt.Should().Be(finishedAt);
+        attempt.ErrorCode.Should().BeNull();
+        attempt.ErrorMessage.Should().BeNull();
+        attempt.ErrorDetails.Should().BeNull();
     }
 
     [Fact]
