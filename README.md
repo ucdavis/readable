@@ -113,8 +113,10 @@ Useful environment variables:
 - `Storage__ConnectionString`: Blob Storage connection string.
 - `ODL_AUTOTAG_QUEUE_NAME`: autotag queue name, default `autotag-odl`.
 - `ODL_FINALIZE_QUEUE_NAME`: finalize queue name, default `pdf-finalize`.
+- `ODL_FAILED_QUEUE_NAME`: terminal failure queue name, default `pdf-failed`.
 - `ODL_PROCESS_TIMEOUT_SECONDS`: hard conversion timeout, default `210`.
 - `ODL_MAX_CONCURRENT_CONVERSIONS`: conversions per worker replica, default `1`.
+- `ODL_MAX_DELIVERY_COUNT`: delivery count at which the worker reports failure to ingest, default `10`.
 - `ODL_COMMAND_PATH`: override the CLI path, default `opendataloader-pdf`.
 - `ODL_HYBRID_URL`: optional hybrid backend URL. When set, the worker adds `--hybrid docling-fast --hybrid-url <url>`.
 

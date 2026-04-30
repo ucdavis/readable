@@ -181,7 +181,7 @@ public class FileIngestProcessorTests
             new FakeBlobStorage(),
             configuration,
             queue,
-            new IngestQueueOptions("files", "autotag-odl", "pdf-finalize"),
+            new IngestQueueOptions("files", "autotag-odl", "pdf-finalize", "pdf-failed"),
             Options.Create(new PdfProcessorOptions
             {
                 UseAdobePdfServices = true,
@@ -275,7 +275,7 @@ public class FileIngestProcessorTests
             blobStorage,
             configuration,
             new FakeIngestQueueClient(),
-            new IngestQueueOptions("files", "autotag-odl", "pdf-finalize"),
+            new IngestQueueOptions("files", "autotag-odl", "pdf-finalize", "pdf-failed"),
             Options.Create(new PdfProcessorOptions()),
             loggerFactory.CreateLogger<FileIngestProcessor>());
 
@@ -317,6 +317,85 @@ public class FileIngestProcessorTests
         var attempt = await verify.FileProcessingAttempts.SingleAsync(x => x.FileId == fileId);
         attempt.Outcome.Should().Be(FileProcessingAttempt.Outcomes.Succeeded);
         attempt.FinishedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task FailAsync_MarksQueuedAttemptAndFileFailed()
+    {
+        var fileId = Guid.NewGuid();
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"ingest_{Guid.NewGuid():N}")
+            .EnableSensitiveDataLogging()
+            .Options;
+
+        await SeedFileAsync(options, fileId, "queued.pdf");
+        long attemptId;
+        await using (var db = new AppDbContext(options))
+        {
+            var seededFile = await db.Files.SingleAsync(x => x.FileId == fileId);
+            seededFile.Status = FileRecord.Statuses.Processing;
+            var seededAttempt = new FileProcessingAttempt
+            {
+                FileId = fileId,
+                AttemptNumber = 1,
+                Trigger = FileProcessingAttempt.Triggers.Upload,
+                StartedAt = DateTimeOffset.UtcNow,
+            };
+            db.FileProcessingAttempts.Add(seededAttempt);
+            await db.SaveChangesAsync();
+            attemptId = seededAttempt.AttemptId;
+        }
+
+        var dbContextFactory = new InMemoryDbContextFactory(options);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["INGEST_AUTOTAG_PROVIDER"] = FileIngestOptions.AutotagProviders.OpenDataLoader,
+            })
+            .Build();
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+
+        var sut = new FileIngestProcessor(
+            dbContextFactory,
+            new FakeBlobStreamOpener(),
+            new FakePipelineProcessor(),
+            new FakeBlobStorage(),
+            configuration,
+            new FakeIngestQueueClient(),
+            new IngestQueueOptions("files", "autotag-odl", "pdf-finalize", "pdf-failed"),
+            Options.Create(new PdfProcessorOptions()),
+            loggerFactory.CreateLogger<FileIngestProcessor>());
+
+        var message = new AutotagFailedMessage(
+            FileId: fileId.ToString(),
+            AttemptId: attemptId,
+            OriginalBlobUri: new Uri("https://example.blob.core.windows.net/incoming/queued.pdf"),
+            OriginalContainerName: "incoming",
+            OriginalBlobName: "queued.pdf",
+            Provider: FileIngestOptions.AutotagProviders.OpenDataLoader,
+            ErrorCode: "InvalidOperationException",
+            ErrorMessage: "OpenDataLoader completed without producing a tagged PDF artifact.",
+            ErrorDetails: "details",
+            DeliveryCount: 10,
+            CorrelationId: Guid.NewGuid().ToString("N"),
+            FailedAt: DateTimeOffset.UtcNow);
+
+        await sut.FailAsync(message, CancellationToken.None);
+
+        await using var verify = new AppDbContext(options);
+        var file = await verify.Files.SingleAsync(x => x.FileId == fileId);
+        file.Status.Should().Be(FileRecord.Statuses.Failed);
+
+        var attempt = await verify.FileProcessingAttempts.SingleAsync(x => x.FileId == fileId);
+        attempt.Outcome.Should().Be(FileProcessingAttempt.Outcomes.Failed);
+        attempt.FinishedAt.Should().NotBeNull();
+        attempt.ErrorCode.Should().Be("InvalidOperationException");
+        attempt.ErrorMessage.Should().Contain("without producing a tagged PDF");
+        attempt.ErrorDetails.Should().Contain("details");
+        attempt.MetadataJson.Should().NotBeNullOrWhiteSpace();
+        using var metadata = JsonDocument.Parse(attempt.MetadataJson!);
+        metadata.RootElement.GetProperty("failure").GetProperty("provider").GetString()
+            .Should().Be(FileIngestOptions.AutotagProviders.OpenDataLoader);
     }
 
     [Fact]

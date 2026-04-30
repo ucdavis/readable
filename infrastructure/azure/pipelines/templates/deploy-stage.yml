@@ -228,6 +228,7 @@ stages:
                         { "name": "INGEST_FILES_QUEUE_NAME", "value": "files", "slotSetting": false },
                         { "name": "INGEST_ODL_AUTOTAG_QUEUE_NAME", "value": "autotag-odl", "slotSetting": false },
                         { "name": "INGEST_FINALIZE_QUEUE_NAME", "value": "pdf-finalize", "slotSetting": false },
+                        { "name": "INGEST_FAILED_QUEUE_NAME", "value": "pdf-failed", "slotSetting": false },
                         { "name": "PDF_SERVICES_CLIENT_ID", "value": "$(PDF_SERVICES_CLIENT_ID)", "slotSetting": false },
                         { "name": "PDF_SERVICES_CLIENT_SECRET", "value": "$(PDF_SERVICES_CLIENT_SECRET)", "slotSetting": false }
                       ]

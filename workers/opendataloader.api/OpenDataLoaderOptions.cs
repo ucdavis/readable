@@ -7,6 +7,7 @@ public sealed class OpenDataLoaderOptions
 {
     private const int DefaultProcessTimeoutSeconds = 210;
     private const int DefaultMaxConcurrentConversions = 1;
+    private const int DefaultMaxDeliveryCount = 10;
     private const int MaxErrorLength = 4000;
 
     public int ProcessTimeoutSeconds { get; init; } = DefaultProcessTimeoutSeconds;
@@ -19,6 +20,8 @@ public sealed class OpenDataLoaderOptions
     public string StorageConnectionString { get; init; } = string.Empty;
     public string AutotagQueueName { get; init; } = "autotag-odl";
     public string FinalizeQueueName { get; init; } = "pdf-finalize";
+    public string FailedQueueName { get; init; } = "pdf-failed";
+    public int MaxDeliveryCount { get; init; } = DefaultMaxDeliveryCount;
 
     public TimeSpan ProcessTimeout => TimeSpan.FromSeconds(ProcessTimeoutSeconds);
 
@@ -82,7 +85,17 @@ public sealed class OpenDataLoaderOptions
                 configuration,
                 "OpenDataLoader:FinalizeQueueName",
                 "ODL_FINALIZE_QUEUE_NAME",
-                "pdf-finalize")
+                "pdf-finalize"),
+            FailedQueueName = GetString(
+                configuration,
+                "OpenDataLoader:FailedQueueName",
+                "ODL_FAILED_QUEUE_NAME",
+                "pdf-failed"),
+            MaxDeliveryCount = GetInt(
+                configuration,
+                "OpenDataLoader:MaxDeliveryCount",
+                "ODL_MAX_DELIVERY_COUNT",
+                DefaultMaxDeliveryCount)
         };
     }
 

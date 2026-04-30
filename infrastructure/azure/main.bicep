@@ -103,10 +103,12 @@ var ingestAutotagProvider = deployOpenDataLoaderContainerApp ? 'OpenDataLoader' 
 var filesQueueName = serviceBusQueueBaseName == '' ? 'files' : serviceBusQueueBaseName
 var openDataLoaderAutotagQueueName = 'autotag-odl'
 var finalizeQueueName = 'pdf-finalize'
+var failedQueueName = 'pdf-failed'
 var fileQueueNames = [
   filesQueueName
   openDataLoaderAutotagQueueName
   finalizeQueueName
+  failedQueueName
 ]
 
 var incomingContainerName = 'incoming'
@@ -272,6 +274,7 @@ module compute 'modules/compute.bicep' = {
     ingestFilesQueueName: filesQueueName
     ingestOpenDataLoaderAutotagQueueName: openDataLoaderAutotagQueueName
     ingestFinalizeQueueName: finalizeQueueName
+    ingestFailedQueueName: failedQueueName
   }
 }
 
@@ -322,6 +325,7 @@ module openDataLoaderContainerApp 'modules/opendataloader-container-app.bicep' =
     storageConnectionString: storage.outputs.connectionString
     autotagQueueName: openDataLoaderAutotagQueueName
     finalizeQueueName: finalizeQueueName
+    failedQueueName: failedQueueName
     processTimeoutSeconds: openDataLoaderProcessTimeoutSeconds
     maxConcurrentConversions: openDataLoaderMaxConcurrentConversions
     cpu: openDataLoaderCpu

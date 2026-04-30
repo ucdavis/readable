@@ -29,6 +29,20 @@ public sealed record FinalizePdfMessage(
     string CorrelationId,
     DateTimeOffset EnqueuedAt);
 
+public sealed record AutotagFailedMessage(
+    string FileId,
+    long AttemptId,
+    Uri OriginalBlobUri,
+    string OriginalContainerName,
+    string OriginalBlobName,
+    string Provider,
+    string ErrorCode,
+    string ErrorMessage,
+    string? ErrorDetails,
+    int DeliveryCount,
+    string CorrelationId,
+    DateTimeOffset FailedAt);
+
 public sealed record PdfAutotagMessageMetadata(
     string Provider,
     bool Required,

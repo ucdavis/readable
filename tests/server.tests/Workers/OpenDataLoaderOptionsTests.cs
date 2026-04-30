@@ -14,6 +14,7 @@ public sealed class OpenDataLoaderOptionsTests
             {
                 ["ODL_AUTOTAG_QUEUE_NAME"] = "custom-autotag",
                 ["ODL_FINALIZE_QUEUE_NAME"] = "custom-finalize",
+                ["ODL_FAILED_QUEUE_NAME"] = "custom-failed",
             })
             .Build();
 
@@ -21,5 +22,6 @@ public sealed class OpenDataLoaderOptionsTests
 
         options.AutotagQueueName.Should().Be("custom-autotag");
         options.FinalizeQueueName.Should().Be("custom-finalize");
+        options.FailedQueueName.Should().Be("custom-failed");
     }
 }

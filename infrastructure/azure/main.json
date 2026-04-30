@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "10266574529391791056"
+      "templateHash": "9634679418267114427"
     }
   },
   "parameters": {
@@ -186,10 +186,12 @@
     "filesQueueName": "[if(equals(parameters('serviceBusQueueBaseName'), ''), 'files', parameters('serviceBusQueueBaseName'))]",
     "openDataLoaderAutotagQueueName": "autotag-odl",
     "finalizeQueueName": "pdf-finalize",
+    "failedQueueName": "pdf-failed",
     "fileQueueNames": [
       "[variables('filesQueueName')]",
       "[variables('openDataLoaderAutotagQueueName')]",
-      "[variables('finalizeQueueName')]"
+      "[variables('finalizeQueueName')]",
+      "[variables('failedQueueName')]"
     ],
     "incomingContainerName": "incoming",
     "processedContainerName": "processed",
@@ -1297,6 +1299,9 @@
           },
           "ingestFinalizeQueueName": {
             "value": "[variables('finalizeQueueName')]"
+          },
+          "ingestFailedQueueName": {
+            "value": "[variables('failedQueueName')]"
           }
         },
         "template": {
@@ -1306,7 +1311,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "9708394653687038745"
+              "templateHash": "1616710636045396217"
             }
           },
           "parameters": {
@@ -1473,6 +1478,13 @@
                 "description": "Queue consumed by the ingest finalize function."
               }
             },
+            "ingestFailedQueueName": {
+              "type": "string",
+              "defaultValue": "pdf-failed",
+              "metadata": {
+                "description": "Queue consumed by the ingest failure function."
+              }
+            },
             "functionInstanceMemoryMB": {
               "type": "int",
               "defaultValue": 2048,
@@ -1597,7 +1609,7 @@
                 "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('functionPlanName'))]",
                 "httpsOnly": true,
                 "siteConfig": {
-                  "appSettings": "[concat(createArray(createObject('name', 'AzureWebJobsStorage', 'value', parameters('functionStorageConnectionString')), createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'DB_CONNECTION', 'value', parameters('sqlConnectionString')), createObject('name', 'ServiceBus__FullyQualifiedNamespace', 'value', parameters('serviceBusFullyQualifiedNamespace')), createObject('name', 'ServiceBus', 'value', parameters('serviceBusConnectionString')), createObject('name', 'Storage__AccountName', 'value', parameters('dataStorageAccountName')), createObject('name', 'Storage__ConnectionString', 'value', parameters('dataStorageConnectionString')), createObject('name', 'Storage__IncomingContainer', 'value', parameters('incomingContainerName')), createObject('name', 'Storage__ProcessedContainer', 'value', parameters('processedContainerName')), createObject('name', 'Storage__TempContainer', 'value', parameters('tempContainerName')), createObject('name', 'Storage__ReportsContainer', 'value', parameters('reportsContainerName')), createObject('name', 'Pipeline__ChunkSizePages', 'value', string(parameters('pipelineChunkSizePages'))), createObject('name', 'INGEST_AUTOTAG_PROVIDER', 'value', parameters('ingestAutotagProvider')), createObject('name', 'INGEST_FILES_QUEUE_NAME', 'value', parameters('ingestFilesQueueName')), createObject('name', 'INGEST_ODL_AUTOTAG_QUEUE_NAME', 'value', parameters('ingestOpenDataLoaderAutotagQueueName')), createObject('name', 'INGEST_FINALIZE_QUEUE_NAME', 'value', parameters('ingestFinalizeQueueName'))), if(not(equals(parameters('appInsightsConnectionString'), '')), createArray(createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', parameters('appInsightsConnectionString')), createObject('name', 'APPINSIGHTS_INSTRUMENTATIONKEY', 'value', parameters('appInsightsInstrumentationKey')), createObject('name', 'APPLICATIONINSIGHTS_AGENT_EXTENSION_VERSION', 'value', '~3')), createArray()))]"
+                  "appSettings": "[concat(createArray(createObject('name', 'AzureWebJobsStorage', 'value', parameters('functionStorageConnectionString')), createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'DB_CONNECTION', 'value', parameters('sqlConnectionString')), createObject('name', 'ServiceBus__FullyQualifiedNamespace', 'value', parameters('serviceBusFullyQualifiedNamespace')), createObject('name', 'ServiceBus', 'value', parameters('serviceBusConnectionString')), createObject('name', 'Storage__AccountName', 'value', parameters('dataStorageAccountName')), createObject('name', 'Storage__ConnectionString', 'value', parameters('dataStorageConnectionString')), createObject('name', 'Storage__IncomingContainer', 'value', parameters('incomingContainerName')), createObject('name', 'Storage__ProcessedContainer', 'value', parameters('processedContainerName')), createObject('name', 'Storage__TempContainer', 'value', parameters('tempContainerName')), createObject('name', 'Storage__ReportsContainer', 'value', parameters('reportsContainerName')), createObject('name', 'Pipeline__ChunkSizePages', 'value', string(parameters('pipelineChunkSizePages'))), createObject('name', 'INGEST_AUTOTAG_PROVIDER', 'value', parameters('ingestAutotagProvider')), createObject('name', 'INGEST_FILES_QUEUE_NAME', 'value', parameters('ingestFilesQueueName')), createObject('name', 'INGEST_ODL_AUTOTAG_QUEUE_NAME', 'value', parameters('ingestOpenDataLoaderAutotagQueueName')), createObject('name', 'INGEST_FINALIZE_QUEUE_NAME', 'value', parameters('ingestFinalizeQueueName')), createObject('name', 'INGEST_FAILED_QUEUE_NAME', 'value', parameters('ingestFailedQueueName'))), if(not(equals(parameters('appInsightsConnectionString'), '')), createArray(createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', parameters('appInsightsConnectionString')), createObject('name', 'APPINSIGHTS_INSTRUMENTATIONKEY', 'value', parameters('appInsightsInstrumentationKey')), createObject('name', 'APPLICATIONINSIGHTS_AGENT_EXTENSION_VERSION', 'value', '~3')), createArray()))]"
                 },
                 "functionAppConfig": {
                   "deployment": {
@@ -2025,6 +2037,9 @@
           "finalizeQueueName": {
             "value": "[variables('finalizeQueueName')]"
           },
+          "failedQueueName": {
+            "value": "[variables('failedQueueName')]"
+          },
           "processTimeoutSeconds": {
             "value": "[parameters('openDataLoaderProcessTimeoutSeconds')]"
           },
@@ -2051,7 +2066,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "436219936046678769"
+              "templateHash": "5897749174550608595"
             }
           },
           "parameters": {
@@ -2123,11 +2138,26 @@
                 "description": "Queue that receives PDF finalization messages."
               }
             },
+            "failedQueueName": {
+              "type": "string",
+              "defaultValue": "pdf-failed",
+              "metadata": {
+                "description": "Queue that receives terminal autotag failure messages."
+              }
+            },
             "processTimeoutSeconds": {
               "type": "int",
               "defaultValue": 210,
               "metadata": {
                 "description": "OpenDataLoader process timeout in seconds."
+              }
+            },
+            "maxDeliveryCount": {
+              "type": "int",
+              "defaultValue": 10,
+              "minValue": 1,
+              "metadata": {
+                "description": "Maximum Service Bus delivery count before the worker reports failure to ingest."
               }
             },
             "maxConcurrentConversions": {
@@ -2224,12 +2254,20 @@
                           "value": "[parameters('finalizeQueueName')]"
                         },
                         {
+                          "name": "ODL_FAILED_QUEUE_NAME",
+                          "value": "[parameters('failedQueueName')]"
+                        },
+                        {
                           "name": "ODL_PROCESS_TIMEOUT_SECONDS",
                           "value": "[string(parameters('processTimeoutSeconds'))]"
                         },
                         {
                           "name": "ODL_MAX_CONCURRENT_CONVERSIONS",
                           "value": "[string(parameters('maxConcurrentConversions'))]"
+                        },
+                        {
+                          "name": "ODL_MAX_DELIVERY_COUNT",
+                          "value": "[string(parameters('maxDeliveryCount'))]"
                         }
                       ],
                       "resources": {

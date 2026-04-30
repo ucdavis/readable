@@ -18,6 +18,7 @@ public sealed class OpenDataLoaderWorker : BackgroundService
     private ServiceBusClient? _serviceBusClient;
     private ServiceBusProcessor? _processor;
     private ServiceBusSender? _finalizeSender;
+    private ServiceBusSender? _failureSender;
 
     public OpenDataLoaderWorker(
         ILogger<OpenDataLoaderWorker> logger,
@@ -44,6 +45,7 @@ public sealed class OpenDataLoaderWorker : BackgroundService
 
         _serviceBusClient = new ServiceBusClient(_options.ServiceBusConnectionString);
         _finalizeSender = _serviceBusClient.CreateSender(_options.FinalizeQueueName);
+        _failureSender = _serviceBusClient.CreateSender(_options.FailedQueueName);
         _processor = _serviceBusClient.CreateProcessor(
             _options.AutotagQueueName,
             new ServiceBusProcessorOptions
@@ -57,9 +59,10 @@ public sealed class OpenDataLoaderWorker : BackgroundService
         _processor.ProcessErrorAsync += ProcessErrorAsync;
 
         _logger.LogInformation(
-            "Starting OpenDataLoader worker. autotagQueue={autotagQueue} finalizeQueue={finalizeQueue} maxConcurrentConversions={maxConcurrentConversions}",
+            "Starting OpenDataLoader worker. autotagQueue={autotagQueue} finalizeQueue={finalizeQueue} failedQueue={failedQueue} maxConcurrentConversions={maxConcurrentConversions}",
             _options.AutotagQueueName,
             _options.FinalizeQueueName,
+            _options.FailedQueueName,
             _options.MaxConcurrentConversions);
 
         await _processor.StartProcessingAsync(stoppingToken);
@@ -85,6 +88,11 @@ public sealed class OpenDataLoaderWorker : BackgroundService
         if (_finalizeSender is not null)
         {
             await _finalizeSender.DisposeAsync();
+        }
+
+        if (_failureSender is not null)
+        {
+            await _failureSender.DisposeAsync();
         }
 
         if (_serviceBusClient is not null)
@@ -152,6 +160,29 @@ public sealed class OpenDataLoaderWorker : BackgroundService
                 "OpenDataLoader autotag job complete fileId={fileId} output={output}",
                 job.FileId,
                 job.OutputTaggedPdfBlobUri);
+        }
+        catch (Exception ex) when (!args.CancellationToken.IsCancellationRequested)
+        {
+            if (ShouldReportTerminalFailure(args.Message))
+            {
+                await SendFailureMessageAsync(job, ex, args.Message.DeliveryCount, args.CancellationToken);
+                await args.CompleteMessageAsync(args.Message, args.CancellationToken);
+
+                _logger.LogError(
+                    ex,
+                    "OpenDataLoader autotag job failed terminally and was reported to ingest. fileId={fileId} deliveryCount={deliveryCount}",
+                    job.FileId,
+                    args.Message.DeliveryCount);
+                return;
+            }
+
+            _logger.LogWarning(
+                ex,
+                "OpenDataLoader autotag job failed; message will be retried. fileId={fileId} deliveryCount={deliveryCount} maxDeliveryCount={maxDeliveryCount}",
+                job.FileId,
+                args.Message.DeliveryCount,
+                _options.MaxDeliveryCount);
+            throw;
         }
         finally
         {
@@ -259,6 +290,48 @@ public sealed class OpenDataLoaderWorker : BackgroundService
         message.ApplicationProperties["messageType"] = nameof(FinalizePdfMessage);
 
         await _finalizeSender.SendMessageAsync(message, cancellationToken);
+    }
+
+    private async Task SendFailureMessageAsync(
+        AutotagJobMessage job,
+        Exception exception,
+        int deliveryCount,
+        CancellationToken cancellationToken)
+    {
+        if (_failureSender is null)
+        {
+            throw new InvalidOperationException("Failure sender has not been initialized.");
+        }
+
+        var failureMessage = new AutotagFailedMessage(
+            FileId: job.FileId,
+            AttemptId: job.AttemptId,
+            OriginalBlobUri: job.OriginalBlobUri,
+            OriginalContainerName: job.OriginalContainerName,
+            OriginalBlobName: job.OriginalBlobName,
+            Provider: FileIngestOptions.AutotagProviders.OpenDataLoader,
+            ErrorCode: exception.GetType().Name,
+            ErrorMessage: _options.SanitizeError(exception.Message),
+            ErrorDetails: _options.SanitizeError(exception.ToString()),
+            DeliveryCount: deliveryCount,
+            CorrelationId: job.CorrelationId,
+            FailedAt: DateTimeOffset.UtcNow);
+
+        var message = new ServiceBusMessage(IngestQueueMessageJson.Serialize(failureMessage))
+        {
+            ContentType = "application/json",
+            CorrelationId = job.CorrelationId,
+            MessageId = $"{nameof(AutotagFailedMessage)}:{job.FileId}:{job.CorrelationId}",
+        };
+        message.ApplicationProperties["fileId"] = job.FileId;
+        message.ApplicationProperties["messageType"] = nameof(AutotagFailedMessage);
+
+        await _failureSender.SendMessageAsync(message, cancellationToken);
+    }
+
+    private bool ShouldReportTerminalFailure(ServiceBusReceivedMessage message)
+    {
+        return message.DeliveryCount >= _options.MaxDeliveryCount;
     }
 
     private BlobClient CreateBlobClient(Uri blobUri)

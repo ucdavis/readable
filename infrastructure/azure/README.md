@@ -73,8 +73,11 @@ flowchart LR
   D -->|no ODL needed| G[pdf-finalize queue]
   E --> F[OpenDataLoader worker Container App]
   F --> G
+  F -->|terminal failure| J[pdf-failed queue]
   G --> H[ingest finalize function]
   H --> I[processed blob + reports + DB]
+  J --> K[ingest failure function]
+  K --> L[DB failed status]
 ```
 
 Queue ownership:
@@ -82,6 +85,7 @@ Queue ownership:
 - `files`: Event Grid upload events. Consumed by the ingest intake function.
 - `autotag-odl`: OpenDataLoader autotag jobs. Consumed by the ODL worker Container App.
 - `pdf-finalize`: staged PDFs ready for remediation/final upload. Consumed by the ingest finalize function.
+- `pdf-failed`: terminal autotag failures. Consumed by the ingest failure function to mark the DB attempt/file failed.
 
 For a first-time setup without an image yet, bootstrap the optional ACR and
 Container Apps environment first:
@@ -109,7 +113,9 @@ export DEPLOY_EVENTGRID_SUBSCRIPTION=false
 
 The ODL worker has no public ingress. It reads `autotag-odl`, downloads the
 source PDF from Blob Storage, runs `opendataloader-pdf`, writes the tagged PDF
-and ODL report to storage, and sends a `pdf-finalize` message.
+and ODL report to storage, and sends a `pdf-finalize` message. On the final
+configured delivery attempt, it sends a `pdf-failed` message instead of letting
+the ODL job dead-letter without updating the database.
 
 Get the worker name from deployment outputs:
 

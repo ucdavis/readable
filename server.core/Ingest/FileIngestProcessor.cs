@@ -15,6 +15,8 @@ public interface IFileIngestProcessor
     Task ProcessAsync(BlobIngestRequest request, CancellationToken cancellationToken);
 
     Task FinalizeAsync(FinalizePdfMessage message, CancellationToken cancellationToken);
+
+    Task FailAsync(AutotagFailedMessage message, CancellationToken cancellationToken);
 }
 
 public sealed class FileIngestProcessor : IFileIngestProcessor
@@ -47,7 +49,8 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             new IngestQueueOptions(
                 IngestQueueOptions.DefaultFilesQueueName,
                 IngestQueueOptions.DefaultOpenDataLoaderAutotagQueueName,
-                IngestQueueOptions.DefaultFinalizeQueueName),
+                IngestQueueOptions.DefaultFinalizeQueueName,
+                IngestQueueOptions.DefaultFailedQueueName),
             pdfProcessorOptions,
             logger)
     {
@@ -527,6 +530,38 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         }
     }
 
+    public async Task FailAsync(AutotagFailedMessage message, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(message.FileId, out var fileId))
+        {
+            _logger.LogError("Invalid file id '{fileId}' for failure handling; expected a GUID.", message.FileId);
+            throw new InvalidOperationException($"Invalid file id '{message.FileId}' for failure handling; expected a GUID.");
+        }
+
+        var request = new BlobIngestRequest(
+            message.OriginalBlobUri,
+            message.OriginalContainerName,
+            message.OriginalBlobName,
+            message.FileId);
+
+        _logger.LogError(
+            "Marking ingest failed after autotag provider failure. fileId={fileId} provider={provider} deliveryCount={deliveryCount} errorCode={errorCode}",
+            message.FileId,
+            message.Provider,
+            message.DeliveryCount,
+            message.ErrorCode);
+
+        await CompleteProcessingAttemptAsync(
+            fileId,
+            message.AttemptId,
+            outcome: FileProcessingAttempt.Outcomes.Failed,
+            error: new AutotagProviderFailedException(message.ErrorCode, message.ErrorMessage, message.ErrorDetails),
+            request,
+            cancellationToken,
+            pageCount: 0,
+            metadataJson: BuildFailureMetadataJson(message));
+    }
+
     private async Task<Stream> OpenBlobStreamAsync(string fileId, Uri blobUri, CancellationToken cancellationToken)
     {
         using (LogStage.Begin(_logger, fileId, "open_blob_stream", new { blobUri }))
@@ -761,7 +796,9 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
 
             if (error is not null)
             {
-                attempt.ErrorCode = error.GetType().Name;
+                attempt.ErrorCode = error is AutotagProviderFailedException autotagFailure
+                    ? Truncate(autotagFailure.ErrorCode, 100)
+                    : error.GetType().Name;
                 attempt.ErrorMessage = Truncate(error.Message, 2048);
                 attempt.ErrorDetails =
                     $"BlobUri: {request.BlobUri}\nContainer: {request.ContainerName}\nBlobName: {request.BlobName}\n\n{error}";
@@ -840,6 +877,44 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
     }
 
+    private string BuildFailureMetadataJson(AutotagFailedMessage message)
+    {
+        var metadata = new
+        {
+            configuration = new
+            {
+                autotagProviderConfigured = GetConfiguredAutotagProvider(),
+                useAdobePdfServices = _pdfProcessorOptions.UseAdobePdfServices,
+                usePdfRemediationProcessor = _pdfProcessorOptions.UsePdfRemediationProcessor,
+                usePdfBookmarks = _pdfProcessorOptions.UsePdfBookmarks,
+                autotagTaggedPdfs = _pdfProcessorOptions.AutotagTaggedPdfs,
+                maxPagesPerChunk = _pdfProcessorOptions.MaxPagesPerChunk,
+                maxUploadPages = _pdfProcessorOptions.MaxUploadPages,
+            },
+            failure = new
+            {
+                stage = "autotag",
+                provider = message.Provider,
+                message.ErrorCode,
+                message.ErrorMessage,
+                message.DeliveryCount,
+                message.FailedAt,
+            },
+            autotag = new
+            {
+                provider = message.Provider,
+                required = true,
+                skippedReason = (string?)null,
+                chunkCount = 1,
+                reportUris = Array.Empty<string>(),
+            }
+        };
+
+        return JsonSerializer.Serialize(
+            metadata,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    }
+
     private string GetConfiguredAutotagProvider()
     {
         var configured =
@@ -875,5 +950,25 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         var safeFileId = PdfPathSafeName.FromFileId(fileId);
         var destinationBlobName = $"{safeFileId}/{attemptId}/{fileName}";
         return BuildSiblingContainerUri(sourceBlobUri, destinationContainer, destinationBlobName);
+    }
+
+    private sealed class AutotagProviderFailedException : Exception
+    {
+        public AutotagProviderFailedException(string errorCode, string message, string? details)
+            : base(message)
+        {
+            ErrorCode = errorCode;
+            Details = details;
+        }
+
+        public string ErrorCode { get; }
+        public string? Details { get; }
+
+        public override string ToString()
+        {
+            return string.IsNullOrWhiteSpace(Details)
+                ? $"{ErrorCode}: {Message}"
+                : $"{ErrorCode}: {Message}\n\n{Details}";
+        }
     }
 }

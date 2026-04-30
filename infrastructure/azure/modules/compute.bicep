@@ -80,6 +80,9 @@ param ingestOpenDataLoaderAutotagQueueName string = 'autotag-odl'
 @description('Queue consumed by the ingest finalize function.')
 param ingestFinalizeQueueName string = 'pdf-finalize'
 
+@description('Queue consumed by the ingest failure function.')
+param ingestFailedQueueName string = 'pdf-failed'
+
 @allowed([
   512
   2048
@@ -250,6 +253,10 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
         {
           name: 'INGEST_FINALIZE_QUEUE_NAME'
           value: ingestFinalizeQueueName
+        }
+        {
+          name: 'INGEST_FAILED_QUEUE_NAME'
+          value: ingestFailedQueueName
         }
       ], appInsightsConnectionString != '' ? [
         {

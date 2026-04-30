@@ -13,11 +13,13 @@ public interface IIngestQueueClient
 public sealed record IngestQueueOptions(
     string FilesQueueName,
     string OpenDataLoaderAutotagQueueName,
-    string FinalizeQueueName)
+    string FinalizeQueueName,
+    string FailedQueueName)
 {
     public const string DefaultFilesQueueName = "files";
     public const string DefaultOpenDataLoaderAutotagQueueName = "autotag-odl";
     public const string DefaultFinalizeQueueName = "pdf-finalize";
+    public const string DefaultFailedQueueName = "pdf-failed";
 
     public static IngestQueueOptions FromConfiguration(IConfiguration configuration)
     {
@@ -36,7 +38,12 @@ public sealed record IngestQueueOptions(
                 configuration,
                 "Ingest:FinalizeQueueName",
                 "INGEST_FINALIZE_QUEUE_NAME",
-                DefaultFinalizeQueueName));
+                DefaultFinalizeQueueName),
+            FailedQueueName: GetQueueName(
+                configuration,
+                "Ingest:FailedQueueName",
+                "INGEST_FAILED_QUEUE_NAME",
+                DefaultFailedQueueName));
     }
 
     private static string GetQueueName(

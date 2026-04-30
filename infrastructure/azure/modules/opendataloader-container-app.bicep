@@ -33,8 +33,15 @@ param autotagQueueName string = 'autotag-odl'
 @description('Queue that receives PDF finalization messages.')
 param finalizeQueueName string = 'pdf-finalize'
 
+@description('Queue that receives terminal autotag failure messages.')
+param failedQueueName string = 'pdf-failed'
+
 @description('OpenDataLoader process timeout in seconds.')
 param processTimeoutSeconds int = 210
+
+@minValue(1)
+@description('Maximum Service Bus delivery count before the worker reports failure to ingest.')
+param maxDeliveryCount int = 10
 
 @minValue(1)
 @description('Maximum conversions to run concurrently inside one replica.')
@@ -106,12 +113,20 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
               value: finalizeQueueName
             }
             {
+              name: 'ODL_FAILED_QUEUE_NAME'
+              value: failedQueueName
+            }
+            {
               name: 'ODL_PROCESS_TIMEOUT_SECONDS'
               value: string(processTimeoutSeconds)
             }
             {
               name: 'ODL_MAX_CONCURRENT_CONVERSIONS'
               value: string(maxConcurrentConversions)
+            }
+            {
+              name: 'ODL_MAX_DELIVERY_COUNT'
+              value: string(maxDeliveryCount)
             }
           ]
           resources: {
