@@ -1,3 +1,4 @@
+using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -39,12 +40,34 @@ public static class IngestServiceCollectionExtensions
         });
         services.AddSingleton<IBlobStreamOpener, AzureBlobStreamOpener>();
         services.AddSingleton<IBlobStorage, AzureBlobStorage>();
+        services.AddSingleton(sp => IngestQueueOptions.FromConfiguration(sp.GetRequiredService<IConfiguration>()));
+        services.AddSingleton<IIngestQueueClient>(sp =>
+        {
+            var configuration = sp.GetRequiredService<IConfiguration>();
+            var serviceBusConnection =
+                configuration["ServiceBus"]
+                ?? configuration["ServiceBus:ConnectionString"]
+                ?? configuration["ServiceBus__ConnectionString"];
+
+            if (string.IsNullOrWhiteSpace(serviceBusConnection))
+            {
+                return new DisabledIngestQueueClient();
+            }
+
+            var client = new ServiceBusClient(serviceBusConnection);
+            return new AzureIngestQueueClient(client, sp.GetRequiredService<IngestQueueOptions>());
+        });
 
         if (options.UseAdobePdfServices)
         {
             if (IsOpenDataLoaderAutotagProvider(options.AutotagProvider))
             {
-                services.AddHttpClient<IAdobePdfServices, OpenDataLoaderPdfServices>();
+                services.AddSingleton<IAdobePdfServices>(sp =>
+                {
+                    var configuration = sp.GetRequiredService<IConfiguration>();
+                    EnsureAdobeCredentialsConfigured(configuration);
+                    return new AdobePdfServices(configuration, sp.GetRequiredService<ILogger<AdobePdfServices>>());
+                });
             }
             else
             {
@@ -60,6 +83,8 @@ public static class IngestServiceCollectionExtensions
         {
             services.AddSingleton<IAdobePdfServices, NoopAdobePdfServices>();
         }
+        services.AddSingleton<IAutotagProvider>(sp => sp.GetRequiredService<IAdobePdfServices>());
+        services.AddSingleton<IAccessibilityChecker>(sp => sp.GetRequiredService<IAdobePdfServices>());
 
         if (options.UsePdfRemediationProcessor)
         {
@@ -185,7 +210,9 @@ public static class IngestServiceCollectionExtensions
             services.AddSingleton<IPdfRemediationProcessor, NoopPdfRemediationProcessor>();
         }
 
-        services.AddSingleton<IPdfProcessor, PdfProcessor>();
+        services.AddSingleton<PdfProcessor>();
+        services.AddSingleton<IPdfProcessor>(sp => sp.GetRequiredService<PdfProcessor>());
+        services.AddSingleton<IPdfPipelineProcessor>(sp => sp.GetRequiredService<PdfProcessor>());
         services.AddSingleton<IFileIngestProcessor, FileIngestProcessor>();
         return services;
     }

@@ -53,13 +53,35 @@ cd workers/function.ingest
 func azure functionapp publish <FUNCTION_APP_NAME> --dotnet-isolated --nozip
 ```
 
-## Deploy OpenDataLoader Container App
+## Deploy OpenDataLoader Worker Container App
 
 The base Bicep deployment now provisions:
 
 - an Azure Container Registry,
 - a Container Apps environment,
-- and, once an image + secret are supplied, the `opendataloader` Container App itself.
+- Service Bus queues for each ingest stage,
+- and, once an image is supplied, the `opendataloader` worker Container App itself.
+
+The queue-based ingest pipeline is:
+
+```mermaid
+flowchart LR
+  A[incoming blob] --> B[Event Grid]
+  B --> C[files queue]
+  C --> D[ingest intake function]
+  D -->|ODL needed| E[autotag-odl queue]
+  D -->|no ODL needed| G[pdf-finalize queue]
+  E --> F[OpenDataLoader worker Container App]
+  F --> G
+  G --> H[ingest finalize function]
+  H --> I[processed blob + reports + DB]
+```
+
+Queue ownership:
+
+- `files`: Event Grid upload events. Consumed by the ingest intake function.
+- `autotag-odl`: OpenDataLoader autotag jobs. Consumed by the ODL worker Container App.
+- `pdf-finalize`: staged PDFs ready for remediation/final upload. Consumed by the ingest finalize function.
 
 For a first-time setup without an image yet, bootstrap the optional ACR and
 Container Apps environment first:
@@ -77,40 +99,55 @@ docker build -f workers/opendataloader.api/Dockerfile -t <ACR_LOGIN_SERVER>/open
 docker push <ACR_LOGIN_SERVER>/opendataloader-api:<TAG>
 ```
 
-Then rerun the deploy script with the image reference and API key:
+Then rerun the deploy script with the image reference:
 
 ```bash
-export ODL_SHARED_SECRET='your-shared-secret'
 export OPEN_DATA_LOADER_IMAGE='<ACR_LOGIN_SERVER>/opendataloader-api:<TAG>'
-export OPEN_DATA_LOADER_SHARED_SECRET="$ODL_SHARED_SECRET"
 export DEPLOY_EVENTGRID_SUBSCRIPTION=false
 ./infrastructure/azure/scripts/deploy_dev.sh
 ```
 
-`ODL_SHARED_SECRET` is the runtime secret used by the function app and local
-calls to the OpenDataLoader API. `OPEN_DATA_LOADER_SHARED_SECRET` is the deploy
-script parameter that provisions the Container App with that same secret.
+The ODL worker has no public ingress. It reads `autotag-odl`, downloads the
+source PDF from Blob Storage, runs `opendataloader-pdf`, writes the tagged PDF
+and ODL report to storage, and sends a `pdf-finalize` message.
 
-Get the URL from deployment outputs:
+Get the worker name from deployment outputs:
 
 ```bash
 az deployment group show \
   --resource-group <RESOURCE_GROUP> \
   --name <DEPLOYMENT_NAME> \
-  --query "properties.outputs.openDataLoaderContainerAppUrl.value" \
+  --query "properties.outputs.openDataLoaderContainerAppName.value" \
   -o tsv
 ```
 
-Call the API:
+Inspect queue depth:
 
 ```bash
-curl -X POST \
-  https://<CONTAINER_APP_FQDN>/convert \
-  -H 'Content-Type: application/pdf' \
-  -H 'X-Api-Key: <ODL_SHARED_SECRET>' \
-  --data-binary @./sample.pdf \
-  --output ./sample.tagged.pdf
+az servicebus queue show \
+  --resource-group <RESOURCE_GROUP> \
+  --namespace-name <SERVICE_BUS_NAMESPACE> \
+  --name autotag-odl \
+  --query "{active:countDetails.activeMessageCount, deadletter:countDetails.deadLetterMessageCount}"
 ```
+
+Tail worker logs:
+
+```bash
+az containerapp logs show \
+  --resource-group <RESOURCE_GROUP> \
+  --name <OPEN_DATA_LOADER_CONTAINER_APP_NAME> \
+  --follow
+```
+
+The worker scales from the `autotag-odl` queue. `openDataLoaderMaxReplicas`
+caps global ODL concurrency, while `openDataLoaderMaxConcurrentConversions`
+controls conversions per replica. Start conservatively with one conversion per
+replica, then increase max replicas after observing CPU, memory, and conversion
+latency.
+
+Rollback is configuration-only: deploy without `OPEN_DATA_LOADER_IMAGE`, or set
+the ingest autotag provider back to Adobe and scale the ODL worker down.
 
 ## Tail logs (no Application Insights)
 

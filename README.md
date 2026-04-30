@@ -97,39 +97,33 @@ You might also want to set the publisher domain to ucdavis.edu and fill in the o
 
 The health check endpoint (`/health`) is configured to return the status of the application and its dependencies. It includes a database health check to ensure the SQL Server connection is healthy. See [Health Checks](https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/health-checks?view=aspnetcore-9.0#entity-framework-core-dbcontext-probe).
 
-## OpenDataLoader Tagged PDF API
+## OpenDataLoader Tagged PDF Worker
 
-This repo now includes a standalone synchronous OpenDataLoader spike at `workers/opendataloader.api/`.
+This repo includes an OpenDataLoader worker at `workers/opendataloader.api/`. The project name is legacy; the
+production entrypoint is now a queue worker, not a public HTTP API.
 
-- `POST /convert` expects raw `application/pdf` bytes and returns tagged `application/pdf` bytes.
-- `GET /help` returns the configured limits and auth header.
-- `GET /health` reports whether `opendataloader-pdf`, `java`, and `python3` are available.
-
-The service expects an `X-Api-Key` header whose value matches `ODL_SHARED_SECRET`.
+- The worker reads `AutotagJobMessage` bodies from the `autotag-odl` Service Bus queue.
+- It downloads the source PDF from Blob Storage, runs `opendataloader-pdf`, uploads the tagged PDF/report artifacts,
+  and sends a `FinalizePdfMessage` to `pdf-finalize`.
+- The ingest Function App still owns intake, remediation/finalization, report persistence, and DB status updates.
 
 Useful environment variables:
 
-- `ODL_SHARED_SECRET`: required API key value.
-- `ODL_MAX_REQUEST_BODY_SIZE_MB`: max upload size, default `50`.
+- `ServiceBus`: Service Bus connection string.
+- `Storage__ConnectionString`: Blob Storage connection string.
+- `ODL_AUTOTAG_QUEUE_NAME`: autotag queue name, default `autotag-odl`.
+- `ODL_FINALIZE_QUEUE_NAME`: finalize queue name, default `pdf-finalize`.
 - `ODL_PROCESS_TIMEOUT_SECONDS`: hard conversion timeout, default `210`.
+- `ODL_MAX_CONCURRENT_CONVERSIONS`: conversions per worker replica, default `1`.
 - `ODL_COMMAND_PATH`: override the CLI path, default `opendataloader-pdf`.
-- `ODL_HYBRID_URL`: optional hybrid backend URL. When set, the API adds `--hybrid docling-fast --hybrid-url <url>`.
+- `ODL_HYBRID_URL`: optional hybrid backend URL. When set, the worker adds `--hybrid docling-fast --hybrid-url <url>`.
 
-Run locally:
-
-```bash
-ASPNETCORE_URLS=http://127.0.0.1:8080 ODL_SHARED_SECRET=local-dev-key dotnet run --project workers/opendataloader.api
-```
-
-Call it:
+Run locally against real Azure queues/storage:
 
 ```bash
-curl -X POST \
-  http://127.0.0.1:8080/convert \
-  -H 'Content-Type: application/pdf' \
-  -H 'X-Api-Key: local-dev-key' \
-  --data-binary @./sample.pdf \
-  --output ./sample.tagged.pdf
+ServiceBus='<service-bus-connection-string>' \
+Storage__ConnectionString='<storage-connection-string>' \
+dotnet run --project workers/opendataloader.api
 ```
 
 ## Development

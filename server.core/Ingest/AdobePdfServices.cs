@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 
 namespace server.core.Ingest;
 
-public interface IAdobePdfServices
+public interface IAutotagProvider
 {
     string AutotagProviderName { get; }
 
@@ -19,6 +19,11 @@ public interface IAdobePdfServices
         string outputTaggedPdfPath,
         string outputTaggingReportPath,
         CancellationToken cancellationToken);
+}
+
+public interface IAccessibilityChecker
+{
+    string AccessibilityCheckerName => "AdobePdfServices";
 
     Task<AdobeAccessibilityCheckOutput> RunAccessibilityCheckerAsync(
         string inputPdfPath,
@@ -28,6 +33,8 @@ public interface IAdobePdfServices
         int? pageEnd,
         CancellationToken cancellationToken);
 }
+
+public interface IAdobePdfServices : IAutotagProvider, IAccessibilityChecker;
 
 public sealed record AdobeAutotagOutput(string TaggedPdfPath, string TaggingReportPath);
 
@@ -39,6 +46,7 @@ public sealed class AdobePdfServices : IAdobePdfServices
     private readonly ILogger<AdobePdfServices> _logger;
 
     public string AutotagProviderName => FileIngestOptions.AutotagProviders.Adobe;
+    public string AccessibilityCheckerName => "AdobePdfServices";
 
     public AdobePdfServices(IConfiguration configuration, ILogger<AdobePdfServices> logger)
     {

@@ -22,13 +22,10 @@ public sealed class AzureBlobStorage : IBlobStorage
     public async Task UploadAsync(Uri destinationBlobUri, Stream content, string contentType, CancellationToken cancellationToken)
     {
         var client = CreateClient(destinationBlobUri);
-        await client.UploadAsync(
-            content,
-            new BlobUploadOptions
-            {
-                HttpHeaders = new BlobHttpHeaders { ContentType = contentType },
-            },
-            cancellationToken);
+        await client.UploadAsync(content, overwrite: true, cancellationToken);
+        await client.SetHttpHeadersAsync(
+            new BlobHttpHeaders { ContentType = contentType },
+            cancellationToken: cancellationToken);
     }
 
     public Task DeleteIfExistsAsync(Uri blobUri, CancellationToken cancellationToken)
@@ -67,4 +64,3 @@ public sealed class AzureBlobStorage : IBlobStorage
         return (path[..firstSlash], path[(firstSlash + 1)..]);
     }
 }
-

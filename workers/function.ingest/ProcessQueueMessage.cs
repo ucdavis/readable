@@ -23,7 +23,7 @@ public class ProcessQueueMessage
 
     [Function(nameof(ProcessQueueMessage))]
     public async Task Run(
-        [ServiceBusTrigger("files", Connection = "ServiceBus")]
+        [ServiceBusTrigger("%INGEST_FILES_QUEUE_NAME%", Connection = "ServiceBus")]
         ServiceBusReceivedMessage message,
         ServiceBusMessageActions messageActions,
         CancellationToken cancellationToken)

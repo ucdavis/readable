@@ -7,17 +7,19 @@ namespace server.tests.Workers;
 public sealed class OpenDataLoaderOptionsTests
 {
     [Fact]
-    public void FromConfiguration_AllowsZeroQueuedConversions()
+    public void FromConfiguration_ReadsWorkerQueueNames()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ODL_MAX_QUEUED_CONVERSIONS"] = "0",
+                ["ODL_AUTOTAG_QUEUE_NAME"] = "custom-autotag",
+                ["ODL_FINALIZE_QUEUE_NAME"] = "custom-finalize",
             })
             .Build();
 
         var options = OpenDataLoaderOptions.FromConfiguration(configuration);
 
-        options.MaxQueuedConversions.Should().Be(0);
+        options.AutotagQueueName.Should().Be("custom-autotag");
+        options.FinalizeQueueName.Should().Be("custom-finalize");
     }
 }

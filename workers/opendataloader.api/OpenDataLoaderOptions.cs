@@ -1,33 +1,26 @@
 using System.Globalization;
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Extensions.Configuration;
 
 namespace opendataloader.api;
 
 public sealed class OpenDataLoaderOptions
 {
-    private const int DefaultMaxRequestBodySizeMb = 50;
     private const int DefaultProcessTimeoutSeconds = 210;
     private const int DefaultMaxConcurrentConversions = 1;
-    private const int DefaultMaxQueuedConversions = 20;
-    private const int DefaultQueueTimeoutSeconds = 60;
     private const int MaxErrorLength = 4000;
 
-    public string SharedSecret { get; init; } = string.Empty;
-    public int MaxRequestBodySizeMb { get; init; } = DefaultMaxRequestBodySizeMb;
     public int ProcessTimeoutSeconds { get; init; } = DefaultProcessTimeoutSeconds;
     public int MaxConcurrentConversions { get; init; } = DefaultMaxConcurrentConversions;
-    public int MaxQueuedConversions { get; init; } = DefaultMaxQueuedConversions;
-    public int QueueTimeoutSeconds { get; init; } = DefaultQueueTimeoutSeconds;
     public string CommandPath { get; init; } = "opendataloader-pdf";
     public string OutputFormat { get; init; } = "tagged-pdf";
     public string? HybridUrl { get; init; }
     public string HybridBackend { get; init; } = "docling-fast";
+    public string ServiceBusConnectionString { get; init; } = string.Empty;
+    public string StorageConnectionString { get; init; } = string.Empty;
+    public string AutotagQueueName { get; init; } = "autotag-odl";
+    public string FinalizeQueueName { get; init; } = "pdf-finalize";
 
-    public long MaxRequestBodySizeBytes => MaxRequestBodySizeMb * 1024L * 1024L;
     public TimeSpan ProcessTimeout => TimeSpan.FromSeconds(ProcessTimeoutSeconds);
-    public TimeSpan QueueTimeout => TimeSpan.FromSeconds(QueueTimeoutSeconds);
 
     public static OpenDataLoaderOptions FromConfiguration(IConfiguration configuration)
     {
@@ -54,15 +47,6 @@ public sealed class OpenDataLoaderOptions
 
         return new OpenDataLoaderOptions
         {
-            SharedSecret = configuration["OpenDataLoader:SharedSecret"]
-                           ?? configuration["ODL_SHARED_SECRET"]
-                           ?? configuration["ODL_API_KEY"]
-                           ?? string.Empty,
-            MaxRequestBodySizeMb = GetInt(
-                configuration,
-                "OpenDataLoader:MaxRequestBodySizeMb",
-                "ODL_MAX_REQUEST_BODY_SIZE_MB",
-                DefaultMaxRequestBodySizeMb),
             ProcessTimeoutSeconds = GetInt(
                 configuration,
                 "OpenDataLoader:ProcessTimeoutSeconds",
@@ -73,25 +57,43 @@ public sealed class OpenDataLoaderOptions
                 "OpenDataLoader:MaxConcurrentConversions",
                 "ODL_MAX_CONCURRENT_CONVERSIONS",
                 DefaultMaxConcurrentConversions),
-            MaxQueuedConversions = GetInt(
-                configuration,
-                "OpenDataLoader:MaxQueuedConversions",
-                "ODL_MAX_QUEUED_CONVERSIONS",
-                DefaultMaxQueuedConversions,
-                minValue: 0),
-            QueueTimeoutSeconds = GetInt(
-                configuration,
-                "OpenDataLoader:QueueTimeoutSeconds",
-                "ODL_QUEUE_TIMEOUT_SECONDS",
-                DefaultQueueTimeoutSeconds),
             CommandPath = configuration["OpenDataLoader:CommandPath"]
                           ?? configuration["ODL_COMMAND_PATH"]
                           ?? "opendataloader-pdf",
             OutputFormat = string.IsNullOrWhiteSpace(outputFormat) ? "tagged-pdf" : outputFormat.Trim(),
             HybridUrl = configuration["OpenDataLoader:HybridUrl"]
                         ?? configuration["ODL_HYBRID_URL"],
-            HybridBackend = string.IsNullOrWhiteSpace(hybridBackend) ? "docling-fast" : hybridBackend.Trim()
+            HybridBackend = string.IsNullOrWhiteSpace(hybridBackend) ? "docling-fast" : hybridBackend.Trim(),
+            ServiceBusConnectionString =
+                configuration["ServiceBus"]
+                ?? configuration["ServiceBus:ConnectionString"]
+                ?? configuration["ServiceBus__ConnectionString"]
+                ?? string.Empty,
+            StorageConnectionString =
+                configuration["Storage:ConnectionString"]
+                ?? configuration["Storage__ConnectionString"]
+                ?? string.Empty,
+            AutotagQueueName = GetString(
+                configuration,
+                "OpenDataLoader:AutotagQueueName",
+                "ODL_AUTOTAG_QUEUE_NAME",
+                "autotag-odl"),
+            FinalizeQueueName = GetString(
+                configuration,
+                "OpenDataLoader:FinalizeQueueName",
+                "ODL_FINALIZE_QUEUE_NAME",
+                "pdf-finalize")
         };
+    }
+
+    private static string GetString(
+        IConfiguration configuration,
+        string primaryKey,
+        string legacyKey,
+        string fallback)
+    {
+        var value = configuration[primaryKey] ?? configuration[legacyKey];
+        return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
     }
 
     public string SanitizeError(string? value)
@@ -107,15 +109,4 @@ public sealed class OpenDataLoaderOptions
             : flattened[^MaxErrorLength..];
     }
 
-    public bool IsAuthorized(string? providedSecret)
-    {
-        if (string.IsNullOrEmpty(SharedSecret) || string.IsNullOrEmpty(providedSecret))
-        {
-            return false;
-        }
-
-        var expectedBytes = Encoding.UTF8.GetBytes(SharedSecret);
-        var providedBytes = Encoding.UTF8.GetBytes(providedSecret);
-        return CryptographicOperations.FixedTimeEquals(expectedBytes, providedBytes);
-    }
 }

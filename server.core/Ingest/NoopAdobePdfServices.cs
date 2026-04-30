@@ -13,6 +13,7 @@ public sealed class NoopAdobePdfServices : IAdobePdfServices
     }
 
     public string AutotagProviderName => FileIngestOptions.AutotagProviders.None;
+    public string AccessibilityCheckerName => "None";
 
     public async Task<AdobeAutotagOutput> AutotagPdfAsync(
         string inputPdfPath,

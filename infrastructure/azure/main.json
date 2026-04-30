@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "6306649273613823366"
+      "templateHash": "10266574529391791056"
     }
   },
   "parameters": {
@@ -99,26 +99,11 @@
         "description": "OpenDataLoader container image reference. Leave empty to skip deploying the container app."
       }
     },
-    "openDataLoaderSharedSecret": {
-      "type": "securestring",
-      "defaultValue": "",
-      "metadata": {
-        "description": "Shared secret expected in the OpenDataLoader X-Api-Key header. Leave empty to skip deploying the container app."
-      }
-    },
     "deployOpenDataLoaderInfrastructure": {
       "type": "bool",
       "defaultValue": false,
       "metadata": {
         "description": "Deploy the OpenDataLoader registry and Container Apps environment even before a container image is available. This is used by CI to bootstrap image publishing."
-      }
-    },
-    "openDataLoaderMaxRequestBodySizeMb": {
-      "type": "int",
-      "defaultValue": 50,
-      "minValue": 1,
-      "metadata": {
-        "description": "Max request body size for the OpenDataLoader API in MB."
       }
     },
     "openDataLoaderProcessTimeoutSeconds": {
@@ -135,30 +120,6 @@
       "minValue": 1,
       "metadata": {
         "description": "Maximum OpenDataLoader conversions to run concurrently inside one replica."
-      }
-    },
-    "openDataLoaderMaxQueuedConversions": {
-      "type": "int",
-      "defaultValue": 20,
-      "minValue": 0,
-      "metadata": {
-        "description": "Maximum OpenDataLoader requests to hold in the in-memory queue inside one replica."
-      }
-    },
-    "openDataLoaderQueueTimeoutSeconds": {
-      "type": "int",
-      "defaultValue": 60,
-      "minValue": 1,
-      "metadata": {
-        "description": "Maximum seconds a request may wait in the OpenDataLoader in-memory queue before returning 429."
-      }
-    },
-    "openDataLoaderHttpConcurrentRequests": {
-      "type": "int",
-      "defaultValue": 1,
-      "minValue": 1,
-      "metadata": {
-        "description": "HTTP concurrent request target used by Container Apps autoscale for OpenDataLoader."
       }
     },
     "openDataLoaderCpu": {
@@ -219,12 +180,16 @@
     "openDataLoaderPullIdentityName": "[toLower(format('uai-odl-pull-{0}-{1}-{2}', variables('appNameSafe'), parameters('env'), variables('nameToken')))]",
     "sqlSkuName": "[if(equals(parameters('env'), 'prod'), 'S0', 'Basic')]",
     "sqlSkuTier": "[if(equals(parameters('env'), 'prod'), 'Standard', 'Basic')]",
-    "deployOpenDataLoaderContainerApp": "[and(not(empty(parameters('openDataLoaderImage'))), not(empty(parameters('openDataLoaderSharedSecret'))))]",
+    "deployOpenDataLoaderContainerApp": "[not(empty(parameters('openDataLoaderImage')))]",
     "deployOpenDataLoaderPrerequisites": "[or(parameters('deployOpenDataLoaderInfrastructure'), variables('deployOpenDataLoaderContainerApp'))]",
     "ingestAutotagProvider": "[if(variables('deployOpenDataLoaderContainerApp'), 'OpenDataLoader', 'Adobe')]",
-    "baseQueueName": "[if(equals(parameters('serviceBusQueueBaseName'), ''), 'files', parameters('serviceBusQueueBaseName'))]",
+    "filesQueueName": "[if(equals(parameters('serviceBusQueueBaseName'), ''), 'files', parameters('serviceBusQueueBaseName'))]",
+    "openDataLoaderAutotagQueueName": "autotag-odl",
+    "finalizeQueueName": "pdf-finalize",
     "fileQueueNames": [
-      "[variables('baseQueueName')]"
+      "[variables('filesQueueName')]",
+      "[variables('openDataLoaderAutotagQueueName')]",
+      "[variables('finalizeQueueName')]"
     ],
     "incomingContainerName": "incoming",
     "processedContainerName": "processed",
@@ -1324,9 +1289,14 @@
           "ingestAutotagProvider": {
             "value": "[variables('ingestAutotagProvider')]"
           },
-          "openDataLoaderBaseUrl": "[if(variables('deployOpenDataLoaderContainerApp'), createObject('value', format('https://{0}.{1}', variables('openDataLoaderContainerAppName'), reference('containerAppsEnvironment').outputs.defaultDomain.value)), createObject('value', ''))]",
-          "openDataLoaderApiKey": {
-            "value": "[parameters('openDataLoaderSharedSecret')]"
+          "ingestFilesQueueName": {
+            "value": "[variables('filesQueueName')]"
+          },
+          "ingestOpenDataLoaderAutotagQueueName": {
+            "value": "[variables('openDataLoaderAutotagQueueName')]"
+          },
+          "ingestFinalizeQueueName": {
+            "value": "[variables('finalizeQueueName')]"
           }
         },
         "template": {
@@ -1336,7 +1306,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "8643893122086647394"
+              "templateHash": "9708394653687038745"
             }
           },
           "parameters": {
@@ -1482,18 +1452,25 @@
                 "description": "Autotag provider for the ingest function. Use Adobe or OpenDataLoader."
               }
             },
-            "openDataLoaderBaseUrl": {
+            "ingestFilesQueueName": {
               "type": "string",
-              "defaultValue": "",
+              "defaultValue": "files",
               "metadata": {
-                "description": "OpenDataLoader API base URL for ingest autotagging."
+                "description": "Queue consumed by the ingest intake function."
               }
             },
-            "openDataLoaderApiKey": {
-              "type": "securestring",
-              "defaultValue": "",
+            "ingestOpenDataLoaderAutotagQueueName": {
+              "type": "string",
+              "defaultValue": "autotag-odl",
               "metadata": {
-                "description": "OpenDataLoader API key for ingest autotagging."
+                "description": "Queue consumed by the OpenDataLoader worker."
+              }
+            },
+            "ingestFinalizeQueueName": {
+              "type": "string",
+              "defaultValue": "pdf-finalize",
+              "metadata": {
+                "description": "Queue consumed by the ingest finalize function."
               }
             },
             "functionInstanceMemoryMB": {
@@ -1620,7 +1597,7 @@
                 "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('functionPlanName'))]",
                 "httpsOnly": true,
                 "siteConfig": {
-                  "appSettings": "[concat(createArray(createObject('name', 'AzureWebJobsStorage', 'value', parameters('functionStorageConnectionString')), createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'DB_CONNECTION', 'value', parameters('sqlConnectionString')), createObject('name', 'ServiceBus__FullyQualifiedNamespace', 'value', parameters('serviceBusFullyQualifiedNamespace')), createObject('name', 'ServiceBus', 'value', parameters('serviceBusConnectionString')), createObject('name', 'Storage__AccountName', 'value', parameters('dataStorageAccountName')), createObject('name', 'Storage__ConnectionString', 'value', parameters('dataStorageConnectionString')), createObject('name', 'Storage__IncomingContainer', 'value', parameters('incomingContainerName')), createObject('name', 'Storage__ProcessedContainer', 'value', parameters('processedContainerName')), createObject('name', 'Storage__TempContainer', 'value', parameters('tempContainerName')), createObject('name', 'Storage__ReportsContainer', 'value', parameters('reportsContainerName')), createObject('name', 'Pipeline__ChunkSizePages', 'value', string(parameters('pipelineChunkSizePages'))), createObject('name', 'INGEST_AUTOTAG_PROVIDER', 'value', parameters('ingestAutotagProvider')), createObject('name', 'ODL_BASE_URL', 'value', parameters('openDataLoaderBaseUrl')), createObject('name', 'ODL_API_KEY', 'value', parameters('openDataLoaderApiKey'))), if(not(equals(parameters('appInsightsConnectionString'), '')), createArray(createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', parameters('appInsightsConnectionString')), createObject('name', 'APPINSIGHTS_INSTRUMENTATIONKEY', 'value', parameters('appInsightsInstrumentationKey')), createObject('name', 'APPLICATIONINSIGHTS_AGENT_EXTENSION_VERSION', 'value', '~3')), createArray()))]"
+                  "appSettings": "[concat(createArray(createObject('name', 'AzureWebJobsStorage', 'value', parameters('functionStorageConnectionString')), createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'DB_CONNECTION', 'value', parameters('sqlConnectionString')), createObject('name', 'ServiceBus__FullyQualifiedNamespace', 'value', parameters('serviceBusFullyQualifiedNamespace')), createObject('name', 'ServiceBus', 'value', parameters('serviceBusConnectionString')), createObject('name', 'Storage__AccountName', 'value', parameters('dataStorageAccountName')), createObject('name', 'Storage__ConnectionString', 'value', parameters('dataStorageConnectionString')), createObject('name', 'Storage__IncomingContainer', 'value', parameters('incomingContainerName')), createObject('name', 'Storage__ProcessedContainer', 'value', parameters('processedContainerName')), createObject('name', 'Storage__TempContainer', 'value', parameters('tempContainerName')), createObject('name', 'Storage__ReportsContainer', 'value', parameters('reportsContainerName')), createObject('name', 'Pipeline__ChunkSizePages', 'value', string(parameters('pipelineChunkSizePages'))), createObject('name', 'INGEST_AUTOTAG_PROVIDER', 'value', parameters('ingestAutotagProvider')), createObject('name', 'INGEST_FILES_QUEUE_NAME', 'value', parameters('ingestFilesQueueName')), createObject('name', 'INGEST_ODL_AUTOTAG_QUEUE_NAME', 'value', parameters('ingestOpenDataLoaderAutotagQueueName')), createObject('name', 'INGEST_FINALIZE_QUEUE_NAME', 'value', parameters('ingestFinalizeQueueName'))), if(not(equals(parameters('appInsightsConnectionString'), '')), createArray(createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', parameters('appInsightsConnectionString')), createObject('name', 'APPINSIGHTS_INSTRUMENTATIONKEY', 'value', parameters('appInsightsInstrumentationKey')), createObject('name', 'APPLICATIONINSIGHTS_AGENT_EXTENSION_VERSION', 'value', '~3')), createArray()))]"
                 },
                 "functionAppConfig": {
                   "deployment": {
@@ -1670,7 +1647,6 @@
       },
       "dependsOn": [
         "appInsights",
-        "containerAppsEnvironment",
         "functionStorage",
         "serviceBus",
         "storage"
@@ -2037,26 +2013,23 @@
           "registryIdentityResourceId": {
             "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('openDataLoaderPullIdentityName'))]"
           },
-          "apiKey": {
-            "value": "[parameters('openDataLoaderSharedSecret')]"
+          "serviceBusConnectionString": {
+            "value": "[listOutputsWithSecureValues('serviceBus', '2025-04-01').connectionString]"
           },
-          "maxRequestBodySizeMb": {
-            "value": "[parameters('openDataLoaderMaxRequestBodySizeMb')]"
+          "storageConnectionString": {
+            "value": "[listOutputsWithSecureValues('storage', '2025-04-01').connectionString]"
+          },
+          "autotagQueueName": {
+            "value": "[variables('openDataLoaderAutotagQueueName')]"
+          },
+          "finalizeQueueName": {
+            "value": "[variables('finalizeQueueName')]"
           },
           "processTimeoutSeconds": {
             "value": "[parameters('openDataLoaderProcessTimeoutSeconds')]"
           },
           "maxConcurrentConversions": {
             "value": "[parameters('openDataLoaderMaxConcurrentConversions')]"
-          },
-          "maxQueuedConversions": {
-            "value": "[parameters('openDataLoaderMaxQueuedConversions')]"
-          },
-          "queueTimeoutSeconds": {
-            "value": "[parameters('openDataLoaderQueueTimeoutSeconds')]"
-          },
-          "httpConcurrentRequests": {
-            "value": "[parameters('openDataLoaderHttpConcurrentRequests')]"
           },
           "cpu": {
             "value": "[parameters('openDataLoaderCpu')]"
@@ -2078,14 +2051,14 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "4528876268105028133"
+              "templateHash": "436219936046678769"
             }
           },
           "parameters": {
             "name": {
               "type": "string",
               "metadata": {
-                "description": "OpenDataLoader container app name."
+                "description": "OpenDataLoader worker container app name."
               }
             },
             "location": {
@@ -2124,17 +2097,30 @@
                 "description": "User-assigned managed identity resource ID used to pull from the container registry."
               }
             },
-            "apiKey": {
+            "serviceBusConnectionString": {
               "type": "securestring",
               "metadata": {
-                "description": "Shared secret required on X-Api-Key."
+                "description": "Service Bus connection string used by the OpenDataLoader worker."
               }
             },
-            "maxRequestBodySizeMb": {
-              "type": "int",
-              "defaultValue": 50,
+            "storageConnectionString": {
+              "type": "securestring",
               "metadata": {
-                "description": "Maximum request body size in MB."
+                "description": "Storage connection string used by the OpenDataLoader worker."
+              }
+            },
+            "autotagQueueName": {
+              "type": "string",
+              "defaultValue": "autotag-odl",
+              "metadata": {
+                "description": "Queue consumed by the OpenDataLoader worker."
+              }
+            },
+            "finalizeQueueName": {
+              "type": "string",
+              "defaultValue": "pdf-finalize",
+              "metadata": {
+                "description": "Queue that receives PDF finalization messages."
               }
             },
             "processTimeoutSeconds": {
@@ -2150,30 +2136,6 @@
               "minValue": 1,
               "metadata": {
                 "description": "Maximum conversions to run concurrently inside one replica."
-              }
-            },
-            "maxQueuedConversions": {
-              "type": "int",
-              "defaultValue": 20,
-              "minValue": 0,
-              "metadata": {
-                "description": "Maximum requests to hold in the in-memory queue inside one replica."
-              }
-            },
-            "queueTimeoutSeconds": {
-              "type": "int",
-              "defaultValue": 60,
-              "minValue": 1,
-              "metadata": {
-                "description": "Maximum seconds a request may wait in the in-memory queue before returning 429."
-              }
-            },
-            "httpConcurrentRequests": {
-              "type": "int",
-              "defaultValue": 1,
-              "minValue": 1,
-              "metadata": {
-                "description": "HTTP concurrent request target for Container Apps autoscale."
               }
             },
             "cpu": {
@@ -2222,12 +2184,6 @@
                 "managedEnvironmentId": "[parameters('environmentId')]",
                 "configuration": {
                   "activeRevisionsMode": "Single",
-                  "ingress": {
-                    "external": true,
-                    "allowInsecure": false,
-                    "targetPort": 8080,
-                    "transport": "auto"
-                  },
                   "registries": [
                     {
                       "server": "[parameters('registryServer')]",
@@ -2236,28 +2192,36 @@
                   ],
                   "secrets": [
                     {
-                      "name": "api-key",
-                      "value": "[parameters('apiKey')]"
+                      "name": "servicebus-connection-string",
+                      "value": "[parameters('serviceBusConnectionString')]"
+                    },
+                    {
+                      "name": "storage-connection-string",
+                      "value": "[parameters('storageConnectionString')]"
                     }
                   ]
                 },
                 "template": {
                   "containers": [
                     {
-                      "name": "opendataloader-api",
+                      "name": "opendataloader-worker",
                       "image": "[parameters('image')]",
                       "env": [
                         {
-                          "name": "ASPNETCORE_URLS",
-                          "value": "http://0.0.0.0:8080"
+                          "name": "ServiceBus",
+                          "secretRef": "servicebus-connection-string"
                         },
                         {
-                          "name": "ODL_SHARED_SECRET",
-                          "secretRef": "api-key"
+                          "name": "Storage__ConnectionString",
+                          "secretRef": "storage-connection-string"
                         },
                         {
-                          "name": "ODL_MAX_REQUEST_BODY_SIZE_MB",
-                          "value": "[string(parameters('maxRequestBodySizeMb'))]"
+                          "name": "ODL_AUTOTAG_QUEUE_NAME",
+                          "value": "[parameters('autotagQueueName')]"
+                        },
+                        {
+                          "name": "ODL_FINALIZE_QUEUE_NAME",
+                          "value": "[parameters('finalizeQueueName')]"
                         },
                         {
                           "name": "ODL_PROCESS_TIMEOUT_SECONDS",
@@ -2266,49 +2230,6 @@
                         {
                           "name": "ODL_MAX_CONCURRENT_CONVERSIONS",
                           "value": "[string(parameters('maxConcurrentConversions'))]"
-                        },
-                        {
-                          "name": "ODL_MAX_QUEUED_CONVERSIONS",
-                          "value": "[string(parameters('maxQueuedConversions'))]"
-                        },
-                        {
-                          "name": "ODL_QUEUE_TIMEOUT_SECONDS",
-                          "value": "[string(parameters('queueTimeoutSeconds'))]"
-                        }
-                      ],
-                      "probes": [
-                        {
-                          "type": "Startup",
-                          "httpGet": {
-                            "path": "/health",
-                            "port": 8080
-                          },
-                          "initialDelaySeconds": 5,
-                          "periodSeconds": 10,
-                          "failureThreshold": 18,
-                          "timeoutSeconds": 3
-                        },
-                        {
-                          "type": "Liveness",
-                          "httpGet": {
-                            "path": "/health",
-                            "port": 8080
-                          },
-                          "initialDelaySeconds": 20,
-                          "periodSeconds": 30,
-                          "failureThreshold": 3,
-                          "timeoutSeconds": 3
-                        },
-                        {
-                          "type": "Readiness",
-                          "httpGet": {
-                            "path": "/health",
-                            "port": 8080
-                          },
-                          "initialDelaySeconds": 10,
-                          "periodSeconds": 15,
-                          "failureThreshold": 3,
-                          "timeoutSeconds": 3
                         }
                       ],
                       "resources": {
@@ -2322,11 +2243,19 @@
                     "maxReplicas": "[parameters('maxReplicas')]",
                     "rules": [
                       {
-                        "name": "http-concurrency",
-                        "http": {
+                        "name": "servicebus-autotag-queue",
+                        "custom": {
+                          "type": "azure-servicebus",
                           "metadata": {
-                            "concurrentRequests": "[string(parameters('httpConcurrentRequests'))]"
-                          }
+                            "queueName": "[parameters('autotagQueueName')]",
+                            "messageCount": "1"
+                          },
+                          "auth": [
+                            {
+                              "secretRef": "servicebus-connection-string",
+                              "triggerParameter": "connection"
+                            }
+                          ]
                         }
                       }
                     ]
@@ -2339,10 +2268,6 @@
             "name": {
               "type": "string",
               "value": "[parameters('name')]"
-            },
-            "fqdn": {
-              "type": "string",
-              "value": "[reference(resourceId('Microsoft.App/containerApps', parameters('name')), '2024-03-01').configuration.ingress.fqdn]"
             }
           }
         }
@@ -2350,7 +2275,9 @@
       "dependsOn": [
         "containerAppsEnvironment",
         "containerRegistry",
-        "openDataLoaderPullIdentity"
+        "openDataLoaderPullIdentity",
+        "serviceBus",
+        "storage"
       ]
     }
   },
@@ -2414,10 +2341,6 @@
     "openDataLoaderContainerAppName": {
       "type": "string",
       "value": "[if(variables('deployOpenDataLoaderContainerApp'), reference('openDataLoaderContainerApp').outputs.name.value, '')]"
-    },
-    "openDataLoaderContainerAppUrl": {
-      "type": "string",
-      "value": "[if(variables('deployOpenDataLoaderContainerApp'), format('https://{0}', reference('openDataLoaderContainerApp').outputs.fqdn.value), '')]"
     }
   }
 }

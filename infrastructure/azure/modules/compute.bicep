@@ -71,12 +71,14 @@ param appInsightsInstrumentationKey string = ''
 @description('Autotag provider for the ingest function. Use Adobe or OpenDataLoader.')
 param ingestAutotagProvider string = 'Adobe'
 
-@description('OpenDataLoader API base URL for ingest autotagging.')
-param openDataLoaderBaseUrl string = ''
+@description('Queue consumed by the ingest intake function.')
+param ingestFilesQueueName string = 'files'
 
-@secure()
-@description('OpenDataLoader API key for ingest autotagging.')
-param openDataLoaderApiKey string = ''
+@description('Queue consumed by the OpenDataLoader worker.')
+param ingestOpenDataLoaderAutotagQueueName string = 'autotag-odl'
+
+@description('Queue consumed by the ingest finalize function.')
+param ingestFinalizeQueueName string = 'pdf-finalize'
 
 @allowed([
   512
@@ -238,12 +240,16 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
           value: ingestAutotagProvider
         }
         {
-          name: 'ODL_BASE_URL'
-          value: openDataLoaderBaseUrl
+          name: 'INGEST_FILES_QUEUE_NAME'
+          value: ingestFilesQueueName
         }
         {
-          name: 'ODL_API_KEY'
-          value: openDataLoaderApiKey
+          name: 'INGEST_ODL_AUTOTAG_QUEUE_NAME'
+          value: ingestOpenDataLoaderAutotagQueueName
+        }
+        {
+          name: 'INGEST_FINALIZE_QUEUE_NAME'
+          value: ingestFinalizeQueueName
         }
       ], appInsightsConnectionString != '' ? [
         {
