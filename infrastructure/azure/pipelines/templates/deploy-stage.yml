@@ -26,7 +26,6 @@ stages:
       # Create this variable group in Azure DevOps with environment-specific values:
       # - RESOURCE_GROUP, LOCATION, APP_NAME, ENVIRONMENT, DEPLOYMENT_NAME
       # - SQL_ADMIN_LOGIN, SQL_ADMIN_PASSWORD (secret)
-      # - ODL_SHARED_SECRET (secret) for the OpenDataLoader Container App
       # - (optional) CORS_ALLOWED_ORIGINS, DEPLOY_EVENTGRID_SUBSCRIPTION,
       #   DEPLOY_OPEN_DATA_LOADER_INFRASTRUCTURE, EVENTGRID_* tuning vars
       - group: ${{ parameters.variableGroup }}
@@ -102,11 +101,6 @@ stages:
                         --name "$(DEPLOYMENT_NAME)" \
                         --query "properties.outputs.openDataLoaderContainerAppName.value" -o tsv)
 
-                      openDataLoaderContainerAppUrl=$(az deployment group show \
-                        --resource-group "$(RESOURCE_GROUP)" \
-                        --name "$(DEPLOYMENT_NAME)" \
-                        --query "properties.outputs.openDataLoaderContainerAppUrl.value" -o tsv)
-
                       ingestAutotagProvider=$(az deployment group show \
                         --resource-group "$(RESOURCE_GROUP)" \
                         --name "$(DEPLOYMENT_NAME)" \
@@ -123,13 +117,12 @@ stages:
                       echo "##vso[task.setvariable variable=acrName]$acrName"
                       echo "##vso[task.setvariable variable=acrLoginServer]$acrLoginServer"
                       echo "##vso[task.setvariable variable=odlContainerAppName]$odlContainerAppName"
-                      echo "##vso[task.setvariable variable=openDataLoaderContainerAppUrl]$openDataLoaderContainerAppUrl"
                       echo "##vso[task.setvariable variable=ingestAutotagProvider]$ingestAutotagProvider"
 
                 - task: AzureCLI@2
                   name: buildOpenDataLoaderImage
-                  displayName: Build and push OpenDataLoader API image
-                  condition: and(succeeded(), ne(variables['acrName'], ''), ne(variables['ODL_SHARED_SECRET'], ''))
+                  displayName: Build and push OpenDataLoader worker image
+                  condition: and(succeeded(), ne(variables['acrName'], ''))
                   inputs:
                     azureSubscription: ${{ parameters.azureSubscription }}
                     scriptType: bash
@@ -140,11 +133,6 @@ stages:
 
                       if [[ -z "$(acrName)" || -z "$(acrLoginServer)" ]]; then
                         echo "Skipping OpenDataLoader image build because ACR outputs are empty."
-                        exit 0
-                      fi
-
-                      if [[ -z "$(ODL_SHARED_SECRET)" ]]; then
-                        echo "Skipping OpenDataLoader image build because ODL_SHARED_SECRET is empty."
                         exit 0
                       fi
 
@@ -163,7 +151,7 @@ stages:
 
                 - task: AzureCLI@2
                   displayName: Deploy OpenDataLoader Container App
-                  condition: and(succeeded(), ne(variables['acrName'], ''), ne(variables['ODL_SHARED_SECRET'], ''))
+                  condition: and(succeeded(), ne(variables['acrName'], ''), ne(variables['odlImageRef'], ''))
                   inputs:
                     azureSubscription: ${{ parameters.azureSubscription }}
                     scriptType: bash
@@ -171,11 +159,6 @@ stages:
                     inlineScript: |
                       set -euo pipefail
                       cd "$(Build.SourcesDirectory)"
-
-                      if [[ -z "$(ODL_SHARED_SECRET)" ]]; then
-                        echo "ODL_SHARED_SECRET is required to deploy the OpenDataLoader trial." >&2
-                        exit 1
-                      fi
 
                       env \
                         RESOURCE_GROUP="$(RESOURCE_GROUP)" \
@@ -188,26 +171,25 @@ stages:
                         SQL_ADMIN_PASSWORD="$(SQL_ADMIN_PASSWORD)" \
                         DEPLOY_EVENTGRID_SUBSCRIPTION="false" \
                         OPEN_DATA_LOADER_IMAGE="$(odlImageRef)" \
-                        OPEN_DATA_LOADER_SHARED_SECRET="$(ODL_SHARED_SECRET)" \
                         bash infrastructure/azure/scripts/deploy.sh
 
-                      openDataLoaderContainerAppUrl=$(az deployment group show \
+                      odlContainerAppName=$(az deployment group show \
                         --resource-group "$(RESOURCE_GROUP)" \
                         --name "$(DEPLOYMENT_NAME)" \
-                        --query "properties.outputs.openDataLoaderContainerAppUrl.value" -o tsv)
+                        --query "properties.outputs.openDataLoaderContainerAppName.value" -o tsv)
 
                       ingestAutotagProvider=$(az deployment group show \
                         --resource-group "$(RESOURCE_GROUP)" \
                         --name "$(DEPLOYMENT_NAME)" \
                         --query "properties.outputs.ingestAutotagProvider.value" -o tsv)
 
-                      if [[ -z "$openDataLoaderContainerAppUrl" ]]; then
-                        echo "OpenDataLoader Container App URL was empty after deployment." >&2
+                      if [[ -z "$odlContainerAppName" ]]; then
+                        echo "OpenDataLoader Container App name was empty after deployment." >&2
                         exit 1
                       fi
 
-                      echo "Resolved OpenDataLoader URL: $openDataLoaderContainerAppUrl"
-                      echo "##vso[task.setvariable variable=openDataLoaderContainerAppUrl]$openDataLoaderContainerAppUrl"
+                      echo "Resolved OpenDataLoader worker: $odlContainerAppName"
+                      echo "##vso[task.setvariable variable=odlContainerAppName]$odlContainerAppName"
                       echo "##vso[task.setvariable variable=ingestAutotagProvider]$ingestAutotagProvider"
 
                 - task: AzureAppServiceSettings@1
@@ -243,8 +225,10 @@ stages:
                         { "name": "OTEL_SERVICE_NAME", "value": "readable.worker", "slotSetting": false },
                         { "name": "OTEL_RESOURCE_ATTRIBUTES", "value": "service.name=readable.worker,service.environment=$(ENVIRONMENT),deployment.environment.name=$(ENVIRONMENT)", "slotSetting": false },
                         { "name": "INGEST_AUTOTAG_PROVIDER", "value": "$(ingestAutotagProvider)", "slotSetting": false },
-                        { "name": "ODL_BASE_URL", "value": "$(openDataLoaderContainerAppUrl)", "slotSetting": false },
-                        { "name": "ODL_API_KEY", "value": "$(ODL_SHARED_SECRET)", "slotSetting": false },
+                        { "name": "INGEST_FILES_QUEUE_NAME", "value": "files", "slotSetting": false },
+                        { "name": "INGEST_ODL_AUTOTAG_QUEUE_NAME", "value": "autotag-odl", "slotSetting": false },
+                        { "name": "INGEST_FINALIZE_QUEUE_NAME", "value": "pdf-finalize", "slotSetting": false },
+                        { "name": "INGEST_FAILED_QUEUE_NAME", "value": "pdf-failed", "slotSetting": false },
                         { "name": "PDF_SERVICES_CLIENT_ID", "value": "$(PDF_SERVICES_CLIENT_ID)", "slotSetting": false },
                         { "name": "PDF_SERVICES_CLIENT_SECRET", "value": "$(PDF_SERVICES_CLIENT_SECRET)", "slotSetting": false }
                       ]

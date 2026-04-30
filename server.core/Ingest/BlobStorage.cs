@@ -22,13 +22,10 @@ public sealed class AzureBlobStorage : IBlobStorage
     public async Task UploadAsync(Uri destinationBlobUri, Stream content, string contentType, CancellationToken cancellationToken)
     {
         var client = CreateClient(destinationBlobUri);
-        await client.UploadAsync(
-            content,
-            new BlobUploadOptions
-            {
-                HttpHeaders = new BlobHttpHeaders { ContentType = contentType },
-            },
-            cancellationToken);
+        await client.UploadAsync(content, overwrite: true, cancellationToken: cancellationToken);
+        await client.SetHttpHeadersAsync(
+            new BlobHttpHeaders { ContentType = contentType },
+            cancellationToken: cancellationToken);
     }
 
     public Task DeleteIfExistsAsync(Uri blobUri, CancellationToken cancellationToken)
@@ -45,26 +42,11 @@ public sealed class AzureBlobStorage : IBlobStorage
 
         if (!string.IsNullOrWhiteSpace(connectionString))
         {
-            var (containerName, blobName) = ParseContainerAndBlob(blobUri);
+            var (containerName, blobName) = BlobUriParser.ParseContainerAndBlob(blobUri);
             return new BlobClient(connectionString, containerName, blobName);
         }
 
         // Works for public blobs or URIs with SAS tokens.
         return new BlobClient(blobUri);
     }
-
-    private static (string ContainerName, string BlobName) ParseContainerAndBlob(Uri blobUri)
-    {
-        var path = blobUri.AbsolutePath.Trim('/');
-        var firstSlash = path.IndexOf('/', StringComparison.Ordinal);
-
-        if (firstSlash <= 0 || firstSlash == path.Length - 1)
-        {
-            throw new InvalidOperationException(
-                $"Blob URL path did not look like '/<container>/<blob>': '{blobUri.AbsolutePath}'.");
-        }
-
-        return (path[..firstSlash], path[(firstSlash + 1)..]);
-    }
 }
-

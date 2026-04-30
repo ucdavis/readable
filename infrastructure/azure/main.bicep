@@ -44,16 +44,8 @@ param appInsightsRetentionInDays int = 30
 @description('OpenDataLoader container image reference. Leave empty to skip deploying the container app.')
 param openDataLoaderImage string = ''
 
-@secure()
-@description('Shared secret expected in the OpenDataLoader X-Api-Key header. Leave empty to skip deploying the container app.')
-param openDataLoaderSharedSecret string = ''
-
 @description('Deploy the OpenDataLoader registry and Container Apps environment even before a container image is available. This is used by CI to bootstrap image publishing.')
 param deployOpenDataLoaderInfrastructure bool = false
-
-@minValue(1)
-@description('Max request body size for the OpenDataLoader API in MB.')
-param openDataLoaderMaxRequestBodySizeMb int = 50
 
 @minValue(1)
 @description('OpenDataLoader process timeout in seconds.')
@@ -62,18 +54,6 @@ param openDataLoaderProcessTimeoutSeconds int = 210
 @minValue(1)
 @description('Maximum OpenDataLoader conversions to run concurrently inside one replica.')
 param openDataLoaderMaxConcurrentConversions int = 1
-
-@minValue(0)
-@description('Maximum OpenDataLoader requests to hold in the in-memory queue inside one replica.')
-param openDataLoaderMaxQueuedConversions int = 20
-
-@minValue(1)
-@description('Maximum seconds a request may wait in the OpenDataLoader in-memory queue before returning 429.')
-param openDataLoaderQueueTimeoutSeconds int = 60
-
-@minValue(1)
-@description('HTTP concurrent request target used by Container Apps autoscale for OpenDataLoader.')
-param openDataLoaderHttpConcurrentRequests int = 1
 
 @description('CPU allocation for the OpenDataLoader Container App.')
 param openDataLoaderCpu string = '2.0'
@@ -116,14 +96,19 @@ var openDataLoaderContainerAppName = toLower('ca-odl-${appNameSafe}-${env}-${nam
 var openDataLoaderPullIdentityName = toLower('uai-odl-pull-${appNameSafe}-${env}-${nameToken}')
 var sqlSkuName = env == 'prod' ? 'S0' : 'Basic'
 var sqlSkuTier = env == 'prod' ? 'Standard' : 'Basic'
-var deployOpenDataLoaderContainerApp = !empty(openDataLoaderImage) && !empty(openDataLoaderSharedSecret)
+var deployOpenDataLoaderContainerApp = !empty(openDataLoaderImage)
 var deployOpenDataLoaderPrerequisites = deployOpenDataLoaderInfrastructure || deployOpenDataLoaderContainerApp
-var openDataLoaderBaseUrl = deployOpenDataLoaderContainerApp ? 'https://${openDataLoaderContainerAppName}.${containerAppsEnvironment!.outputs.defaultDomain}' : ''
 var ingestAutotagProvider = deployOpenDataLoaderContainerApp ? 'OpenDataLoader' : 'Adobe'
 
-var baseQueueName = serviceBusQueueBaseName == '' ? 'files' : serviceBusQueueBaseName
+var filesQueueName = serviceBusQueueBaseName == '' ? 'files' : serviceBusQueueBaseName
+var openDataLoaderAutotagQueueName = 'autotag-odl'
+var finalizeQueueName = 'pdf-finalize'
+var failedQueueName = 'pdf-failed'
 var fileQueueNames = [
-  baseQueueName
+  filesQueueName
+  openDataLoaderAutotagQueueName
+  finalizeQueueName
+  failedQueueName
 ]
 
 var incomingContainerName = 'incoming'
@@ -286,8 +271,10 @@ module compute 'modules/compute.bicep' = {
     appInsightsConnectionString: appInsights.properties.ConnectionString
     appInsightsInstrumentationKey: appInsights.properties.InstrumentationKey
     ingestAutotagProvider: ingestAutotagProvider
-    openDataLoaderBaseUrl: openDataLoaderBaseUrl
-    openDataLoaderApiKey: openDataLoaderSharedSecret
+    ingestFilesQueueName: filesQueueName
+    ingestOpenDataLoaderAutotagQueueName: openDataLoaderAutotagQueueName
+    ingestFinalizeQueueName: finalizeQueueName
+    ingestFailedQueueName: failedQueueName
   }
 }
 
@@ -334,13 +321,13 @@ module openDataLoaderContainerApp 'modules/opendataloader-container-app.bicep' =
     image: openDataLoaderImage
     registryServer: containerRegistry!.outputs.loginServer
     registryIdentityResourceId: openDataLoaderPullIdentity!.id
-    apiKey: openDataLoaderSharedSecret
-    maxRequestBodySizeMb: openDataLoaderMaxRequestBodySizeMb
+    serviceBusConnectionString: serviceBus.outputs.connectionString
+    storageConnectionString: storage.outputs.connectionString
+    autotagQueueName: openDataLoaderAutotagQueueName
+    finalizeQueueName: finalizeQueueName
+    failedQueueName: failedQueueName
     processTimeoutSeconds: openDataLoaderProcessTimeoutSeconds
     maxConcurrentConversions: openDataLoaderMaxConcurrentConversions
-    maxQueuedConversions: openDataLoaderMaxQueuedConversions
-    queueTimeoutSeconds: openDataLoaderQueueTimeoutSeconds
-    httpConcurrentRequests: openDataLoaderHttpConcurrentRequests
     cpu: openDataLoaderCpu
     memory: openDataLoaderMemory
     minReplicas: openDataLoaderMinReplicas
@@ -363,4 +350,3 @@ output containerRegistryName string = deployOpenDataLoaderPrerequisites ? contai
 output containerRegistryLoginServer string = deployOpenDataLoaderPrerequisites ? containerRegistry!.outputs.loginServer : ''
 output containerAppsEnvironmentName string = deployOpenDataLoaderPrerequisites ? containerAppsEnvironment!.outputs.name : ''
 output openDataLoaderContainerAppName string = deployOpenDataLoaderContainerApp ? openDataLoaderContainerApp!.outputs.name : ''
-output openDataLoaderContainerAppUrl string = deployOpenDataLoaderContainerApp ? 'https://${openDataLoaderContainerApp!.outputs.fqdn}' : ''

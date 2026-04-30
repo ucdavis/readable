@@ -91,22 +91,24 @@ public static class StorageBlobCreatedEventParser
         request = default!;
         error = null;
 
-        var path = blobUri.AbsolutePath.Trim('/');
-        if (string.IsNullOrWhiteSpace(path))
+        if (string.IsNullOrWhiteSpace(blobUri.AbsolutePath.Trim('/')))
         {
             error = $"Blob URL had an empty path: '{blobUri}'.";
             return false;
         }
 
-        var firstSlash = path.IndexOf('/', StringComparison.Ordinal);
-        if (firstSlash <= 0 || firstSlash == path.Length - 1)
+        string containerName;
+        string blobName;
+        try
+        {
+            (containerName, blobName) = BlobUriParser.ParseContainerAndBlob(blobUri);
+        }
+        catch (InvalidOperationException)
         {
             error = $"Blob URL path did not look like '/<container>/<blob>': '{blobUri.AbsolutePath}'.";
             return false;
         }
 
-        var containerName = path[..firstSlash];
-        var blobName = path[(firstSlash + 1)..];
         var fileId = Path.GetFileNameWithoutExtension(blobName);
 
         if (string.IsNullOrWhiteSpace(fileId))
@@ -147,8 +149,8 @@ public static class StorageBlobCreatedEventParser
             return false;
         }
 
-        containerName = subject[afterContainers..blobsIndex].Trim('/').Trim();
-        blobName = subject[(blobsIndex + blobsMarker.Length)..].Trim('/').Trim();
+        containerName = Uri.UnescapeDataString(subject[afterContainers..blobsIndex].Trim('/').Trim());
+        blobName = Uri.UnescapeDataString(subject[(blobsIndex + blobsMarker.Length)..].Trim('/').Trim());
 
         return !string.IsNullOrWhiteSpace(containerName) && !string.IsNullOrWhiteSpace(blobName);
     }

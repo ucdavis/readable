@@ -14,6 +14,20 @@ public interface IPdfProcessor
     Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken);
 }
 
+public interface IPdfPipelineProcessor : IPdfProcessor
+{
+    Task<PdfIntakeResult> PrepareForQueuedAutotagAsync(
+        string fileId,
+        Stream pdfStream,
+        CancellationToken cancellationToken);
+
+    Task<PdfProcessResult> FinalizeTaggedPdfAsync(
+        string fileId,
+        Stream pdfStream,
+        PdfFinalizeContext context,
+        CancellationToken cancellationToken);
+}
+
 public sealed record PdfProcessResult(
     string OutputPdfPath,
     string? BeforeAccessibilityReportJson = null,
@@ -22,6 +36,17 @@ public sealed record PdfProcessResult(
     string? AfterAccessibilityReportPath = null,
     int PageCount = 0,
     PdfAutotagMetadata? Autotag = null);
+
+public sealed record PdfIntakeResult(
+    bool RequiresAutotag,
+    int PageCount,
+    string? BeforeAccessibilityReportJson,
+    string? BeforeAccessibilityReportPath,
+    PdfAutotagMetadata Autotag);
+
+public sealed record PdfFinalizeContext(
+    int PageCount,
+    PdfAutotagMetadata Autotag);
 
 public sealed record PdfAutotagMetadata(
     string Provider,
@@ -65,7 +90,7 @@ internal static class PdfPathSafeName
     }
 }
 
-public sealed class PdfProcessor : IPdfProcessor
+public sealed class PdfProcessor : IPdfPipelineProcessor
 {
     private readonly IAdobePdfServices _adobePdfServices;
     private readonly IPdfRemediationProcessor _pdfRemediationProcessor;
@@ -411,6 +436,195 @@ public sealed class PdfProcessor : IPdfProcessor
             accessibilityReport?.ReportPath,
             PageCount: pageCount,
             Autotag: autotagMetadata);
+    }
+
+    public async Task<PdfIntakeResult> PrepareForQueuedAutotagAsync(
+        string fileId,
+        Stream pdfStream,
+        CancellationToken cancellationToken)
+    {
+        var safeFileId = PdfPathSafeName.FromFileId(fileId);
+        var runId = Guid.NewGuid().ToString("N");
+        var workDir = GetWorkDir(safeFileId, runId, _options.WorkDirRoot);
+        Directory.CreateDirectory(workDir);
+
+        var sourcePath = Path.Combine(workDir, $"{safeFileId}.source.pdf");
+        using (LogStage.Begin(_logger, fileId, "write_source_pdf", new { sourcePath, workDir }))
+        {
+            await using var output = File.Open(sourcePath, FileMode.Create, FileAccess.Write, FileShare.None);
+            await pdfStream.CopyToAsync(output, cancellationToken);
+        }
+
+        var sourcePageCount = TryReadPageCount(sourcePath);
+        EnforceMaxUploadPages(sourcePageCount);
+
+        AdobeAccessibilityCheckOutput? beforeAccessibilityReport = null;
+        try
+        {
+            var beforeAccessibilityPdfPath = Path.Combine(workDir, $"{safeFileId}.before.a11y.pdf");
+            var beforeAccessibilityReportPath = Path.Combine(workDir, $"{safeFileId}.before.a11y-report.json");
+
+            using (LogStage.Begin(
+                       _logger,
+                       fileId,
+                       "adobe_before_a11y",
+                       new { input = sourcePath, outputPdf = beforeAccessibilityPdfPath, outputReport = beforeAccessibilityReportPath }))
+            {
+                beforeAccessibilityReport = await _adobePdfServices.RunAccessibilityCheckerAsync(
+                    inputPdfPath: sourcePath,
+                    outputPdfPath: beforeAccessibilityPdfPath,
+                    outputReportPath: beforeAccessibilityReportPath,
+                    pageStart: null,
+                    pageEnd: null,
+                    cancellationToken: cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to generate BEFORE accessibility report for {fileId}", fileId);
+        }
+
+        var sourceInfo = ReadSourcePdfInfo(
+            sourcePath,
+            beforeAccessibilityReport?.ReportJson,
+            out var retagTriggers,
+            out var retagDecisionError);
+        var pageCount = sourceInfo.PageCount > 0 ? sourceInfo.PageCount : sourcePageCount;
+
+        if (!string.IsNullOrWhiteSpace(retagDecisionError))
+        {
+            _logger.LogDebug(
+                "Could not evaluate BEFORE accessibility report retag triggers for {fileId}: {error}",
+                fileId,
+                retagDecisionError);
+        }
+
+        if (sourceInfo.TaggingState == PdfTaggingState.TaggedUsable && !_options.AutotagTaggedPdfs)
+        {
+            _logger.LogInformation("Skipping queued OpenDataLoader autotagging for {fileId}: PDF is already tagged.", fileId);
+            return new PdfIntakeResult(
+                RequiresAutotag: false,
+                PageCount: pageCount,
+                BeforeAccessibilityReportJson: beforeAccessibilityReport?.ReportJson,
+                BeforeAccessibilityReportPath: beforeAccessibilityReport?.ReportPath,
+                Autotag: new PdfAutotagMetadata(
+                    Provider: FileIngestOptions.AutotagProviders.None,
+                    Required: false,
+                    SkippedReason: "already-tagged",
+                    ChunkCount: 0,
+                    LocalReportPaths: []));
+        }
+
+        if (sourceInfo.TaggingState == PdfTaggingState.TaggedBroken && retagTriggers.Count > 0)
+        {
+            _logger.LogWarning(
+                "BEFORE accessibility report indicates tag/structure issues ({triggers}); queueing OpenDataLoader autotag for {fileId}.",
+                string.Join(", ", retagTriggers),
+                fileId);
+        }
+
+        return new PdfIntakeResult(
+            RequiresAutotag: true,
+            PageCount: pageCount,
+            BeforeAccessibilityReportJson: beforeAccessibilityReport?.ReportJson,
+            BeforeAccessibilityReportPath: beforeAccessibilityReport?.ReportPath,
+            Autotag: new PdfAutotagMetadata(
+                Provider: FileIngestOptions.AutotagProviders.OpenDataLoader,
+                Required: true,
+                SkippedReason: null,
+                ChunkCount: 1,
+                LocalReportPaths: []));
+    }
+
+    public async Task<PdfProcessResult> FinalizeTaggedPdfAsync(
+        string fileId,
+        Stream pdfStream,
+        PdfFinalizeContext context,
+        CancellationToken cancellationToken)
+    {
+        var totalSw = Stopwatch.StartNew();
+        var safeFileId = PdfPathSafeName.FromFileId(fileId);
+        var runId = Guid.NewGuid().ToString("N");
+        var workDir = GetWorkDir(safeFileId, runId, _options.WorkDirRoot);
+        Directory.CreateDirectory(workDir);
+
+        var taggedPdfPath = Path.Combine(workDir, $"{safeFileId}.queued-input.pdf");
+        using (LogStage.Begin(_logger, fileId, "write_queued_finalize_pdf", new { taggedPdfPath, workDir }))
+        {
+            await using var output = File.Open(taggedPdfPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            await pdfStream.CopyToAsync(output, cancellationToken);
+        }
+
+        string finalPdfPath;
+        if (_options.UsePdfRemediationProcessor)
+        {
+            var remediatedPdfPath = Path.Combine(workDir, $"{safeFileId}.remediated.pdf");
+            PdfRemediationResult remediation;
+            using (LogStage.Begin(_logger, fileId, "pdf_remediation", new { input = taggedPdfPath, output = remediatedPdfPath }))
+            {
+                remediation = await _pdfRemediationProcessor.ProcessAsync(
+                    fileId,
+                    taggedPdfPath,
+                    remediatedPdfPath,
+                    cancellationToken);
+            }
+
+            finalPdfPath = remediation.OutputPdfPath;
+            _logger.LogInformation("Remediated PDF written to {path}", finalPdfPath);
+        }
+        else
+        {
+            finalPdfPath = taggedPdfPath;
+        }
+
+        AdobeAccessibilityCheckOutput? accessibilityReport = null;
+        try
+        {
+            var accessibilityPdfPath = Path.Combine(workDir, $"{safeFileId}.a11y.pdf");
+            var accessibilityReportPath = Path.Combine(workDir, $"{safeFileId}.a11y-report.json");
+
+            using (LogStage.Begin(
+                       _logger,
+                       fileId,
+                       "adobe_after_a11y",
+                       new { input = finalPdfPath, outputPdf = accessibilityPdfPath, outputReport = accessibilityReportPath }))
+            {
+                accessibilityReport = await _adobePdfServices.RunAccessibilityCheckerAsync(
+                    inputPdfPath: finalPdfPath,
+                    outputPdfPath: accessibilityPdfPath,
+                    outputReportPath: accessibilityReportPath,
+                    pageStart: null,
+                    pageEnd: null,
+                    cancellationToken: cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to generate accessibility report for {fileId}", fileId);
+        }
+
+        _logger.LogInformation(
+            "Queued PDF finalization finished: {fileId} elapsedMs={elapsedMs} workDir={workDir}",
+            fileId,
+            totalSw.Elapsed.TotalMilliseconds,
+            workDir);
+
+        return new PdfProcessResult(
+            finalPdfPath,
+            BeforeAccessibilityReportJson: null,
+            BeforeAccessibilityReportPath: null,
+            AfterAccessibilityReportJson: accessibilityReport?.ReportJson,
+            AfterAccessibilityReportPath: accessibilityReport?.ReportPath,
+            PageCount: context.PageCount,
+            Autotag: context.Autotag);
     }
 
     private string GetAutotagProviderName()

@@ -32,5 +32,34 @@ public class StorageBlobCreatedEventParserTests
         request.BlobUri.ToString().Should().Be("https://mystorageacct.blob.core.windows.net/incoming/abc123.pdf");
         request.FileId.Should().Be("abc123");
     }
-}
 
+    [Fact]
+    public void TryParse_WhenDataUrlHasEncodedBlobName_DecodesBlobNameAndFileId()
+    {
+        const string json =
+            """
+            {"subject":"/blobServices/default/containers/incoming/blobs/folder/my%20file.pdf","data":{"url":"https://mystorageacct.blob.core.windows.net/incoming/folder/my%20file.pdf"}}
+            """;
+
+        StorageBlobCreatedEventParser.TryParse(json, out var request, out var error).Should().BeTrue(error);
+        request.BlobUri.AbsoluteUri.Should().Be("https://mystorageacct.blob.core.windows.net/incoming/folder/my%20file.pdf");
+        request.ContainerName.Should().Be("incoming");
+        request.BlobName.Should().Be("folder/my file.pdf");
+        request.FileId.Should().Be("my file");
+    }
+
+    [Fact]
+    public void TryParse_WhenSubjectFallbackHasEncodedBlobName_BuildsEscapedUrlAndDecodedBlobName()
+    {
+        const string json =
+            """
+            {"source":"/subscriptions/x/resourceGroups/y/providers/Microsoft.Storage/storageAccounts/mystorageacct","subject":"/blobServices/default/containers/incoming/blobs/folder/my%20file.pdf","data":{}}
+            """;
+
+        StorageBlobCreatedEventParser.TryParse(json, out var request, out var error).Should().BeTrue(error);
+        request.BlobUri.AbsoluteUri.Should().Be("https://mystorageacct.blob.core.windows.net/incoming/folder/my%20file.pdf");
+        request.ContainerName.Should().Be("incoming");
+        request.BlobName.Should().Be("folder/my file.pdf");
+        request.FileId.Should().Be("my file");
+    }
+}

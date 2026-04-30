@@ -32,29 +32,12 @@ public sealed class AzureBlobStreamOpener : IBlobStreamOpener
 
         if (!string.IsNullOrWhiteSpace(connectionString))
         {
-            var (containerName, blobName) = ParseContainerAndBlob(blobUri);
+            var (containerName, blobName) = BlobUriParser.ParseContainerAndBlob(blobUri);
             var client = new BlobClient(connectionString, containerName, blobName);
             return await client.OpenReadAsync(cancellationToken: cancellationToken);
         }
 
         // Works for public blobs or URIs with SAS tokens.
         return await new BlobClient(blobUri).OpenReadAsync(cancellationToken: cancellationToken);
-    }
-
-    /// <summary>
-    /// Parses a blob URI path into container and blob names.
-    /// </summary>
-    private static (string ContainerName, string BlobName) ParseContainerAndBlob(Uri blobUri)
-    {
-        var path = blobUri.AbsolutePath.Trim('/');
-        var firstSlash = path.IndexOf('/', StringComparison.Ordinal);
-
-        if (firstSlash <= 0 || firstSlash == path.Length - 1)
-        {
-            throw new InvalidOperationException(
-                $"Blob URL path did not look like '/<container>/<blob>': '{blobUri.AbsolutePath}'.");
-        }
-
-        return (path[..firstSlash], path[(firstSlash + 1)..]);
     }
 }

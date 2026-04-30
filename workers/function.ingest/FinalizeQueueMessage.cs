@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using Azure.Messaging.ServiceBus;
 using Microsoft.Azure.Functions.Worker;
@@ -10,31 +11,31 @@ using server.core.Telemetry;
 
 namespace function.ingest;
 
-public class ProcessQueueMessage
+public class FinalizeQueueMessage
 {
-    private readonly ILogger<ProcessQueueMessage> _logger;
+    private readonly ILogger<FinalizeQueueMessage> _logger;
     private readonly IFileIngestProcessor _fileIngestProcessor;
     private readonly string _queueName;
 
-    public ProcessQueueMessage(
-        ILogger<ProcessQueueMessage> logger,
+    public FinalizeQueueMessage(
+        ILogger<FinalizeQueueMessage> logger,
         IFileIngestProcessor fileIngestProcessor,
         IngestQueueOptions queueOptions)
     {
         _logger = logger;
         _fileIngestProcessor = fileIngestProcessor;
-        _queueName = queueOptions.FilesQueueName;
+        _queueName = queueOptions.FinalizeQueueName;
     }
 
-    [Function(nameof(ProcessQueueMessage))]
+    [Function(nameof(FinalizeQueueMessage))]
     public async Task Run(
-        [ServiceBusTrigger("%INGEST_FILES_QUEUE_NAME%", Connection = "ServiceBus")]
+        [ServiceBusTrigger("%INGEST_FINALIZE_QUEUE_NAME%", Connection = "ServiceBus")]
         ServiceBusReceivedMessage message,
         ServiceBusMessageActions messageActions,
         CancellationToken cancellationToken)
     {
         using var activity = TelemetryHelper.ActivitySource.StartActivity(
-            nameof(ProcessQueueMessage),
+            nameof(FinalizeQueueMessage),
             ActivityKind.Consumer);
 
         activity?.SetTag("messaging.system", "azure.servicebus");
@@ -49,31 +50,21 @@ public class ProcessQueueMessage
         });
 
         var body = message.Body.ToString();
-        _logger.LogInformation("Message ID: {id}", message.MessageId);
-        _logger.LogInformation("Message Content-Type: {contentType}", message.ContentType);
+        var finalizeMessage = IngestQueueMessageJson.Deserialize<FinalizePdfMessage>(body);
 
-        if (!StorageBlobCreatedEventParser.TryParse(body, out var request, out var error))
-        {
-            _logger.LogError("Failed to parse CloudEvent message: {error}. Body: {body}", error, body);
-            throw new InvalidOperationException(error);
-        }
-
-        activity?.SetTag("url.full", request.BlobUri.ToString());
-        activity?.SetTag("blob.container", request.ContainerName);
-        activity?.SetTag("blob.name", request.BlobName);
-        activity?.SetTag("file.id", request.FileId);
+        activity?.SetTag("file.id", finalizeMessage.FileId);
+        activity?.SetTag("url.full", finalizeMessage.PdfToFinalizeBlobUri.ToString());
+        activity?.SetTag("autotag.provider", finalizeMessage.Autotag.Provider);
 
         using var fileScope = _logger.BeginScope(new Dictionary<string, object?>
         {
-            ["file.id"] = request.FileId,
-            ["blob.container"] = request.ContainerName,
-            ["blob.name"] = request.BlobName,
-            ["url.full"] = request.BlobUri.ToString()
+            ["file.id"] = finalizeMessage.FileId,
+            ["url.full"] = finalizeMessage.PdfToFinalizeBlobUri.ToString(),
+            ["autotag.provider"] = finalizeMessage.Autotag.Provider
         });
 
-        await _fileIngestProcessor.ProcessAsync(request, cancellationToken);
+        await _fileIngestProcessor.FinalizeAsync(finalizeMessage, cancellationToken);
 
-        // Complete the message
         await messageActions.CompleteMessageAsync(message, cancellationToken);
     }
 }

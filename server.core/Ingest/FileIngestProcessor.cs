@@ -13,6 +13,10 @@ namespace server.core.Ingest;
 public interface IFileIngestProcessor
 {
     Task ProcessAsync(BlobIngestRequest request, CancellationToken cancellationToken);
+
+    Task FinalizeAsync(FinalizePdfMessage message, CancellationToken cancellationToken);
+
+    Task FailAsync(AutotagFailedMessage message, CancellationToken cancellationToken);
 }
 
 public sealed class FileIngestProcessor : IFileIngestProcessor
@@ -22,7 +26,9 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
     private readonly IPdfProcessor _pdfProcessor;
     private readonly IBlobStorage _blobStorage;
     private readonly IConfiguration _configuration;
+    private readonly IIngestQueueClient _ingestQueueClient;
     private readonly PdfProcessorOptions _pdfProcessorOptions;
+    private readonly IngestQueueOptions _queueOptions;
     private readonly ILogger<FileIngestProcessor> _logger;
 
     public FileIngestProcessor(
@@ -33,13 +39,42 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         IConfiguration configuration,
         IOptions<PdfProcessorOptions> pdfProcessorOptions,
         ILogger<FileIngestProcessor> logger)
+        : this(
+            dbContextFactory,
+            blobStreamOpener,
+            pdfProcessor,
+            blobStorage,
+            configuration,
+            new DisabledIngestQueueClient(),
+            new IngestQueueOptions(
+                IngestQueueOptions.DefaultFilesQueueName,
+                IngestQueueOptions.DefaultOpenDataLoaderAutotagQueueName,
+                IngestQueueOptions.DefaultFinalizeQueueName,
+                IngestQueueOptions.DefaultFailedQueueName),
+            pdfProcessorOptions,
+            logger)
+    {
+    }
+
+    public FileIngestProcessor(
+        IDbContextFactory<AppDbContext> dbContextFactory,
+        IBlobStreamOpener blobStreamOpener,
+        IPdfProcessor pdfProcessor,
+        IBlobStorage blobStorage,
+        IConfiguration configuration,
+        IIngestQueueClient ingestQueueClient,
+        IngestQueueOptions queueOptions,
+        IOptions<PdfProcessorOptions> pdfProcessorOptions,
+        ILogger<FileIngestProcessor> logger)
     {
         _dbContextFactory = dbContextFactory;
         _blobStreamOpener = blobStreamOpener;
         _pdfProcessor = pdfProcessor;
         _blobStorage = blobStorage;
         _configuration = configuration;
+        _ingestQueueClient = ingestQueueClient;
         _pdfProcessorOptions = pdfProcessorOptions.Value;
+        _queueOptions = queueOptions;
         _logger = logger;
     }
 
@@ -67,6 +102,12 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         {
             _logger.LogError("Invalid file id '{fileId}' for ingest; expected a GUID.", request.FileId);
             throw new InvalidOperationException($"Invalid file id '{request.FileId}' for ingest; expected a GUID.");
+        }
+
+        if (IsConfiguredOpenDataLoaderProvider())
+        {
+            await ProcessOpenDataLoaderIntakeAsync(request, fileId, totalSw, cancellationToken);
+            return;
         }
 
         // record the processing attempt in the database
@@ -214,6 +255,368 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 metadataJson: BuildMetadataJson(pdfResult, pageCount));
             throw;
         }
+    }
+
+    private async Task ProcessOpenDataLoaderIntakeAsync(
+        BlobIngestRequest request,
+        Guid fileId,
+        Stopwatch totalSw,
+        CancellationToken cancellationToken)
+    {
+        if (_pdfProcessor is not IPdfPipelineProcessor pipelineProcessor)
+        {
+            throw new InvalidOperationException(
+                "OpenDataLoader queued ingest requires an IPdfPipelineProcessor implementation.");
+        }
+
+        var attempt = await StartOrReuseQueuedProcessingAttemptAsync(fileId, cancellationToken);
+        if (attempt is null)
+        {
+            _logger.LogInformation(
+                "Skipping OpenDataLoader intake for {fileId}; file already has a completed processing attempt.",
+                request.FileId);
+            return;
+        }
+
+        if (!attempt.Started)
+        {
+            _logger.LogInformation(
+                "Skipping duplicate OpenDataLoader intake for {fileId}; attemptId={attemptId} is already processing.",
+                request.FileId,
+                attempt.AttemptId);
+            return;
+        }
+
+        var pageCount = 0;
+        PdfIntakeResult? intakeResult = null;
+
+        try
+        {
+            await using var stream = await OpenBlobStreamAsync(request.FileId, request.BlobUri, cancellationToken);
+
+            using (LogStage.Begin(_logger, request.FileId, "pdf_intake", new { provider = FileIngestOptions.AutotagProviders.OpenDataLoader }))
+            {
+                intakeResult = await pipelineProcessor.PrepareForQueuedAutotagAsync(
+                    request.FileId,
+                    stream,
+                    cancellationToken);
+            }
+
+            pageCount = intakeResult.PageCount;
+
+            if (!string.IsNullOrWhiteSpace(intakeResult.BeforeAccessibilityReportJson))
+            {
+                try
+                {
+                    await SaveAccessibilityReportAsync(
+                        fileId,
+                        tool: "AdobePdfServices",
+                        stage: AccessibilityReport.Stages.Before,
+                        reportJson: intakeResult.BeforeAccessibilityReportJson,
+                        CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(
+                        ex,
+                        "Failed to persist accessibility report for {fileId} stage={stage}",
+                        request.FileId,
+                        AccessibilityReport.Stages.Before);
+                }
+            }
+
+            var correlationId = Guid.NewGuid().ToString("N");
+            if (intakeResult.RequiresAutotag)
+            {
+                var tempTaggedUri = BuildPipelineArtifactUri(
+                    request.BlobUri,
+                    GetConfiguredContainerName("Storage:TempContainer", "Storage__TempContainer", "temp"),
+                    request.FileId,
+                    attempt.AttemptId,
+                    "opendataloader.tagged.pdf");
+                var reportUri = BuildPipelineArtifactUri(
+                    request.BlobUri,
+                    GetConfiguredContainerName("Storage:ReportsContainer", "Storage__ReportsContainer", "reports"),
+                    request.FileId,
+                    attempt.AttemptId,
+                    "opendataloader.autotag-report.json");
+
+                var message = new AutotagJobMessage(
+                    FileId: request.FileId,
+                    AttemptId: attempt.AttemptId,
+                    Provider: FileIngestOptions.AutotagProviders.OpenDataLoader,
+                    SourceBlobUri: request.BlobUri,
+                    OriginalBlobUri: request.BlobUri,
+                    OriginalContainerName: request.ContainerName,
+                    OriginalBlobName: request.BlobName,
+                    OutputTaggedPdfBlobUri: tempTaggedUri,
+                    OutputReportBlobUri: reportUri,
+                    PageCount: pageCount,
+                    CorrelationId: correlationId,
+                    EnqueuedAt: DateTimeOffset.UtcNow);
+
+                using (LogStage.Begin(
+                           _logger,
+                           request.FileId,
+                           "enqueue_odl_autotag",
+                           new { queue = _queueOptions.OpenDataLoaderAutotagQueueName, output = tempTaggedUri.ToString(), report = reportUri.ToString() }))
+                {
+                    await _ingestQueueClient.EnqueueAutotagJobAsync(message, cancellationToken);
+                }
+            }
+            else
+            {
+                var message = new FinalizePdfMessage(
+                    FileId: request.FileId,
+                    AttemptId: attempt.AttemptId,
+                    OriginalBlobUri: request.BlobUri,
+                    OriginalContainerName: request.ContainerName,
+                    OriginalBlobName: request.BlobName,
+                    PdfToFinalizeBlobUri: request.BlobUri,
+                    PageCount: pageCount,
+                    Autotag: PdfAutotagMessageMetadata.FromResult(intakeResult.Autotag),
+                    CorrelationId: correlationId,
+                    EnqueuedAt: DateTimeOffset.UtcNow);
+
+                using (LogStage.Begin(
+                           _logger,
+                           request.FileId,
+                           "enqueue_pdf_finalize",
+                           new { queue = _queueOptions.FinalizeQueueName, input = request.BlobUri.ToString() }))
+                {
+                    await _ingestQueueClient.EnqueueFinalizePdfAsync(message, cancellationToken);
+                }
+            }
+
+            _logger.LogInformation(
+                "Queued ingest follow-up for {fileId} provider={provider} requiresAutotag={requiresAutotag} elapsedMs={elapsedMs}",
+                request.FileId,
+                FileIngestOptions.AutotagProviders.OpenDataLoader,
+                intakeResult.RequiresAutotag,
+                totalSw.Elapsed.TotalMilliseconds);
+        }
+        catch (OperationCanceledException oce)
+        {
+            _logger.LogWarning(
+                oce,
+                "OpenDataLoader intake cancelled for {fileId} elapsedMs={elapsedMs}",
+                request.FileId,
+                totalSw.Elapsed.TotalMilliseconds);
+            await CompleteProcessingAttemptAsync(
+                fileId,
+                attempt.AttemptId,
+                outcome: FileProcessingAttempt.Outcomes.Cancelled,
+                error: oce,
+                request,
+                CancellationToken.None,
+                pageCount: pageCount,
+                metadataJson: BuildMetadataJson(null, pageCount));
+            throw;
+        }
+        catch (Exception ex)
+        {
+            if (ex is PdfPageLimitExceededException pageLimitExceededException)
+            {
+                pageCount = pageLimitExceededException.ActualPageCount;
+            }
+
+            _logger.LogError(
+                ex,
+                "OpenDataLoader intake failed for {fileId} elapsedMs={elapsedMs}",
+                request.FileId,
+                totalSw.Elapsed.TotalMilliseconds);
+            await CompleteProcessingAttemptAsync(
+                fileId,
+                attempt.AttemptId,
+                outcome: FileProcessingAttempt.Outcomes.Failed,
+                error: ex,
+                request,
+                CancellationToken.None,
+                pageCount: pageCount,
+                metadataJson: BuildMetadataJson(null, pageCount));
+            throw;
+        }
+    }
+
+    public async Task FinalizeAsync(FinalizePdfMessage message, CancellationToken cancellationToken)
+    {
+        if (_pdfProcessor is not IPdfPipelineProcessor pipelineProcessor)
+        {
+            throw new InvalidOperationException(
+                "Queued PDF finalization requires an IPdfPipelineProcessor implementation.");
+        }
+
+        if (!Guid.TryParse(message.FileId, out var fileId))
+        {
+            _logger.LogError("Invalid file id '{fileId}' for finalize; expected a GUID.", message.FileId);
+            throw new InvalidOperationException($"Invalid file id '{message.FileId}' for finalize; expected a GUID.");
+        }
+
+        var request = new BlobIngestRequest(
+            message.OriginalBlobUri,
+            message.OriginalContainerName,
+            message.OriginalBlobName,
+            message.FileId);
+        var pageCount = message.PageCount;
+        PdfProcessResult? pdfResult = null;
+
+        try
+        {
+            if (await IsProcessingAttemptCompleteAsync(fileId, message.AttemptId, cancellationToken))
+            {
+                _logger.LogInformation(
+                    "Skipping duplicate PDF finalization for {fileId}; attemptId={attemptId} is already complete.",
+                    message.FileId,
+                    message.AttemptId);
+                return;
+            }
+
+            await using var stream = await OpenBlobStreamAsync(message.FileId, message.PdfToFinalizeBlobUri, cancellationToken);
+            using (LogStage.Begin(
+                       _logger,
+                       message.FileId,
+                       "pdf_finalize",
+                       new { input = message.PdfToFinalizeBlobUri.ToString(), provider = message.Autotag.Provider }))
+            {
+                pdfResult = await pipelineProcessor.FinalizeTaggedPdfAsync(
+                    message.FileId,
+                    stream,
+                    new PdfFinalizeContext(pageCount, message.Autotag.ToResultMetadata()),
+                    cancellationToken);
+            }
+
+            pageCount = pdfResult.PageCount > 0 ? pdfResult.PageCount : pageCount;
+
+            var processedContainerName =
+                _configuration["Storage:ProcessedContainer"]
+                ?? _configuration["Storage__ProcessedContainer"]
+                ?? "processed";
+
+            var processedBlobUri = BuildSiblingContainerUri(
+                message.OriginalBlobUri,
+                processedContainerName,
+                message.OriginalBlobName);
+
+            using (LogStage.Begin(
+                       _logger,
+                       message.FileId,
+                       "upload_processed_pdf",
+                       new { localPath = pdfResult.OutputPdfPath, destination = processedBlobUri.ToString() }))
+            {
+                await UploadFinalPdfAsync(
+                    fileId: message.FileId,
+                    localPdfPath: pdfResult.OutputPdfPath,
+                    destinationBlobUri: processedBlobUri,
+                    cancellationToken: cancellationToken);
+            }
+
+            using (LogStage.Begin(_logger, message.FileId, "delete_incoming_blob", new { message.OriginalBlobUri }))
+            {
+                await DeleteIncomingBlobAsync(request, cancellationToken);
+            }
+
+            if (!string.IsNullOrWhiteSpace(pdfResult.AfterAccessibilityReportJson))
+            {
+                try
+                {
+                    await SaveAccessibilityReportAsync(
+                        fileId,
+                        tool: "AdobePdfServices",
+                        stage: AccessibilityReport.Stages.After,
+                        reportJson: pdfResult.AfterAccessibilityReportJson,
+                        CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(
+                        ex,
+                        "Failed to persist accessibility report for {fileId} stage={stage}",
+                        message.FileId,
+                        AccessibilityReport.Stages.After);
+                }
+            }
+
+            using (LogStage.Begin(_logger, message.FileId, "complete_attempt", new { outcome = FileProcessingAttempt.Outcomes.Succeeded }))
+            {
+                await CompleteProcessingAttemptAsync(
+                    fileId,
+                    message.AttemptId,
+                    outcome: FileProcessingAttempt.Outcomes.Succeeded,
+                    error: null,
+                    request,
+                    CancellationToken.None,
+                    pageCount: pageCount,
+                    metadataJson: BuildMetadataJson(pdfResult, pageCount));
+            }
+        }
+        catch (OperationCanceledException oce)
+        {
+            await CompleteProcessingAttemptAsync(
+                fileId,
+                message.AttemptId,
+                outcome: FileProcessingAttempt.Outcomes.Cancelled,
+                error: oce,
+                request,
+                CancellationToken.None,
+                pageCount: pageCount,
+                metadataJson: BuildMetadataJson(pdfResult, pageCount));
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Queued PDF finalization failed for {fileId}", message.FileId);
+            await CompleteProcessingAttemptAsync(
+                fileId,
+                message.AttemptId,
+                outcome: FileProcessingAttempt.Outcomes.Failed,
+                error: ex,
+                request,
+                CancellationToken.None,
+                pageCount: pageCount,
+                metadataJson: BuildMetadataJson(pdfResult, pageCount));
+            throw;
+        }
+    }
+
+    public async Task FailAsync(AutotagFailedMessage message, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(message.FileId, out var fileId))
+        {
+            _logger.LogError("Invalid file id '{fileId}' for failure handling; expected a GUID.", message.FileId);
+            throw new InvalidOperationException($"Invalid file id '{message.FileId}' for failure handling; expected a GUID.");
+        }
+
+        var request = new BlobIngestRequest(
+            message.OriginalBlobUri,
+            message.OriginalContainerName,
+            message.OriginalBlobName,
+            message.FileId);
+
+        if (await IsProcessingAttemptCompleteAsync(fileId, message.AttemptId, cancellationToken))
+        {
+            _logger.LogInformation(
+                "Skipping duplicate autotag failure for {fileId}; attemptId={attemptId} is already complete.",
+                message.FileId,
+                message.AttemptId);
+            return;
+        }
+
+        _logger.LogError(
+            "Marking ingest failed after autotag provider failure. fileId={fileId} provider={provider} deliveryCount={deliveryCount} errorCode={errorCode}",
+            message.FileId,
+            message.Provider,
+            message.DeliveryCount,
+            message.ErrorCode);
+
+        await CompleteProcessingAttemptAsync(
+            fileId,
+            message.AttemptId,
+            outcome: FileProcessingAttempt.Outcomes.Failed,
+            error: new AutotagProviderFailedException(message.ErrorCode, message.ErrorMessage, message.ErrorDetails),
+            request,
+            cancellationToken,
+            pageCount: 0,
+            metadataJson: BuildFailureMetadataJson(message));
     }
 
     private async Task<Stream> OpenBlobStreamAsync(string fileId, Uri blobUri, CancellationToken cancellationToken)
@@ -416,6 +819,73 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
         return attempt.AttemptId;
     }
 
+    private async Task<QueuedProcessingAttempt?> StartOrReuseQueuedProcessingAttemptAsync(
+        Guid fileId,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var file = await dbContext.Files.SingleOrDefaultAsync(x => x.FileId == fileId, cancellationToken);
+        if (file is null)
+        {
+            _logger.LogError("No file record found for ingest fileId={fileId}", fileId);
+            throw new InvalidOperationException($"No file record found for ingest fileId={fileId}");
+        }
+
+        var latestAttempt = await dbContext.FileProcessingAttempts
+            .Where(x => x.FileId == fileId)
+            .OrderByDescending(x => x.AttemptNumber)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (latestAttempt is not null &&
+            latestAttempt.Outcome is null &&
+            string.Equals(file.Status, FileRecord.Statuses.Processing, StringComparison.Ordinal))
+        {
+            file.StatusUpdatedAt = now;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return new QueuedProcessingAttempt(latestAttempt.AttemptId, Started: false);
+        }
+
+        if (latestAttempt is not null &&
+            string.Equals(latestAttempt.Outcome, FileProcessingAttempt.Outcomes.Succeeded, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        file.Status = FileRecord.Statuses.Processing;
+        file.StatusUpdatedAt = now;
+
+        var attempt = new FileProcessingAttempt
+        {
+            FileId = fileId,
+            AttemptNumber = (latestAttempt?.AttemptNumber ?? 0) + 1,
+            Trigger = FileProcessingAttempt.Triggers.Upload,
+            StartedAt = now,
+            Outcome = null,
+        };
+
+        dbContext.FileProcessingAttempts.Add(attempt);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return new QueuedProcessingAttempt(attempt.AttemptId, Started: true);
+    }
+
+    private async Task<bool> IsProcessingAttemptCompleteAsync(
+        Guid fileId,
+        long attemptId,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.FileProcessingAttempts
+            .AsNoTracking()
+            .AnyAsync(
+                x => x.AttemptId == attemptId &&
+                     x.FileId == fileId &&
+                     x.Outcome != null,
+                cancellationToken);
+    }
+
     private async Task CompleteProcessingAttemptAsync(
         Guid fileId,
         long attemptId,
@@ -444,13 +914,25 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
                 return;
             }
 
+            if (attempt.Outcome is not null)
+            {
+                _logger.LogInformation(
+                    "Skipping ingest attempt completion for {fileId}; attemptId={attemptId} already has outcome={existingOutcome}.",
+                    fileId,
+                    attemptId,
+                    attempt.Outcome);
+                return;
+            }
+
             attempt.Outcome = outcome;
             attempt.FinishedAt = finishedAt;
             attempt.MetadataJson = metadataJson;
 
             if (error is not null)
             {
-                attempt.ErrorCode = error.GetType().Name;
+                attempt.ErrorCode = error is AutotagProviderFailedException autotagFailure
+                    ? Truncate(autotagFailure.ErrorCode, 100)
+                    : error.GetType().Name;
                 attempt.ErrorMessage = Truncate(error.Message, 2048);
                 attempt.ErrorDetails =
                     $"BlobUri: {request.BlobUri}\nContainer: {request.ContainerName}\nBlobName: {request.BlobName}\n\n{error}";
@@ -529,6 +1011,44 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
     }
 
+    private string BuildFailureMetadataJson(AutotagFailedMessage message)
+    {
+        var metadata = new
+        {
+            configuration = new
+            {
+                autotagProviderConfigured = GetConfiguredAutotagProvider(),
+                useAdobePdfServices = _pdfProcessorOptions.UseAdobePdfServices,
+                usePdfRemediationProcessor = _pdfProcessorOptions.UsePdfRemediationProcessor,
+                usePdfBookmarks = _pdfProcessorOptions.UsePdfBookmarks,
+                autotagTaggedPdfs = _pdfProcessorOptions.AutotagTaggedPdfs,
+                maxPagesPerChunk = _pdfProcessorOptions.MaxPagesPerChunk,
+                maxUploadPages = _pdfProcessorOptions.MaxUploadPages,
+            },
+            failure = new
+            {
+                stage = "autotag",
+                provider = message.Provider,
+                message.ErrorCode,
+                message.ErrorMessage,
+                message.DeliveryCount,
+                message.FailedAt,
+            },
+            autotag = new
+            {
+                provider = message.Provider,
+                required = true,
+                skippedReason = (string?)null,
+                chunkCount = 1,
+                reportUris = Array.Empty<string>(),
+            }
+        };
+
+        return JsonSerializer.Serialize(
+            metadata,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    }
+
     private string GetConfiguredAutotagProvider()
     {
         var configured =
@@ -539,4 +1059,52 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             ? FileIngestOptions.AutotagProviders.Adobe
             : configured;
     }
+
+    private bool IsConfiguredOpenDataLoaderProvider()
+    {
+        return string.Equals(
+            GetConfiguredAutotagProvider(),
+            FileIngestOptions.AutotagProviders.OpenDataLoader,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string GetConfiguredContainerName(string primaryKey, string legacyKey, string fallback)
+    {
+        var configured = _configuration[primaryKey] ?? _configuration[legacyKey];
+        return string.IsNullOrWhiteSpace(configured) ? fallback : configured;
+    }
+
+    private static Uri BuildPipelineArtifactUri(
+        Uri sourceBlobUri,
+        string destinationContainer,
+        string fileId,
+        long attemptId,
+        string fileName)
+    {
+        var safeFileId = PdfPathSafeName.FromFileId(fileId);
+        var destinationBlobName = $"{safeFileId}/{attemptId}/{fileName}";
+        return BuildSiblingContainerUri(sourceBlobUri, destinationContainer, destinationBlobName);
+    }
+
+    private sealed class AutotagProviderFailedException : Exception
+    {
+        public AutotagProviderFailedException(string errorCode, string message, string? details)
+            : base(message)
+        {
+            ErrorCode = errorCode;
+            Details = details;
+        }
+
+        public string ErrorCode { get; }
+        public string? Details { get; }
+
+        public override string ToString()
+        {
+            return string.IsNullOrWhiteSpace(Details)
+                ? $"{ErrorCode}: {Message}"
+                : $"{ErrorCode}: {Message}\n\n{Details}";
+        }
+    }
+
+    private sealed record QueuedProcessingAttempt(long AttemptId, bool Started);
 }

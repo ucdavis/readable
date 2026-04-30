@@ -6,5 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
-</Project>
+  <ItemGroup>
+    <ProjectReference Include="..\..\server.core\server.core.csproj" />
+  </ItemGroup>
 
+</Project>

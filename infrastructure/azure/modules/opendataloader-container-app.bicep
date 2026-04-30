@@ -1,4 +1,4 @@
-@description('OpenDataLoader container app name.')
+@description('OpenDataLoader worker container app name.')
 param name string
 
 @description('Azure region for the container app.')
@@ -20,30 +20,32 @@ param registryServer string
 param registryIdentityResourceId string
 
 @secure()
-@description('Shared secret required on X-Api-Key.')
-param apiKey string
+@description('Service Bus connection string used by the OpenDataLoader worker.')
+param serviceBusConnectionString string
 
-@description('Maximum request body size in MB.')
-param maxRequestBodySizeMb int = 50
+@secure()
+@description('Storage connection string used by the OpenDataLoader worker.')
+param storageConnectionString string
+
+@description('Queue consumed by the OpenDataLoader worker.')
+param autotagQueueName string = 'autotag-odl'
+
+@description('Queue that receives PDF finalization messages.')
+param finalizeQueueName string = 'pdf-finalize'
+
+@description('Queue that receives terminal autotag failure messages.')
+param failedQueueName string = 'pdf-failed'
 
 @description('OpenDataLoader process timeout in seconds.')
 param processTimeoutSeconds int = 210
 
 @minValue(1)
+@description('Maximum Service Bus delivery count before the worker reports failure to ingest.')
+param maxDeliveryCount int = 10
+
+@minValue(1)
 @description('Maximum conversions to run concurrently inside one replica.')
 param maxConcurrentConversions int = 1
-
-@minValue(0)
-@description('Maximum requests to hold in the in-memory queue inside one replica.')
-param maxQueuedConversions int = 20
-
-@minValue(1)
-@description('Maximum seconds a request may wait in the in-memory queue before returning 429.')
-param queueTimeoutSeconds int = 60
-
-@minValue(1)
-@description('HTTP concurrent request target for Container Apps autoscale.')
-param httpConcurrentRequests int = 1
 
 @description('CPU allocation for the container app.')
 param cpu string = '2.0'
@@ -71,12 +73,6 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
     managedEnvironmentId: environmentId
     configuration: {
       activeRevisionsMode: 'Single'
-      ingress: {
-        external: true
-        allowInsecure: false
-        targetPort: 8080
-        transport: 'auto'
-      }
       registries: [
         {
           server: registryServer
@@ -85,28 +81,40 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       ]
       secrets: [
         {
-          name: 'api-key'
-          value: apiKey
+          name: 'servicebus-connection-string'
+          value: serviceBusConnectionString
+        }
+        {
+          name: 'storage-connection-string'
+          value: storageConnectionString
         }
       ]
     }
     template: {
       containers: [
         {
-          name: 'opendataloader-api'
+          name: 'opendataloader-worker'
           image: image
           env: [
             {
-              name: 'ASPNETCORE_URLS'
-              value: 'http://0.0.0.0:8080'
+              name: 'ServiceBus'
+              secretRef: 'servicebus-connection-string'
             }
             {
-              name: 'ODL_SHARED_SECRET'
-              secretRef: 'api-key'
+              name: 'Storage__ConnectionString'
+              secretRef: 'storage-connection-string'
             }
             {
-              name: 'ODL_MAX_REQUEST_BODY_SIZE_MB'
-              value: string(maxRequestBodySizeMb)
+              name: 'ODL_AUTOTAG_QUEUE_NAME'
+              value: autotagQueueName
+            }
+            {
+              name: 'ODL_FINALIZE_QUEUE_NAME'
+              value: finalizeQueueName
+            }
+            {
+              name: 'ODL_FAILED_QUEUE_NAME'
+              value: failedQueueName
             }
             {
               name: 'ODL_PROCESS_TIMEOUT_SECONDS'
@@ -117,47 +125,8 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
               value: string(maxConcurrentConversions)
             }
             {
-              name: 'ODL_MAX_QUEUED_CONVERSIONS'
-              value: string(maxQueuedConversions)
-            }
-            {
-              name: 'ODL_QUEUE_TIMEOUT_SECONDS'
-              value: string(queueTimeoutSeconds)
-            }
-          ]
-          probes: [
-            {
-              type: 'Startup'
-              httpGet: {
-                path: '/health'
-                port: 8080
-              }
-              initialDelaySeconds: 5
-              periodSeconds: 10
-              failureThreshold: 18
-              timeoutSeconds: 3
-            }
-            {
-              type: 'Liveness'
-              httpGet: {
-                path: '/health'
-                port: 8080
-              }
-              initialDelaySeconds: 20
-              periodSeconds: 30
-              failureThreshold: 3
-              timeoutSeconds: 3
-            }
-            {
-              type: 'Readiness'
-              httpGet: {
-                path: '/health'
-                port: 8080
-              }
-              initialDelaySeconds: 10
-              periodSeconds: 15
-              failureThreshold: 3
-              timeoutSeconds: 3
+              name: 'ODL_MAX_DELIVERY_COUNT'
+              value: string(maxDeliveryCount)
             }
           ]
           resources: {
@@ -171,11 +140,19 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         maxReplicas: maxReplicas
         rules: [
           {
-            name: 'http-concurrency'
-            http: {
+            name: 'servicebus-autotag-queue'
+            custom: {
+              type: 'azure-servicebus'
               metadata: {
-                concurrentRequests: string(httpConcurrentRequests)
+                queueName: autotagQueueName
+                messageCount: '1'
               }
+              auth: [
+                {
+                  secretRef: 'servicebus-connection-string'
+                  triggerParameter: 'connection'
+                }
+              ]
             }
           }
         ]
@@ -185,4 +162,3 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
 }
 
 output name string = containerApp.name
-output fqdn string = containerApp.properties.configuration.ingress.fqdn

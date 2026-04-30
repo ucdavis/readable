@@ -2,6 +2,7 @@ FROM mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim AS build
 WORKDIR /src
 
 COPY ["workers/opendataloader.api/opendataloader.api.csproj", "workers/opendataloader.api/"]
+COPY ["server.core/server.core.csproj", "server.core/"]
 RUN dotnet restore "workers/opendataloader.api/opendataloader.api.csproj"
 
 COPY . .
@@ -25,9 +26,6 @@ RUN useradd --create-home --uid 10001 appuser
 WORKDIR /app
 COPY --from=build /app/publish .
 RUN chown -R appuser:appuser /app
-
-ENV ASPNETCORE_URLS=http://0.0.0.0:8080
-EXPOSE 8080
 
 USER appuser
 ENTRYPOINT ["dotnet", "opendataloader.api.dll"]

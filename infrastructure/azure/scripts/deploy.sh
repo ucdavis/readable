@@ -23,7 +23,6 @@ EVENTGRID_SUBSCRIPTION_RETRY_WAIT_SECONDS=${EVENTGRID_SUBSCRIPTION_RETRY_WAIT_SE
 EVENTGRID_SUBSCRIPTION_MAX_ATTEMPTS=${EVENTGRID_SUBSCRIPTION_MAX_ATTEMPTS:-5}
 DEPLOY_OPEN_DATA_LOADER_INFRASTRUCTURE=${DEPLOY_OPEN_DATA_LOADER_INFRASTRUCTURE:-false}
 OPEN_DATA_LOADER_IMAGE=${OPEN_DATA_LOADER_IMAGE:-}
-OPEN_DATA_LOADER_SHARED_SECRET=${OPEN_DATA_LOADER_SHARED_SECRET:-}
 
 required_vars=(
   DEPLOYMENT_NAME
@@ -94,10 +93,6 @@ import sys
 params = {
     "sqlAdminPassword": {"value": os.environ["SQL_ADMIN_PASSWORD"]},
 }
-
-open_data_loader_secret = os.environ.get("OPEN_DATA_LOADER_SHARED_SECRET", "")
-if open_data_loader_secret:
-    params["openDataLoaderSharedSecret"] = {"value": open_data_loader_secret}
 
 with open(sys.argv[1], "w", encoding="utf-8") as output:
     json.dump(
