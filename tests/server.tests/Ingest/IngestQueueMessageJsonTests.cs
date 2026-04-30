@@ -106,4 +106,93 @@ public class IngestQueueMessageJsonTests
 
         act.Should().Throw<JsonException>();
     }
+
+    [Theory]
+    [InlineData("sourceBlobUri")]
+    [InlineData("originalBlobUri")]
+    [InlineData("outputTaggedPdfBlobUri")]
+    [InlineData("outputReportBlobUri")]
+    public void Deserialize_WhenAutotagJobBlobUriIsRelative_Throws(string propertyName)
+    {
+        var json = JsonSerializer.Serialize(new Dictionary<string, object?>
+        {
+            ["fileId"] = Guid.NewGuid().ToString(),
+            ["attemptId"] = 12,
+            ["provider"] = FileIngestOptions.AutotagProviders.OpenDataLoader,
+            ["sourceBlobUri"] = "https://example.blob.core.windows.net/incoming/source.pdf",
+            ["originalBlobUri"] = "https://example.blob.core.windows.net/incoming/source.pdf",
+            ["originalContainerName"] = "incoming",
+            ["originalBlobName"] = "source.pdf",
+            ["outputTaggedPdfBlobUri"] = "https://example.blob.core.windows.net/temp/source.tagged.pdf",
+            ["outputReportBlobUri"] = "https://example.blob.core.windows.net/reports/source.json",
+            ["pageCount"] = 5,
+            ["correlationId"] = Guid.NewGuid().ToString("N"),
+            ["enqueuedAt"] = DateTimeOffset.UtcNow,
+            [propertyName] = "incoming/source.pdf",
+        });
+
+        Action act = () => IngestQueueMessageJson.Deserialize<AutotagJobMessage>(json);
+
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*must be an absolute URI*");
+    }
+
+    [Theory]
+    [InlineData("originalBlobUri")]
+    [InlineData("pdfToFinalizeBlobUri")]
+    public void Deserialize_WhenFinalizePdfBlobUriIsRelative_Throws(string propertyName)
+    {
+        var json = JsonSerializer.Serialize(new Dictionary<string, object?>
+        {
+            ["fileId"] = Guid.NewGuid().ToString(),
+            ["attemptId"] = 12,
+            ["originalBlobUri"] = "https://example.blob.core.windows.net/incoming/source.pdf",
+            ["originalContainerName"] = "incoming",
+            ["originalBlobName"] = "source.pdf",
+            ["pdfToFinalizeBlobUri"] = "https://example.blob.core.windows.net/temp/source.tagged.pdf",
+            ["pageCount"] = 5,
+            ["autotag"] = new Dictionary<string, object?>
+            {
+                ["provider"] = FileIngestOptions.AutotagProviders.OpenDataLoader,
+                ["required"] = true,
+                ["chunkCount"] = 1,
+                ["reportUris"] = new[] { "https://example.blob.core.windows.net/reports/source.json" },
+            },
+            ["correlationId"] = Guid.NewGuid().ToString("N"),
+            ["enqueuedAt"] = DateTimeOffset.UtcNow,
+            [propertyName] = "/incoming/source.pdf",
+        });
+
+        Action act = () => IngestQueueMessageJson.Deserialize<FinalizePdfMessage>(json);
+
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*must be an absolute URI*");
+    }
+
+    [Fact]
+    public void Deserialize_WhenAutotagFailedOriginalBlobUriIsRelative_Throws()
+    {
+        var json = JsonSerializer.Serialize(new Dictionary<string, object?>
+        {
+            ["fileId"] = Guid.NewGuid().ToString(),
+            ["attemptId"] = 12,
+            ["originalBlobUri"] = "incoming/source.pdf",
+            ["originalContainerName"] = "incoming",
+            ["originalBlobName"] = "source.pdf",
+            ["provider"] = FileIngestOptions.AutotagProviders.OpenDataLoader,
+            ["errorCode"] = "InvalidOperationException",
+            ["errorMessage"] = "ODL failed.",
+            ["deliveryCount"] = 10,
+            ["correlationId"] = Guid.NewGuid().ToString("N"),
+            ["failedAt"] = DateTimeOffset.UtcNow,
+        });
+
+        Action act = () => IngestQueueMessageJson.Deserialize<AutotagFailedMessage>(json);
+
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*must be an absolute URI*");
+    }
 }

@@ -29,24 +29,43 @@ if (string.IsNullOrWhiteSpace(conn))
 builder.Services.AddPooledDbContextFactory<AppDbContext>(o =>
     o.UseSqlServer(conn, opt => opt.MigrationsAssembly("server.core")));
 
+var useNoops =
+    builder.Configuration.GetValue<bool>("Ingest:UseNoops")
+    || builder.Configuration.GetValue<bool>("INGEST_USE_NOOPS");
+var configuredAutotagProvider =
+    builder.Configuration["Ingest:AutotagProvider"]
+    ?? builder.Configuration["INGEST_AUTOTAG_PROVIDER"];
+var autotagProvider = string.IsNullOrWhiteSpace(configuredAutotagProvider)
+    ? FileIngestOptions.AutotagProviders.Adobe
+    : configuredAutotagProvider;
+var serviceBusConnection =
+    builder.Configuration["ServiceBus"]
+    ?? builder.Configuration["ServiceBus:ConnectionString"]
+    ?? builder.Configuration["ServiceBus__ConnectionString"];
+
+if (!useNoops
+    && string.Equals(
+        autotagProvider,
+        FileIngestOptions.AutotagProviders.OpenDataLoader,
+        StringComparison.OrdinalIgnoreCase)
+    && string.IsNullOrWhiteSpace(serviceBusConnection))
+{
+    throw new InvalidOperationException(
+        "OpenDataLoader queued ingest requires ServiceBus, ServiceBus:ConnectionString, or ServiceBus__ConnectionString.");
+}
+
 builder.Services.AddFileIngest(o =>
 {
     // Default to the "real" pipeline and fail fast if required env vars are missing.
     // Use NOOPs only when explicitly configured (e.g., tests/local smoke runs).
-    if (builder.Configuration.GetValue<bool>("Ingest:UseNoops")
-        || builder.Configuration.GetValue<bool>("INGEST_USE_NOOPS"))
+    if (useNoops)
     {
         o.UseNoops();
         return;
     }
 
     o.UseAdobePdfServices = true;
-    var configuredAutotagProvider =
-        builder.Configuration["Ingest:AutotagProvider"]
-        ?? builder.Configuration["INGEST_AUTOTAG_PROVIDER"];
-    o.AutotagProvider = string.IsNullOrWhiteSpace(configuredAutotagProvider)
-        ? FileIngestOptions.AutotagProviders.Adobe
-        : configuredAutotagProvider;
+    o.AutotagProvider = autotagProvider;
     o.UsePdfRemediationProcessor = true;
     // Default: skip autotagging for already-tagged PDFs (e.g., Office exports) unless explicitly enabled.
     o.AutotagTaggedPdfs =

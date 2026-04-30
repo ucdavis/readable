@@ -51,6 +51,17 @@ public static class IngestServiceCollectionExtensions
 
             if (string.IsNullOrWhiteSpace(serviceBusConnection))
             {
+                var configuredAutotagProvider =
+                    configuration["Ingest:AutotagProvider"]
+                    ?? configuration["INGEST_AUTOTAG_PROVIDER"]
+                    ?? options.AutotagProvider;
+
+                if (options.UseAdobePdfServices && IsOpenDataLoaderAutotagProvider(configuredAutotagProvider))
+                {
+                    throw new InvalidOperationException(
+                        "OpenDataLoader queued ingest requires ServiceBus, ServiceBus:ConnectionString, or ServiceBus__ConnectionString.");
+                }
+
                 return new DisabledIngestQueueClient();
             }
 
@@ -208,6 +219,14 @@ public static class IngestServiceCollectionExtensions
     private static void EnsureAdobeCredentialsConfigured(IConfiguration configuration)
     {
         AdobePdfServices.EnsureCredentialsConfigured(configuration);
+    }
+
+    private static bool IsOpenDataLoaderAutotagProvider(string? value)
+    {
+        return string.Equals(
+            value,
+            FileIngestOptions.AutotagProviders.OpenDataLoader,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? GetOpenAiApiKey(IConfiguration configuration)

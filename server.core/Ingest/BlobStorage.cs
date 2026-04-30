@@ -42,25 +42,11 @@ public sealed class AzureBlobStorage : IBlobStorage
 
         if (!string.IsNullOrWhiteSpace(connectionString))
         {
-            var (containerName, blobName) = ParseContainerAndBlob(blobUri);
+            var (containerName, blobName) = BlobUriParser.ParseContainerAndBlob(blobUri);
             return new BlobClient(connectionString, containerName, blobName);
         }
 
         // Works for public blobs or URIs with SAS tokens.
         return new BlobClient(blobUri);
-    }
-
-    private static (string ContainerName, string BlobName) ParseContainerAndBlob(Uri blobUri)
-    {
-        var path = blobUri.AbsolutePath.Trim('/');
-        var firstSlash = path.IndexOf('/', StringComparison.Ordinal);
-
-        if (firstSlash <= 0 || firstSlash == path.Length - 1)
-        {
-            throw new InvalidOperationException(
-                $"Blob URL path did not look like '/<container>/<blob>': '{blobUri.AbsolutePath}'.");
-        }
-
-        return (path[..firstSlash], path[(firstSlash + 1)..]);
     }
 }

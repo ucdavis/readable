@@ -24,4 +24,48 @@ public sealed class OpenDataLoaderOptionsTests
         options.FinalizeQueueName.Should().Be("custom-finalize");
         options.FailedQueueName.Should().Be("custom-failed");
     }
+
+    [Fact]
+    public void FromConfiguration_ReadsStorageConnectionString()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Storage__ConnectionString"] = "UseDevelopmentStorage=true",
+            })
+            .Build();
+
+        var options = OpenDataLoaderOptions.FromConfiguration(configuration);
+
+        options.StorageConnectionString.Should().Be("UseDevelopmentStorage=true");
+    }
+
+    [Fact]
+    public void ValidateConfiguration_WhenStorageConnectionStringIsMissing_Throws()
+    {
+        var options = new OpenDataLoaderOptions
+        {
+            ServiceBusConnectionString = "Endpoint=sb://example.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test",
+        };
+
+        Action act = () => OpenDataLoaderWorker.ValidateConfiguration(options);
+
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*Storage:ConnectionString*");
+    }
+
+    [Fact]
+    public void ValidateConfiguration_WhenRequiredConnectionStringsArePresent_DoesNotThrow()
+    {
+        var options = new OpenDataLoaderOptions
+        {
+            ServiceBusConnectionString = "Endpoint=sb://example.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test",
+            StorageConnectionString = "UseDevelopmentStorage=true",
+        };
+
+        Action act = () => OpenDataLoaderWorker.ValidateConfiguration(options);
+
+        act.Should().NotThrow();
+    }
 }

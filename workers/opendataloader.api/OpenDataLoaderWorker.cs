@@ -338,7 +338,7 @@ public sealed class OpenDataLoaderWorker : BackgroundService
     {
         if (!string.IsNullOrWhiteSpace(_options.StorageConnectionString))
         {
-            var (containerName, blobName) = ParseContainerAndBlob(blobUri);
+            var (containerName, blobName) = BlobUriParser.ParseContainerAndBlob(blobUri);
             return new BlobClient(_options.StorageConnectionString, containerName, blobName);
         }
 
@@ -347,24 +347,20 @@ public sealed class OpenDataLoaderWorker : BackgroundService
 
     private void ValidateConfiguration()
     {
-        if (string.IsNullOrWhiteSpace(_options.ServiceBusConnectionString))
+        ValidateConfiguration(_options);
+    }
+
+    public static void ValidateConfiguration(OpenDataLoaderOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.ServiceBusConnectionString))
         {
             throw new InvalidOperationException("OpenDataLoader worker requires ServiceBus or ServiceBus:ConnectionString.");
         }
-    }
 
-    private static (string ContainerName, string BlobName) ParseContainerAndBlob(Uri blobUri)
-    {
-        var path = blobUri.AbsolutePath.Trim('/');
-        var firstSlash = path.IndexOf('/', StringComparison.Ordinal);
-
-        if (firstSlash <= 0 || firstSlash == path.Length - 1)
+        if (string.IsNullOrWhiteSpace(options.StorageConnectionString))
         {
-            throw new InvalidOperationException(
-                $"Blob URL path did not look like '/<container>/<blob>': '{blobUri.AbsolutePath}'.");
+            throw new InvalidOperationException("OpenDataLoader worker requires Storage:ConnectionString or Storage__ConnectionString.");
         }
-
-        return (path[..firstSlash], path[(firstSlash + 1)..]);
     }
 
     private void CleanupWorkDir(string path)

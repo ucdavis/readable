@@ -104,22 +104,22 @@ public static class IngestQueueMessageJson
                 Require(message.FileId, nameof(AutotagJobMessage.FileId), nameof(AutotagJobMessage));
                 RequirePositive(message.AttemptId, nameof(AutotagJobMessage.AttemptId), nameof(AutotagJobMessage));
                 Require(message.Provider, nameof(AutotagJobMessage.Provider), nameof(AutotagJobMessage));
-                Require(message.SourceBlobUri, nameof(AutotagJobMessage.SourceBlobUri), nameof(AutotagJobMessage));
-                Require(message.OriginalBlobUri, nameof(AutotagJobMessage.OriginalBlobUri), nameof(AutotagJobMessage));
+                RequireAbsoluteUri(message.SourceBlobUri, nameof(AutotagJobMessage.SourceBlobUri), nameof(AutotagJobMessage));
+                RequireAbsoluteUri(message.OriginalBlobUri, nameof(AutotagJobMessage.OriginalBlobUri), nameof(AutotagJobMessage));
                 Require(message.OriginalContainerName, nameof(AutotagJobMessage.OriginalContainerName), nameof(AutotagJobMessage));
                 Require(message.OriginalBlobName, nameof(AutotagJobMessage.OriginalBlobName), nameof(AutotagJobMessage));
-                Require(message.OutputTaggedPdfBlobUri, nameof(AutotagJobMessage.OutputTaggedPdfBlobUri), nameof(AutotagJobMessage));
-                Require(message.OutputReportBlobUri, nameof(AutotagJobMessage.OutputReportBlobUri), nameof(AutotagJobMessage));
+                RequireAbsoluteUri(message.OutputTaggedPdfBlobUri, nameof(AutotagJobMessage.OutputTaggedPdfBlobUri), nameof(AutotagJobMessage));
+                RequireAbsoluteUri(message.OutputReportBlobUri, nameof(AutotagJobMessage.OutputReportBlobUri), nameof(AutotagJobMessage));
                 Require(message.CorrelationId, nameof(AutotagJobMessage.CorrelationId), nameof(AutotagJobMessage));
                 break;
 
             case FinalizePdfMessage message:
                 Require(message.FileId, nameof(FinalizePdfMessage.FileId), nameof(FinalizePdfMessage));
                 RequirePositive(message.AttemptId, nameof(FinalizePdfMessage.AttemptId), nameof(FinalizePdfMessage));
-                Require(message.OriginalBlobUri, nameof(FinalizePdfMessage.OriginalBlobUri), nameof(FinalizePdfMessage));
+                RequireAbsoluteUri(message.OriginalBlobUri, nameof(FinalizePdfMessage.OriginalBlobUri), nameof(FinalizePdfMessage));
                 Require(message.OriginalContainerName, nameof(FinalizePdfMessage.OriginalContainerName), nameof(FinalizePdfMessage));
                 Require(message.OriginalBlobName, nameof(FinalizePdfMessage.OriginalBlobName), nameof(FinalizePdfMessage));
-                Require(message.PdfToFinalizeBlobUri, nameof(FinalizePdfMessage.PdfToFinalizeBlobUri), nameof(FinalizePdfMessage));
+                RequireAbsoluteUri(message.PdfToFinalizeBlobUri, nameof(FinalizePdfMessage.PdfToFinalizeBlobUri), nameof(FinalizePdfMessage));
                 Require(message.Autotag, nameof(FinalizePdfMessage.Autotag), nameof(FinalizePdfMessage));
                 Require(message.Autotag.Provider, $"{nameof(FinalizePdfMessage.Autotag)}.{nameof(PdfAutotagMessageMetadata.Provider)}", nameof(FinalizePdfMessage));
                 Require(message.Autotag.ReportUris, $"{nameof(FinalizePdfMessage.Autotag)}.{nameof(PdfAutotagMessageMetadata.ReportUris)}", nameof(FinalizePdfMessage));
@@ -129,7 +129,7 @@ public static class IngestQueueMessageJson
             case AutotagFailedMessage message:
                 Require(message.FileId, nameof(AutotagFailedMessage.FileId), nameof(AutotagFailedMessage));
                 RequirePositive(message.AttemptId, nameof(AutotagFailedMessage.AttemptId), nameof(AutotagFailedMessage));
-                Require(message.OriginalBlobUri, nameof(AutotagFailedMessage.OriginalBlobUri), nameof(AutotagFailedMessage));
+                RequireAbsoluteUri(message.OriginalBlobUri, nameof(AutotagFailedMessage.OriginalBlobUri), nameof(AutotagFailedMessage));
                 Require(message.OriginalContainerName, nameof(AutotagFailedMessage.OriginalContainerName), nameof(AutotagFailedMessage));
                 Require(message.OriginalBlobName, nameof(AutotagFailedMessage.OriginalBlobName), nameof(AutotagFailedMessage));
                 Require(message.Provider, nameof(AutotagFailedMessage.Provider), nameof(AutotagFailedMessage));
@@ -154,6 +154,16 @@ public static class IngestQueueMessageJson
         if (value is null)
         {
             throw new InvalidOperationException($"{messageName}.{propertyName} is required.");
+        }
+    }
+
+    private static void RequireAbsoluteUri(Uri? value, string propertyName, string messageName)
+    {
+        Require(value, propertyName, messageName);
+
+        if (!value!.IsAbsoluteUri)
+        {
+            throw new InvalidOperationException($"{messageName}.{propertyName} must be an absolute URI.");
         }
     }
 
