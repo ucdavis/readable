@@ -27,6 +27,8 @@ internal sealed class PdfDecorativeFigureTracker
 
     public int Demoted { get; private set; }
 
+    public int Total => Removed + Demoted;
+
     public bool RemoveOrDemote(PdfDictionary figure, string reason, int? pageNumber = null)
     {
         if (!_demotedOrRemovedFigures.Add(figure))

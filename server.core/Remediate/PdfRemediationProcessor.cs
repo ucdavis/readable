@@ -353,6 +353,12 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             var decorativeFigureAltSkipped = 0;
             var decorativeFigures = new PdfDecorativeFigureTracker(fileId, _logger, TryRemoveStructElemFromParent);
 
+            int CountDecorativeChanges(Func<bool> removeOrDemote)
+            {
+                var before = decorativeFigures.Total;
+                return removeOrDemote() ? decorativeFigures.Total - before : 0;
+            }
+
             foreach (var figure in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Figure))
             {
                 if (StructElemHasAssociatedContent(figure))
@@ -360,9 +366,10 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     continue;
                 }
 
-                if (decorativeFigures.RemoveOrDemote(figure, "figure has no associated content"))
+                var changeCount = CountDecorativeChanges(() => decorativeFigures.RemoveOrDemote(figure, "figure has no associated content"));
+                if (changeCount > 0)
                 {
-                    decorativeFigureAltSkipped++;
+                    decorativeFigureAltSkipped += changeCount;
                 }
             }
 
@@ -404,9 +411,10 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                         if (occ.Bounds is not null
                             && PdfFigureVisualHeuristics.IsTinyFigureBounds(occ.Bounds, page.GetPageSizeWithRotation(), out var tinyReason))
                         {
-                            if (decorativeFigures.RemoveOrDemote(figure, tinyReason, pageNumber))
+                            var changeCount = CountDecorativeChanges(() => decorativeFigures.RemoveOrDemote(figure, tinyReason, pageNumber));
+                            if (changeCount > 0)
                             {
-                                decorativeFigureAltSkipped++;
+                                decorativeFigureAltSkipped += changeCount;
                             }
 
                             continue;
@@ -416,9 +424,10 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                         if (!IsSupportedAltTextImageMimeType(mimeType))
                         {
                             imageAltSkippedUnsupported++;
-                            if (decorativeFigures.RemoveOrDemote(figure, $"unsupported image MIME type {mimeType}", pageNumber))
+                            var changeCount = CountDecorativeChanges(() => decorativeFigures.RemoveOrDemote(figure, $"unsupported image MIME type {mimeType}", pageNumber));
+                            if (changeCount > 0)
                             {
-                                decorativeFigureAltSkipped++;
+                                decorativeFigureAltSkipped += changeCount;
                             }
 
                             continue;
@@ -428,15 +437,19 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                         {
                             var imageHash = Convert.ToHexString(SHA256.HashData(bytes));
                             var repeatedSignature = PdfFigureVisualHeuristics.BuildRepeatedChromeSignature(imageHash, occ.Bounds, page.GetPageSizeWithRotation());
-                            if (repeatedSignature is not null
-                                && decorativeFigures.RemoveOrDemoteRepeatedChromeFigure(
-                                    figure,
-                                    repeatedSignature,
-                                    "same image appears repeatedly in the same page position",
-                                    pageNumber))
+                            if (repeatedSignature is not null)
                             {
-                                decorativeFigureAltSkipped++;
-                                continue;
+                                var changeCount = CountDecorativeChanges(
+                                    () => decorativeFigures.RemoveOrDemoteRepeatedChromeFigure(
+                                        figure,
+                                        repeatedSignature,
+                                        "same image appears repeatedly in the same page position",
+                                        pageNumber));
+                                if (changeCount > 0)
+                                {
+                                    decorativeFigureAltSkipped += changeCount;
+                                    continue;
+                                }
                             }
                         }
 
@@ -671,9 +684,10 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
                                         if (PdfFigureVisualHeuristics.IsTinyFigureBounds(candidate.BoundsPts, pageSizePts, out var tinyReason))
                                         {
-                                            if (decorativeFigures.RemoveOrDemote(candidate.Figure, tinyReason, pageNumber))
+                                            var changeCount = CountDecorativeChanges(() => decorativeFigures.RemoveOrDemote(candidate.Figure, tinyReason, pageNumber));
+                                            if (changeCount > 0)
                                             {
-                                                decorativeFigureAltSkipped++;
+                                                decorativeFigureAltSkipped += changeCount;
                                             }
 
                                             continue;
@@ -705,9 +719,10 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
                                         if (PdfFigureVisualHeuristics.TryClassifyLowInformationBitmap(cropBitmap, out var lowInformationReason))
                                         {
-                                            if (decorativeFigures.RemoveOrDemote(candidate.Figure, lowInformationReason, pageNumber))
+                                            var changeCount = CountDecorativeChanges(() => decorativeFigures.RemoveOrDemote(candidate.Figure, lowInformationReason, pageNumber));
+                                            if (changeCount > 0)
                                             {
-                                                decorativeFigureAltSkipped++;
+                                                decorativeFigureAltSkipped += changeCount;
                                             }
 
                                             continue;
@@ -715,15 +730,19 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
                                         var bitmapHash = PdfFigureVisualHeuristics.ComputeBitmapHash(cropBitmap);
                                         var repeatedSignature = PdfFigureVisualHeuristics.BuildRepeatedChromeSignature(bitmapHash, candidate.BoundsPts, pageSizePts);
-                                        if (repeatedSignature is not null
-                                            && decorativeFigures.RemoveOrDemoteRepeatedChromeFigure(
-                                                candidate.Figure,
-                                                repeatedSignature,
-                                                "same visual crop appears repeatedly in the same page position",
-                                                pageNumber))
+                                        if (repeatedSignature is not null)
                                         {
-                                            decorativeFigureAltSkipped++;
-                                            continue;
+                                            var changeCount = CountDecorativeChanges(
+                                                () => decorativeFigures.RemoveOrDemoteRepeatedChromeFigure(
+                                                    candidate.Figure,
+                                                    repeatedSignature,
+                                                    "same visual crop appears repeatedly in the same page position",
+                                                    pageNumber));
+                                            if (changeCount > 0)
+                                            {
+                                                decorativeFigureAltSkipped += changeCount;
+                                                continue;
+                                            }
                                         }
 
                                         byte[] pngBytes;
