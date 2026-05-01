@@ -29,6 +29,25 @@ internal sealed class PdfDecorativeFigureTracker
 
     public int Total => Removed + Demoted;
 
+    public bool Demote(PdfDictionary figure, string reason, int? pageNumber = null)
+    {
+        if (!_demotedOrRemovedFigures.Add(figure))
+        {
+            return false;
+        }
+
+        figure.Remove(PdfName.Alt);
+        figure.Put(PdfName.S, RoleSpan);
+        Demoted++;
+        _logger.LogInformation(
+            "Demoted decorative figure in {fileId}: page={pageNumber} reason={reason}",
+            _fileId,
+            pageNumber,
+            reason);
+
+        return true;
+    }
+
     public bool RemoveOrDemote(PdfDictionary figure, string reason, int? pageNumber = null)
     {
         if (!_demotedOrRemovedFigures.Add(figure))
@@ -86,6 +105,37 @@ internal sealed class PdfDecorativeFigureTracker
         foreach (var repeatedFigure in figures)
         {
             changed |= RemoveOrDemote(repeatedFigure, reason, pageNumber);
+        }
+
+        return changed;
+    }
+
+    public bool DemoteRepeatedChromeFigure(
+        PdfDictionary figure,
+        string signature,
+        string reason,
+        int pageNumber)
+    {
+        if (!_repeatedChromeFiguresBySignature.TryGetValue(signature, out var figures))
+        {
+            figures = new List<PdfDictionary>();
+            _repeatedChromeFiguresBySignature[signature] = figures;
+        }
+
+        if (!figures.Contains(figure, PdfDictionaryReferenceComparer.Instance))
+        {
+            figures.Add(figure);
+        }
+
+        if (figures.Count < PdfFigureVisualHeuristics.RepeatedFigureChromeThreshold)
+        {
+            return false;
+        }
+
+        var changed = false;
+        foreach (var repeatedFigure in figures)
+        {
+            changed |= Demote(repeatedFigure, reason, pageNumber);
         }
 
         return changed;

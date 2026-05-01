@@ -411,7 +411,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                         if (occ.Bounds is not null
                             && PdfFigureVisualHeuristics.IsTinyFigureBounds(occ.Bounds, page.GetPageSizeWithRotation(), out var tinyReason))
                         {
-                            var changeCount = CountDecorativeChanges(() => decorativeFigures.RemoveOrDemote(figure, tinyReason, pageNumber));
+                            var changeCount = CountDecorativeChanges(() => decorativeFigures.Demote(figure, tinyReason, pageNumber));
                             if (changeCount > 0)
                             {
                                 decorativeFigureAltSkipped += changeCount;
@@ -424,7 +424,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                         if (!IsSupportedAltTextImageMimeType(mimeType))
                         {
                             imageAltSkippedUnsupported++;
-                            var changeCount = CountDecorativeChanges(() => decorativeFigures.RemoveOrDemote(figure, $"unsupported image MIME type {mimeType}", pageNumber));
+                            var changeCount = CountDecorativeChanges(() => decorativeFigures.Demote(figure, $"unsupported image MIME type {mimeType}", pageNumber));
                             if (changeCount > 0)
                             {
                                 decorativeFigureAltSkipped += changeCount;
@@ -440,7 +440,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                             if (repeatedSignature is not null)
                             {
                                 var changeCount = CountDecorativeChanges(
-                                    () => decorativeFigures.RemoveOrDemoteRepeatedChromeFigure(
+                                    () => decorativeFigures.DemoteRepeatedChromeFigure(
                                         figure,
                                         repeatedSignature,
                                         "same image appears repeatedly in the same page position",
@@ -684,7 +684,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
                                         if (PdfFigureVisualHeuristics.IsTinyFigureBounds(candidate.BoundsPts, pageSizePts, out var tinyReason))
                                         {
-                                            var changeCount = CountDecorativeChanges(() => decorativeFigures.RemoveOrDemote(candidate.Figure, tinyReason, pageNumber));
+                                            var changeCount = CountDecorativeChanges(() => decorativeFigures.Demote(candidate.Figure, tinyReason, pageNumber));
                                             if (changeCount > 0)
                                             {
                                                 decorativeFigureAltSkipped += changeCount;
@@ -719,7 +719,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
                                         if (PdfFigureVisualHeuristics.TryClassifyLowInformationBitmap(cropBitmap, out var lowInformationReason))
                                         {
-                                            var changeCount = CountDecorativeChanges(() => decorativeFigures.RemoveOrDemote(candidate.Figure, lowInformationReason, pageNumber));
+                                            var changeCount = CountDecorativeChanges(() => decorativeFigures.Demote(candidate.Figure, lowInformationReason, pageNumber));
                                             if (changeCount > 0)
                                             {
                                                 decorativeFigureAltSkipped += changeCount;
@@ -733,7 +733,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                                         if (repeatedSignature is not null)
                                         {
                                             var changeCount = CountDecorativeChanges(
-                                                () => decorativeFigures.RemoveOrDemoteRepeatedChromeFigure(
+                                                () => decorativeFigures.DemoteRepeatedChromeFigure(
                                                     candidate.Figure,
                                                     repeatedSignature,
                                                     "same visual crop appears repeatedly in the same page position",
