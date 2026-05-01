@@ -44,14 +44,19 @@ public sealed class AdobePdfServices : IAdobePdfServices
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<AdobePdfServices> _logger;
+    private readonly IAdobePdfServicesRateLimiter _rateLimiter;
 
     public string AutotagProviderName => FileIngestOptions.AutotagProviders.Adobe;
     public string AccessibilityCheckerName => "AdobePdfServices";
 
-    public AdobePdfServices(IConfiguration configuration, ILogger<AdobePdfServices> logger)
+    public AdobePdfServices(
+        IConfiguration configuration,
+        ILogger<AdobePdfServices> logger,
+        IAdobePdfServicesRateLimiter rateLimiter)
     {
         _configuration = configuration;
         _logger = logger;
+        _rateLimiter = rateLimiter;
     }
 
     /// <summary>
@@ -136,10 +141,15 @@ public sealed class AdobePdfServices : IAdobePdfServices
             {
                 throw;
             }
-            catch (Exception ex) when (
-                attempt < maxAttempts
-                && IsRetryableAccessibilityCheckerException(ex))
+            catch (Exception ex) when (IsRetryableAccessibilityCheckerException(ex))
             {
+                await RecordAccessibilityCheckerThrottleAsync(ex, cancellationToken);
+
+                if (attempt >= maxAttempts)
+                {
+                    throw;
+                }
+
                 var delay = ComputeRetryDelay(attempt, baseDelay, maxDelay);
                 _logger.LogWarning(
                     ex,
@@ -167,6 +177,7 @@ public sealed class AdobePdfServices : IAdobePdfServices
         var pdfServices = CreateClient();
 
         await using var inputStream = File.OpenRead(inputPdfPath);
+        await WaitForAccessibilityCheckerCallAsync("upload", cancellationToken);
         IAsset asset = pdfServices.Upload(inputStream, PDFServicesMediaType.PDF.GetMIMETypeValue());
 
         var job = new PDFAccessibilityCheckerJob(asset);
@@ -186,16 +197,19 @@ public sealed class AdobePdfServices : IAdobePdfServices
             job = job.SetParams(builder.Build());
         }
 
+        await WaitForAccessibilityCheckerCallAsync("submit", cancellationToken);
         var location = pdfServices.Submit(job);
         PDFServicesResponse<PDFAccessibilityCheckerResult> response =
-            pdfServices.GetJobResult<PDFAccessibilityCheckerResult>(location, typeof(PDFAccessibilityCheckerResult));
+            await GetAccessibilityCheckerResultAsync(pdfServices, location, cancellationToken);
 
         var outputAsset = response.Result.Asset;
         var reportAsset = response.Result.Report;
 
+        await WaitForAccessibilityCheckerCallAsync("get_output_content", cancellationToken);
         var outputStreamAsset = pdfServices.GetContent(outputAsset);
         await WriteStreamAssetAsync(outputStreamAsset, outputPdfPath, cancellationToken);
 
+        await WaitForAccessibilityCheckerCallAsync("get_report_content", cancellationToken);
         var reportStreamAsset = pdfServices.GetContent(reportAsset);
         await WriteStreamAssetAsync(reportStreamAsset, outputReportPath, cancellationToken);
 
@@ -213,6 +227,73 @@ public sealed class AdobePdfServices : IAdobePdfServices
             outputReportPath);
 
         return new AdobeAccessibilityCheckOutput(outputPdfPath, outputReportPath, reportJson);
+    }
+
+    private async Task<PDFServicesResponse<PDFAccessibilityCheckerResult>> GetAccessibilityCheckerResultAsync(
+        PDFServices pdfServices,
+        string location,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await WaitForAccessibilityCheckerCallAsync("get_job_status", cancellationToken);
+            var statusResponse = pdfServices.GetJobStatus(location);
+            var status = statusResponse.Status;
+            if (string.Equals(status, "DONE", StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+
+            if (string.Equals(status, "FAILED", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Adobe Accessibility Checker job failed while polling status. status={status}");
+            }
+
+            var retryIntervalSeconds = Math.Max(1, statusResponse.GetRetryInterval());
+            await Task.Delay(TimeSpan.FromSeconds(retryIntervalSeconds), cancellationToken);
+        }
+
+        await WaitForAccessibilityCheckerCallAsync("get_job_result", cancellationToken);
+        return pdfServices.GetJobResult<PDFAccessibilityCheckerResult>(
+            location,
+            typeof(PDFAccessibilityCheckerResult));
+    }
+
+    private async Task RecordAccessibilityCheckerThrottleAsync(Exception exception, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _rateLimiter.RecordThrottleAsync(
+                AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+                exception,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception rateLimiterException)
+        {
+            _logger.LogWarning(
+                rateLimiterException,
+                "Failed to record Adobe Accessibility Checker shared throttle cooldown.");
+        }
+    }
+
+    private async Task WaitForAccessibilityCheckerCallAsync(string callName, CancellationToken cancellationToken)
+    {
+        using var scope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["adobe.pdf_services.operation"] = AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+            ["adobe.pdf_services.call"] = callName,
+        });
+
+        await _rateLimiter.WaitAsync(
+            AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+            cost: 1,
+            cancellationToken);
     }
 
     private int GetAccessibilityCheckerMaxRetries()

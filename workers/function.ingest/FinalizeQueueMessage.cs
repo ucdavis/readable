@@ -49,22 +49,49 @@ public class FinalizeQueueMessage
             ["messaging.message.id"] = message.MessageId
         });
 
-        var body = message.Body.ToString();
-        var finalizeMessage = IngestQueueMessageJson.Deserialize<FinalizePdfMessage>(body);
-
-        activity?.SetTag("file.id", finalizeMessage.FileId);
-        activity?.SetTag("url.full", finalizeMessage.PdfToFinalizeBlobUri.ToString());
-        activity?.SetTag("autotag.provider", finalizeMessage.Autotag.Provider);
-
-        using var fileScope = _logger.BeginScope(new Dictionary<string, object?>
+        try
         {
-            ["file.id"] = finalizeMessage.FileId,
-            ["url.full"] = finalizeMessage.PdfToFinalizeBlobUri.ToString(),
-            ["autotag.provider"] = finalizeMessage.Autotag.Provider
-        });
+            var body = message.Body.ToString();
+            var finalizeMessage = IngestQueueMessageJson.Deserialize<FinalizePdfMessage>(body);
 
-        await _fileIngestProcessor.FinalizeAsync(finalizeMessage, cancellationToken);
+            activity?.SetTag("file.id", finalizeMessage.FileId);
+            activity?.SetTag("url.full", finalizeMessage.PdfToFinalizeBlobUri.ToString());
+            activity?.SetTag("autotag.provider", finalizeMessage.Autotag.Provider);
 
-        await messageActions.CompleteMessageAsync(message, cancellationToken);
+            using var fileScope = _logger.BeginScope(new Dictionary<string, object?>
+            {
+                ["file.id"] = finalizeMessage.FileId,
+                ["url.full"] = finalizeMessage.PdfToFinalizeBlobUri.ToString(),
+                ["autotag.provider"] = finalizeMessage.Autotag.Provider
+            });
+
+            await _fileIngestProcessor.FinalizeAsync(finalizeMessage, cancellationToken);
+
+            await messageActions.CompleteMessageAsync(message, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            await AbandonMessageAsync(message, messageActions, ex);
+            throw;
+        }
+    }
+
+    private async Task AbandonMessageAsync(
+        ServiceBusReceivedMessage message,
+        ServiceBusMessageActions messageActions,
+        Exception exception)
+    {
+        try
+        {
+            await messageActions.AbandonMessageAsync(message, cancellationToken: CancellationToken.None);
+        }
+        catch (Exception abandonException)
+        {
+            _logger.LogWarning(
+                abandonException,
+                "Failed to abandon Service Bus message {messageId} after processing error {errorType}",
+                message.MessageId,
+                exception.GetType().Name);
+        }
     }
 }

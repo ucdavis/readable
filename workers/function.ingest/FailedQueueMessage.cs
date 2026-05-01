@@ -49,22 +49,49 @@ public class FailedQueueMessage
             ["messaging.message.id"] = message.MessageId
         });
 
-        var body = message.Body.ToString();
-        var failedMessage = IngestQueueMessageJson.Deserialize<AutotagFailedMessage>(body);
-
-        activity?.SetTag("file.id", failedMessage.FileId);
-        activity?.SetTag("autotag.provider", failedMessage.Provider);
-        activity?.SetTag("error.type", failedMessage.ErrorCode);
-
-        using var fileScope = _logger.BeginScope(new Dictionary<string, object?>
+        try
         {
-            ["file.id"] = failedMessage.FileId,
-            ["autotag.provider"] = failedMessage.Provider,
-            ["error.type"] = failedMessage.ErrorCode
-        });
+            var body = message.Body.ToString();
+            var failedMessage = IngestQueueMessageJson.Deserialize<AutotagFailedMessage>(body);
 
-        await _fileIngestProcessor.FailAsync(failedMessage, cancellationToken);
+            activity?.SetTag("file.id", failedMessage.FileId);
+            activity?.SetTag("autotag.provider", failedMessage.Provider);
+            activity?.SetTag("error.type", failedMessage.ErrorCode);
 
-        await messageActions.CompleteMessageAsync(message, cancellationToken);
+            using var fileScope = _logger.BeginScope(new Dictionary<string, object?>
+            {
+                ["file.id"] = failedMessage.FileId,
+                ["autotag.provider"] = failedMessage.Provider,
+                ["error.type"] = failedMessage.ErrorCode
+            });
+
+            await _fileIngestProcessor.FailAsync(failedMessage, cancellationToken);
+
+            await messageActions.CompleteMessageAsync(message, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            await AbandonMessageAsync(message, messageActions, ex);
+            throw;
+        }
+    }
+
+    private async Task AbandonMessageAsync(
+        ServiceBusReceivedMessage message,
+        ServiceBusMessageActions messageActions,
+        Exception exception)
+    {
+        try
+        {
+            await messageActions.AbandonMessageAsync(message, cancellationToken: CancellationToken.None);
+        }
+        catch (Exception abandonException)
+        {
+            _logger.LogWarning(
+                abandonException,
+                "Failed to abandon Service Bus message {messageId} after processing error {errorType}",
+                message.MessageId,
+                exception.GetType().Name);
+        }
     }
 }

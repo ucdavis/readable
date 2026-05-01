@@ -48,32 +48,58 @@ public class ProcessQueueMessage
             ["messaging.message.id"] = message.MessageId
         });
 
-        var body = message.Body.ToString();
-        _logger.LogInformation("Message ID: {id}", message.MessageId);
-        _logger.LogInformation("Message Content-Type: {contentType}", message.ContentType);
-
-        if (!StorageBlobCreatedEventParser.TryParse(body, out var request, out var error))
+        try
         {
-            _logger.LogError("Failed to parse CloudEvent message: {error}. Body: {body}", error, body);
-            throw new InvalidOperationException(error);
+            var body = message.Body.ToString();
+            _logger.LogInformation("Message ID: {id}", message.MessageId);
+            _logger.LogInformation("Message Content-Type: {contentType}", message.ContentType);
+
+            if (!StorageBlobCreatedEventParser.TryParse(body, out var request, out var error))
+            {
+                _logger.LogError("Failed to parse CloudEvent message: {error}. Body: {body}", error, body);
+                throw new InvalidOperationException(error);
+            }
+
+            activity?.SetTag("url.full", request.BlobUri.ToString());
+            activity?.SetTag("blob.container", request.ContainerName);
+            activity?.SetTag("blob.name", request.BlobName);
+            activity?.SetTag("file.id", request.FileId);
+
+            using var fileScope = _logger.BeginScope(new Dictionary<string, object?>
+            {
+                ["file.id"] = request.FileId,
+                ["blob.container"] = request.ContainerName,
+                ["blob.name"] = request.BlobName,
+                ["url.full"] = request.BlobUri.ToString()
+            });
+
+            await _fileIngestProcessor.ProcessAsync(request, cancellationToken);
+
+            await messageActions.CompleteMessageAsync(message, cancellationToken);
         }
-
-        activity?.SetTag("url.full", request.BlobUri.ToString());
-        activity?.SetTag("blob.container", request.ContainerName);
-        activity?.SetTag("blob.name", request.BlobName);
-        activity?.SetTag("file.id", request.FileId);
-
-        using var fileScope = _logger.BeginScope(new Dictionary<string, object?>
+        catch (Exception ex)
         {
-            ["file.id"] = request.FileId,
-            ["blob.container"] = request.ContainerName,
-            ["blob.name"] = request.BlobName,
-            ["url.full"] = request.BlobUri.ToString()
-        });
+            await AbandonMessageAsync(message, messageActions, ex);
+            throw;
+        }
+    }
 
-        await _fileIngestProcessor.ProcessAsync(request, cancellationToken);
-
-        // Complete the message
-        await messageActions.CompleteMessageAsync(message, cancellationToken);
+    private async Task AbandonMessageAsync(
+        ServiceBusReceivedMessage message,
+        ServiceBusMessageActions messageActions,
+        Exception exception)
+    {
+        try
+        {
+            await messageActions.AbandonMessageAsync(message, cancellationToken: CancellationToken.None);
+        }
+        catch (Exception abandonException)
+        {
+            _logger.LogWarning(
+                abandonException,
+                "Failed to abandon Service Bus message {messageId} after processing error {errorType}",
+                message.MessageId,
+                exception.GetType().Name);
+        }
     }
 }

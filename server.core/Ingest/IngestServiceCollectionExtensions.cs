@@ -71,15 +71,20 @@ public static class IngestServiceCollectionExtensions
 
         if (options.UseAdobePdfServices)
         {
+            services.AddSingleton<IAdobePdfServicesRateLimiter, SqlAdobePdfServicesRateLimiter>();
             services.AddSingleton<IAdobePdfServices>(sp =>
             {
                 var configuration = sp.GetRequiredService<IConfiguration>();
                 EnsureAdobeCredentialsConfigured(configuration);
-                return new AdobePdfServices(configuration, sp.GetRequiredService<ILogger<AdobePdfServices>>());
+                return new AdobePdfServices(
+                    configuration,
+                    sp.GetRequiredService<ILogger<AdobePdfServices>>(),
+                    sp.GetRequiredService<IAdobePdfServicesRateLimiter>());
             });
         }
         else
         {
+            services.AddSingleton<IAdobePdfServicesRateLimiter, NoopAdobePdfServicesRateLimiter>();
             services.AddSingleton<IAdobePdfServices, NoopAdobePdfServices>();
         }
         services.AddSingleton<IAutotagProvider>(sp => sp.GetRequiredService<IAdobePdfServices>());
