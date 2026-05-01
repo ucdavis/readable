@@ -142,6 +142,7 @@ public sealed class SqlAdobePdfServicesRateLimiter : IAdobePdfServicesRateLimite
 
     private async Task<TimeSpan> TryReserveAsync(string operation, int cost, CancellationToken cancellationToken)
     {
+        var requestId = Guid.NewGuid().ToString("N");
         await using var strategyContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var strategy = strategyContext.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
@@ -174,7 +175,7 @@ public sealed class SqlAdobePdfServicesRateLimiter : IAdobePdfServicesRateLimite
                     Provider = Provider,
                     Operation = operation,
                     BucketKey = _options.BucketKey,
-                    RequestId = Guid.NewGuid().ToString("N"),
+                    RequestId = requestId,
                     Cost = cost,
                     ReservedAtUtc = now,
                     ExpiresAtUtc = now.Add(_options.Window),

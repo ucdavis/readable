@@ -5,6 +5,7 @@ using Adobe.PDFServicesSDK.pdfjobs.jobs;
 using Adobe.PDFServicesSDK.pdfjobs.parameters.autotag;
 using Adobe.PDFServicesSDK.pdfjobs.parameters.pdfaccessibilitychecker;
 using Adobe.PDFServicesSDK.pdfjobs.results;
+using System.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -234,12 +235,26 @@ public sealed class AdobePdfServices : IAdobePdfServices
         string location,
         CancellationToken cancellationToken)
     {
+        var maxPollDuration = GetAccessibilityCheckerMaxPollDuration();
+        var stopwatch = Stopwatch.StartNew();
+        var attempts = 0;
+        string? lastStatus = null;
+
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (stopwatch.Elapsed >= maxPollDuration)
+            {
+                throw new TimeoutException(
+                    $"Adobe Accessibility Checker job polling exceeded {maxPollDuration.TotalSeconds:N0}s. " +
+                    $"location={location}; lastStatus={lastStatus ?? "unknown"}; attempts={attempts}; elapsedMs={stopwatch.ElapsedMilliseconds}");
+            }
+
             await WaitForAccessibilityCheckerCallAsync("get_job_status", cancellationToken);
             var statusResponse = pdfServices.GetJobStatus(location);
+            attempts++;
             var status = statusResponse.Status;
+            lastStatus = status;
             if (string.Equals(status, "DONE", StringComparison.OrdinalIgnoreCase))
             {
                 break;
@@ -248,7 +263,7 @@ public sealed class AdobePdfServices : IAdobePdfServices
             if (string.Equals(status, "FAILED", StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException(
-                    $"Adobe Accessibility Checker job failed while polling status. status={status}");
+                    $"Adobe Accessibility Checker job failed while polling status. location={location}; status={status}; attempts={attempts}");
             }
 
             var retryIntervalSeconds = Math.Max(1, statusResponse.GetRetryInterval());
@@ -324,6 +339,16 @@ public sealed class AdobePdfServices : IAdobePdfServices
             ?? _configuration.GetValue<double?>("ADOBE_ACCESSIBILITY_CHECKER_RETRY_MAX_DELAY_SECONDS");
 
         return TimeSpan.FromSeconds(Math.Max(0, configuredSeconds ?? 30));
+    }
+
+    private TimeSpan GetAccessibilityCheckerMaxPollDuration()
+    {
+        var configuredSeconds =
+            _configuration.GetValue<double?>("AdobePdfServices:AccessibilityCheckerMaxPollDurationSeconds")
+            ?? _configuration.GetValue<double?>("AdobePdfServices__AccessibilityCheckerMaxPollDurationSeconds")
+            ?? _configuration.GetValue<double?>("ADOBE_ACCESSIBILITY_CHECKER_MAX_POLL_DURATION_SECONDS");
+
+        return TimeSpan.FromSeconds(Math.Max(1, configuredSeconds ?? 600));
     }
 
     private static TimeSpan ComputeRetryDelay(int failedAttempt, TimeSpan baseDelay, TimeSpan maxDelay)

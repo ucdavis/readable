@@ -56,8 +56,20 @@ public class ProcessQueueMessage
 
             if (!StorageBlobCreatedEventParser.TryParse(body, out var request, out var error))
             {
-                _logger.LogError("Failed to parse CloudEvent message: {error}. Body: {body}", error, body);
-                throw new InvalidOperationException(error);
+                var parseError = error ?? "Invalid CloudEvent.";
+                _logger.LogError(
+                    "Failed to parse CloudEvent message {messageId}. contentType={contentType}; deliveryCount={deliveryCount}; error={error}",
+                    message.MessageId,
+                    message.ContentType,
+                    message.DeliveryCount,
+                    parseError);
+
+                await messageActions.DeadLetterMessageAsync(
+                    message,
+                    deadLetterReason: "InvalidCloudEvent",
+                    deadLetterErrorDescription: parseError,
+                    cancellationToken: cancellationToken);
+                return;
             }
 
             activity?.SetTag("url.full", request.BlobUri.ToString());
