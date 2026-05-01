@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
-using System.Runtime.CompilerServices;
 using iText.IO.Font;
 using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
@@ -15,6 +14,7 @@ using Microsoft.Extensions.Logging;
 using IOPath = System.IO.Path;
 using server.core.Remediate.AltText;
 using server.core.Remediate.Bookmarks;
+using server.core.Remediate.Figures;
 using server.core.Remediate.Rasterize;
 using server.core.Remediate.Table;
 using server.core.Remediate.Title;
@@ -170,9 +170,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
     /// Remediates a PDF by ensuring it has a title and (when tagged) adding missing alt text for figures (and optionally links).
     /// </summary>
     /// <remarks>
-    /// Alt-text remediation relies on the PDF tag tree, so it only runs for tagged PDFs. A fallback pass ensures
-    /// any remaining <c>/Figure</c> structure elements have some <c>/Alt</c> value even when exact content-to-tag
-    /// matching is imperfect. Link <c>/Alt</c> generation is opt-in via <see cref="PdfRemediationOptions" />.
+    /// Alt-text remediation relies on the PDF tag tree, so it only runs for tagged PDFs. Obvious decorative or broken
+    /// <c>/Figure</c> structure elements are removed or demoted before expensive AI alt-text generation. Link
+    /// <c>/Alt</c> generation is opt-in via <see cref="PdfRemediationOptions" />.
     /// </remarks>
     public async Task<PdfRemediationResult> ProcessAsync(
         string fileId,
@@ -350,12 +350,37 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 figureIndex = PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Figure);
             }
 
+            var decorativeFigureAltSkipped = 0;
+            var decorativeFigures = new PdfDecorativeFigureTracker(fileId, _logger, TryRemoveStructElemFromParent);
+
+            int CountDecorativeChanges(Func<bool> removeOrDemote)
+            {
+                var before = decorativeFigures.Total;
+                return removeOrDemote() ? decorativeFigures.Total - before : 0;
+            }
+
+            foreach (var figure in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Figure))
+            {
+                if (StructElemHasAssociatedContent(figure))
+                {
+                    continue;
+                }
+
+                var changeCount = CountDecorativeChanges(() => decorativeFigures.RemoveOrDemote(figure, "figure has no associated content"));
+                if (changeCount > 0)
+                {
+                    decorativeFigureAltSkipped += changeCount;
+                }
+            }
+
             var linkIndex = _options.GenerateLinkAltText
                 ? PdfStructTreeIndex.BuildForRole(pdf, pageObjNumToPageNumber, PdfName.Link)
                 : null;
 
             var imageOccurrences = 0;
             var imageAltSet = 0;
+            var imageAltSkippedUnsupported = 0;
+            var imageAltFailures = 0;
             var linkOccurrences = 0;
             var linkAltSet = 0;
 
@@ -383,10 +408,73 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                             continue;
                         }
 
+                        if (occ.Bounds is not null
+                            && PdfFigureVisualHeuristics.IsTinyFigureBounds(occ.Bounds, page.GetPageSizeWithRotation(), out var tinyReason))
+                        {
+                            var changeCount = CountDecorativeChanges(() => decorativeFigures.Demote(figure, tinyReason, pageNumber));
+                            if (changeCount > 0)
+                            {
+                                decorativeFigureAltSkipped += changeCount;
+                            }
+
+                            continue;
+                        }
+
                         var (bytes, mimeType) = ExtractImageBytes(occ.Image);
-                        var altText = await _altTextService.GetAltTextForImageAsync(
-                            new ImageAltTextRequest(bytes, mimeType, occ.ContextBefore, occ.ContextAfter, primaryLanguage),
-                            cancellationToken);
+                        if (!IsSupportedAltTextImageMimeType(mimeType))
+                        {
+                            imageAltSkippedUnsupported++;
+                            var changeCount = CountDecorativeChanges(() => decorativeFigures.Demote(figure, $"unsupported image MIME type {mimeType}", pageNumber));
+                            if (changeCount > 0)
+                            {
+                                decorativeFigureAltSkipped += changeCount;
+                            }
+
+                            continue;
+                        }
+
+                        if (occ.Bounds is not null)
+                        {
+                            var imageHash = Convert.ToHexString(SHA256.HashData(bytes));
+                            var repeatedSignature = PdfFigureVisualHeuristics.BuildRepeatedChromeSignature(imageHash, occ.Bounds, page.GetPageSizeWithRotation());
+                            if (repeatedSignature is not null)
+                            {
+                                var changeCount = CountDecorativeChanges(
+                                    () => decorativeFigures.DemoteRepeatedChromeFigure(
+                                        figure,
+                                        repeatedSignature,
+                                        "same image appears repeatedly in the same page position",
+                                        pageNumber));
+                                if (changeCount > 0)
+                                {
+                                    decorativeFigureAltSkipped += changeCount;
+                                    continue;
+                                }
+                            }
+                        }
+
+                        string altText;
+                        try
+                        {
+                            altText = await _altTextService.GetAltTextForImageAsync(
+                                new ImageAltTextRequest(bytes, mimeType, occ.ContextBefore, occ.ContextAfter, primaryLanguage),
+                                cancellationToken);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            imageAltFailures++;
+                            _logger.LogWarning(
+                                ex,
+                                "Failed to generate raster image alt text for {fileId} page={pageNumber}. Figure will remain without Alt for manual remediation.",
+                                fileId,
+                                pageNumber);
+                            continue;
+                        }
+
                         SetAlt(figure, altText);
                         if (!string.IsNullOrWhiteSpace(altText))
                         {
@@ -594,6 +682,17 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                                             continue;
                                         }
 
+                                        if (PdfFigureVisualHeuristics.IsTinyFigureBounds(candidate.BoundsPts, pageSizePts, out var tinyReason))
+                                        {
+                                            var changeCount = CountDecorativeChanges(() => decorativeFigures.Demote(candidate.Figure, tinyReason, pageNumber));
+                                            if (changeCount > 0)
+                                            {
+                                                decorativeFigureAltSkipped += changeCount;
+                                            }
+
+                                            continue;
+                                        }
+
                                         var cropRectPx = TryComputeCropRectPx(candidate.BoundsPts, pageSizePts, pageBitmap, minSizePx: 64, padPts: 2f);
                                         if (cropRectPx is null || cropRectPx.Value.IsEmpty)
                                         {
@@ -616,6 +715,34 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                                         {
                                             vectorRasterFailures++;
                                             continue;
+                                        }
+
+                                        if (PdfFigureVisualHeuristics.TryClassifyLowInformationBitmap(cropBitmap, out var lowInformationReason))
+                                        {
+                                            var changeCount = CountDecorativeChanges(() => decorativeFigures.Demote(candidate.Figure, lowInformationReason, pageNumber));
+                                            if (changeCount > 0)
+                                            {
+                                                decorativeFigureAltSkipped += changeCount;
+                                            }
+
+                                            continue;
+                                        }
+
+                                        var bitmapHash = PdfFigureVisualHeuristics.ComputeBitmapHash(cropBitmap);
+                                        var repeatedSignature = PdfFigureVisualHeuristics.BuildRepeatedChromeSignature(bitmapHash, candidate.BoundsPts, pageSizePts);
+                                        if (repeatedSignature is not null)
+                                        {
+                                            var changeCount = CountDecorativeChanges(
+                                                () => decorativeFigures.DemoteRepeatedChromeFigure(
+                                                    candidate.Figure,
+                                                    repeatedSignature,
+                                                    "same visual crop appears repeatedly in the same page position",
+                                                    pageNumber));
+                                            if (changeCount > 0)
+                                            {
+                                                decorativeFigureAltSkipped += changeCount;
+                                                continue;
+                                            }
                                         }
 
                                         byte[] pngBytes;
@@ -689,9 +816,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 }
             }
 
-            // Fallback safety-net: ensure any remaining tagged Figures get *some* alt text.
-            // This keeps remediation robust even when we can't reliably match content-stream occurrences to tag-tree elements.
-            var fallbackImageAltSet = 0;
+            // Clean up objectively broken structure, but do not hide unresolved figures behind placeholder alt text.
+            // Remaining /Figure nodes without /Alt should still be visible to accessibility QA/manual remediation.
+            var remainingFiguresMissingAlt = 0;
             var contentlessFiguresRemoved = 0;
             var contentlessFiguresDemoted = 0;
             foreach (var figure in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Figure))
@@ -714,14 +841,13 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
                 if (!HasNonEmptyAlt(figure))
                 {
-                    SetAlt(figure, _altTextService.GetFallbackAltTextForImage());
-                    fallbackImageAltSet++;
+                    remainingFiguresMissingAlt++;
                 }
             }
 
             if (_options.GenerateLinkAltText)
             {
-                var fallbackLinkAltSet = 0;
+                var remainingLinksMissingAlt = 0;
                 var contentlessLinksRemoved = 0;
                 var contentlessLinksDemoted = 0;
                 foreach (var link in PdfStructTreeIndex.ListStructElementsByRole(pdf, PdfName.Link))
@@ -744,27 +870,31 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
                     if (!HasNonEmptyAlt(link))
                     {
-                        SetAlt(link, _altTextService.GetFallbackAltTextForLink());
-                        fallbackLinkAltSet++;
+                        remainingLinksMissingAlt++;
                     }
                 }
 
                 _logger.LogInformation(
-                    "PDF remediation link alt summary: {fileId} linkOccurrences={linkOccurrences} linkAltSet={linkAltSet} fallbackLinkAltSet={fallbackLinkAltSet} contentlessLinksRemoved={contentlessLinksRemoved} contentlessLinksDemoted={contentlessLinksDemoted}",
+                    "PDF remediation link alt summary: {fileId} linkOccurrences={linkOccurrences} linkAltSet={linkAltSet} remainingLinksMissingAlt={remainingLinksMissingAlt} contentlessLinksRemoved={contentlessLinksRemoved} contentlessLinksDemoted={contentlessLinksDemoted}",
                     fileId,
                     linkOccurrences,
                     linkAltSet,
-                    fallbackLinkAltSet,
+                    remainingLinksMissingAlt,
                     contentlessLinksRemoved,
                     contentlessLinksDemoted);
             }
 
             _logger.LogInformation(
-                "PDF remediation image alt summary: {fileId} imageOccurrences={imageOccurrences} imageAltSet={imageAltSet} fallbackImageAltSet={fallbackImageAltSet} contentlessFiguresRemoved={contentlessFiguresRemoved} contentlessFiguresDemoted={contentlessFiguresDemoted}",
+                "PDF remediation image alt summary: {fileId} imageOccurrences={imageOccurrences} imageAltSet={imageAltSet} imageAltSkippedUnsupported={imageAltSkippedUnsupported} imageAltFailures={imageAltFailures} decorativeFigureAltSkipped={decorativeFigureAltSkipped} decorativeFiguresRemoved={decorativeFiguresRemoved} decorativeFiguresDemoted={decorativeFiguresDemoted} remainingFiguresMissingAlt={remainingFiguresMissingAlt} contentlessFiguresRemoved={contentlessFiguresRemoved} contentlessFiguresDemoted={contentlessFiguresDemoted}",
                 fileId,
                 imageOccurrences,
                 imageAltSet,
-                fallbackImageAltSet,
+                imageAltSkippedUnsupported,
+                imageAltFailures,
+                decorativeFigureAltSkipped,
+                decorativeFigures.Removed,
+                decorativeFigures.Demoted,
+                remainingFiguresMissingAlt,
                 contentlessFiguresRemoved,
                 contentlessFiguresDemoted);
 
@@ -1090,6 +1220,10 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         return null;
     }
 
+    private static bool IsSupportedAltTextImageMimeType(string mimeType) =>
+        string.Equals(mimeType, "image/png", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(mimeType, "image/jpeg", StringComparison.OrdinalIgnoreCase);
+
     private static bool LooksLikePng(byte[] bytes) =>
         bytes.Length >= 8
         && bytes[0] == 0x89
@@ -1367,15 +1501,6 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         structElem.Put(PdfName.Alt, new PdfString(altText, PdfEncodings.UNICODE_BIG));
     }
 
-    private sealed class PdfDictionaryReferenceComparer : IEqualityComparer<PdfDictionary>
-    {
-        public static PdfDictionaryReferenceComparer Instance { get; } = new();
-
-        public bool Equals(PdfDictionary? x, PdfDictionary? y) => ReferenceEquals(x, y);
-
-        public int GetHashCode(PdfDictionary obj) => RuntimeHelpers.GetHashCode(obj);
-    }
-
     private sealed class VectorFigureCandidate
     {
         public VectorFigureCandidate(PdfDictionary figure, Rectangle boundsPts, string contextBefore, string contextAfter)
@@ -1499,6 +1624,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         int Mcid,
         PdfImageXObject Image,
         PdfIndirectReference? ObjectRef,
+        Rectangle? Bounds,
         string ContextBefore,
         string ContextAfter);
 
@@ -1646,12 +1772,14 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
                 var image = imageRenderInfo.GetImage();
                 var imageRef = image.GetPdfObject().GetIndirectReference();
+                var bounds = TryGetImageBounds(imageRenderInfo);
 
                 _pending.Add(
                     new PendingImageOccurrence(
                         imageRenderInfo.GetMcid(),
                         image,
                         imageRef,
+                        bounds,
                         TextCharIndex: _pageText.Length));
             }
 
@@ -1675,15 +1803,78 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                             pending.Mcid,
                             pending.Image,
                             pending.ImageRef,
+                            pending.Bounds,
                             ContextBefore: before,
                             ContextAfter: after));
                 }
 
                 return occurrences;
             }
+
+            private static Rectangle? TryGetImageBounds(ImageRenderInfo imageRenderInfo)
+            {
+                try
+                {
+                    var ctm = imageRenderInfo.GetImageCtm();
+                    var any = false;
+                    double minX = 0, minY = 0, maxX = 0, maxY = 0;
+
+                    AddUnitSquarePoint(0, 0, ctm, ref any, ref minX, ref minY, ref maxX, ref maxY);
+                    AddUnitSquarePoint(1, 0, ctm, ref any, ref minX, ref minY, ref maxX, ref maxY);
+                    AddUnitSquarePoint(0, 1, ctm, ref any, ref minX, ref minY, ref maxX, ref maxY);
+                    AddUnitSquarePoint(1, 1, ctm, ref any, ref minX, ref minY, ref maxX, ref maxY);
+
+                    return any && maxX > minX && maxY > minY
+                        ? new Rectangle((float)minX, (float)minY, (float)(maxX - minX), (float)(maxY - minY))
+                        : null;
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            private static void AddUnitSquarePoint(
+                double x,
+                double y,
+                iText.Kernel.Geom.Matrix m,
+                ref bool any,
+                ref double minX,
+                ref double minY,
+                ref double maxX,
+                ref double maxY)
+            {
+                var a = m.Get(iText.Kernel.Geom.Matrix.I11);
+                var b = m.Get(iText.Kernel.Geom.Matrix.I12);
+                var c = m.Get(iText.Kernel.Geom.Matrix.I21);
+                var d = m.Get(iText.Kernel.Geom.Matrix.I22);
+                var e = m.Get(iText.Kernel.Geom.Matrix.I31);
+                var f = m.Get(iText.Kernel.Geom.Matrix.I32);
+
+                var tx = (a * x) + (c * y) + e;
+                var ty = (b * x) + (d * y) + f;
+
+                if (!any)
+                {
+                    any = true;
+                    minX = maxX = tx;
+                    minY = maxY = ty;
+                    return;
+                }
+
+                minX = Math.Min(minX, tx);
+                minY = Math.Min(minY, ty);
+                maxX = Math.Max(maxX, tx);
+                maxY = Math.Max(maxY, ty);
+            }
         }
 
-        private sealed record PendingImageOccurrence(int Mcid, PdfImageXObject Image, PdfIndirectReference? ImageRef, int TextCharIndex);
+        private sealed record PendingImageOccurrence(
+            int Mcid,
+            PdfImageXObject Image,
+            PdfIndirectReference? ImageRef,
+            Rectangle? Bounds,
+            int TextCharIndex);
 
         private sealed class VectorFigureOccurrenceListener : IEventListener
         {

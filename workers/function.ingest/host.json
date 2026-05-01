@@ -16,5 +16,10 @@
         "console": {
             "isEnabled": true
         }
+    },
+    "extensions": {
+        "serviceBus": {
+            "maxAutoLockRenewalDuration": "00:35:00"
+        }
     }
 }

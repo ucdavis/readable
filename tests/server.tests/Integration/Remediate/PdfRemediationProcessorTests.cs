@@ -9,7 +9,7 @@ namespace server.tests.Integration.Remediate;
 public sealed class PdfRemediationProcessorTests
 {
     [Fact]
-    public async Task ProcessAsync_TaggedMissingAlt_AddsAltToFigures()
+    public async Task ProcessAsync_TaggedMissingAlt_AddsAltToMatchedFigures()
     {
         var repoRoot = FindRepoRoot();
         var inputPdfPath = Path.Combine(repoRoot, "tests", "server.tests", "Fixtures", "pdfs", "tagged-missing-alt.pdf");
@@ -23,17 +23,17 @@ public sealed class PdfRemediationProcessorTests
             inputFigures.Any(f => !HasNonEmptyAlt(f)).Should().BeTrue("fixture should have figures missing alt text");
         }
 
-            var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(runRoot);
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
 
-            try
-            {
-                var outputPdfPath = Path.Combine(runRoot, "output.pdf");
-                var sut = new PdfRemediationProcessor(
-                    new FakeAltTextService(),
-                    new NoopPdfBookmarkService(),
-                    new FakePdfTitleService(),
-                    NullLogger<PdfRemediationProcessor>.Instance);
+        try
+        {
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            var sut = new PdfRemediationProcessor(
+                new FakeAltTextService(),
+                new NoopPdfBookmarkService(),
+                new FakePdfTitleService(),
+                NullLogger<PdfRemediationProcessor>.Instance);
 
             var result = await sut.ProcessAsync(
                 fileId: "fixture",
@@ -48,7 +48,6 @@ public sealed class PdfRemediationProcessorTests
 
             var outputFigures = ListStructElementsByRole(outputPdf, PdfName.Figure);
             outputFigures.Count.Should().BeGreaterThan(0);
-            outputFigures.Should().OnlyContain(f => HasNonEmptyAlt(f));
             outputFigures.Any(f => GetAlt(f) == "fake image alt text").Should().BeTrue();
         }
         finally
