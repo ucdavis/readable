@@ -30,6 +30,10 @@ param sqlDatabaseName string = appName
 @description('Service Bus queue base name. Leave empty for `files`.')
 param serviceBusQueueBaseName string = ''
 
+@minValue(0)
+@description('Maximum allowed page count for uploaded PDFs. Set to 0 to disable the temporary upload page limit.')
+param maxUploadPages int = 100
+
 @description('Additional resource tags to apply.')
 param tags object = {}
 
@@ -275,6 +279,7 @@ module compute 'modules/compute.bicep' = {
     ingestOpenDataLoaderAutotagQueueName: openDataLoaderAutotagQueueName
     ingestFinalizeQueueName: finalizeQueueName
     ingestFailedQueueName: failedQueueName
+    maxUploadPages: maxUploadPages
   }
 }
 

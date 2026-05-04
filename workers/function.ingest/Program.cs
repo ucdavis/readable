@@ -79,7 +79,7 @@ builder.Services.AddFileIngest(o =>
     o.MaxUploadPages =
         builder.Configuration.GetValue<int?>("Ingest:MaxUploadPages")
         ?? builder.Configuration.GetValue<int?>("INGEST_MAX_UPLOAD_PAGES")
-        ?? 25;
+        ?? FileIngestOptions.DefaultMaxUploadPages;
 });
 
 builder.Services.AddApplicationInsightsTelemetryWorkerService();

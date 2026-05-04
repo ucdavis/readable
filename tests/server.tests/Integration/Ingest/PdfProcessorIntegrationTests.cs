@@ -263,7 +263,9 @@ public sealed class PdfProcessorIntegrationTests
         try
         {
             var inputPdfPath = Path.Combine(runRoot, "input.pdf");
-            CreateTestPdf(inputPdfPath, pageCount: 26);
+            var maxUploadPages = FileIngestOptions.DefaultMaxUploadPages;
+            var actualPageCount = maxUploadPages + 1;
+            CreateTestPdf(inputPdfPath, pageCount: actualPageCount);
 
             await using var inputStream = File.OpenRead(inputPdfPath);
 
@@ -275,7 +277,7 @@ public sealed class PdfProcessorIntegrationTests
                 UseAdobePdfServices = true,
                 UsePdfRemediationProcessor = true,
                 MaxPagesPerChunk = 200,
-                MaxUploadPages = 25,
+                MaxUploadPages = maxUploadPages,
                 WorkDirRoot = runRoot
             });
 
@@ -284,8 +286,8 @@ public sealed class PdfProcessorIntegrationTests
             var act = () => sut.ProcessAsync(fileId, inputStream, CancellationToken.None);
 
             var ex = await act.Should().ThrowAsync<PdfPageLimitExceededException>();
-            ex.Which.ActualPageCount.Should().Be(26);
-            ex.Which.MaxAllowedPages.Should().Be(25);
+            ex.Which.ActualPageCount.Should().Be(actualPageCount);
+            ex.Which.MaxAllowedPages.Should().Be(maxUploadPages);
             adobe.AutotagCalls.Should().Be(0);
             adobe.AccessibilityCheckCalls.Should().Be(0);
             remediation.Calls.Should().Be(0);
@@ -616,6 +618,5 @@ public sealed class PdfProcessorIntegrationTests
         return pdf.GetNumberOfPages();
     }
 }
-
 
 

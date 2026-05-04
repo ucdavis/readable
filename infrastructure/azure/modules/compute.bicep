@@ -83,6 +83,10 @@ param ingestFinalizeQueueName string = 'pdf-finalize'
 @description('Queue consumed by the ingest failure function.')
 param ingestFailedQueueName string = 'pdf-failed'
 
+@minValue(0)
+@description('Maximum allowed page count for uploaded PDFs. Set to 0 to disable the temporary upload page limit.')
+param maxUploadPages int = 100
+
 @allowed([
   512
   2048
@@ -257,6 +261,10 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
         {
           name: 'INGEST_FAILED_QUEUE_NAME'
           value: ingestFailedQueueName
+        }
+        {
+          name: 'INGEST_MAX_UPLOAD_PAGES'
+          value: string(maxUploadPages)
         }
       ], appInsightsConnectionString != '' ? [
         {

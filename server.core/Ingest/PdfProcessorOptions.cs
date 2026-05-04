@@ -31,7 +31,7 @@ public sealed class PdfProcessorOptions
     /// Maximum allowed page count for uploaded PDFs.
     /// Set to 0 or less to disable the limit.
     /// </summary>
-    public int MaxUploadPages { get; set; }
+    public int MaxUploadPages { get; set; } = FileIngestOptions.DefaultMaxUploadPages;
 
     /// <summary>
     /// Root directory for PDF ingest work. If null/empty, defaults to /tmp (when available) or <see cref="Path.GetTempPath"/>.
