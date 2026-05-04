@@ -70,7 +70,7 @@ public class FileIngestProcessorTests
                 UsePdfBookmarks = true,
                 AutotagTaggedPdfs = false,
                 MaxPagesPerChunk = 200,
-                MaxUploadPages = 25,
+                MaxUploadPages = FileIngestOptions.DefaultMaxUploadPages,
             }),
             loggerFactory.CreateLogger<FileIngestProcessor>());
 
@@ -251,7 +251,7 @@ public class FileIngestProcessorTests
                 UseAdobePdfServices = true,
                 UsePdfRemediationProcessor = true,
                 MaxPagesPerChunk = 200,
-                MaxUploadPages = 25,
+                MaxUploadPages = FileIngestOptions.DefaultMaxUploadPages,
             }),
             loggerFactory.CreateLogger<FileIngestProcessor>());
 
@@ -1152,8 +1152,8 @@ public class FileIngestProcessorTests
 
     private sealed class PageLimitThrowingPdfProcessor : IPdfProcessor
     {
-        public int ActualPageCount { get; } = 31;
-        public int MaxAllowedPages { get; } = 25;
+        public int ActualPageCount { get; } = FileIngestOptions.DefaultMaxUploadPages + 1;
+        public int MaxAllowedPages { get; } = FileIngestOptions.DefaultMaxUploadPages;
 
         public Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
         {

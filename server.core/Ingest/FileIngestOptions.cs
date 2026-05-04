@@ -2,6 +2,8 @@ namespace server.core.Ingest;
 
 public sealed class FileIngestOptions
 {
+    public const int DefaultMaxUploadPages = 100;
+
     public bool UseAdobePdfServices { get; set; }
     public bool UsePdfRemediationProcessor { get; set; }
     public bool UsePdfBookmarks { get; set; }
@@ -9,7 +11,7 @@ public sealed class FileIngestOptions
     public string AutotagProvider { get; set; } = AutotagProviders.Adobe;
 
     public int PdfMaxPagesPerChunk { get; set; } = 200;
-    public int MaxUploadPages { get; set; }
+    public int MaxUploadPages { get; set; } = DefaultMaxUploadPages;
     public string? PdfWorkDirRoot { get; set; }
 
     public void UseNoops()
