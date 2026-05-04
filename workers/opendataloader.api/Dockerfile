@@ -20,7 +20,7 @@ RUN apt-get update \
         python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install --break-system-packages --no-cache-dir "opendataloader-pdf==2.3.0"
+RUN python3 -m pip install --break-system-packages --no-cache-dir "opendataloader-pdf==2.4.1"
 
 RUN useradd --create-home --uid 10001 appuser
 WORKDIR /app
