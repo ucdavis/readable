@@ -5,6 +5,7 @@ import {
   type AccessibilityReportJson,
 } from '@/queries/files.ts';
 import { RuleInfoLink } from '@/shared/accessibility/ruleInfoLink.tsx';
+import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { ArrowDownTrayIcon } from '@heroicons/react/24/solid';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
@@ -129,6 +130,57 @@ function statusBadgeClass(status: string) {
     return 'badge-ghost';
   }
   return 'badge-ghost';
+}
+
+function MissingReportPanel({
+  hasXfaReportWarning,
+}: {
+  hasXfaReportWarning: boolean;
+}) {
+  return (
+    <section
+      aria-labelledby="missing-report-heading"
+      className="mb-16 rounded-lg border border-warning/30 border-b-4 border-b-warning bg-warning/10 px-6 py-10 shadow-sm sm:px-10 sm:py-12 lg:px-14 lg:py-16"
+    >
+      <div className="flex max-w-5xl flex-col gap-6 sm:flex-row">
+        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-warning text-warning-content">
+          <ExclamationTriangleIcon aria-hidden="true" className="h-9 w-9" />
+        </div>
+        <div>
+          <h2
+            className="text-3xl font-extrabold"
+            id="missing-report-heading"
+          >
+            Accessibility report unavailable
+          </h2>
+          <p className="mt-4 text-xl leading-8">
+            {hasXfaReportWarning ? (
+              <>
+                Readable processed this PDF, but an accessibility report could
+                not be generated because the Adobe accessibility checker cannot
+                analyze XFA form PDFs.
+              </>
+            ) : (
+              <>
+                Readable processed this PDF, but an accessibility report could
+                not be generated. This can happen when the Adobe accessibility
+                checker does not support the PDF format, including some XFA form
+                PDFs.
+              </>
+            )}{' '}
+            <a
+              className="link font-semibold"
+              href={XFA_HELP_URL}
+              rel="noreferrer noopener"
+              target="_blank"
+            >
+              Learn more about XFA PDF forms.
+            </a>
+          </p>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function RouteComponent() {
@@ -339,40 +391,7 @@ function RouteComponent() {
           </div>
         ) : null}
 
-        {!hasReports && hasXfaReportWarning ? (
-          <div className="alert alert-warning">
-            <span>
-              Readable processed this PDF, but an accessibility report could
-              not be generated because the Adobe accessibility checker cannot
-              analyze XFA form PDFs.{' '}
-              <a
-                className="link font-semibold"
-                href={XFA_HELP_URL}
-                rel="noreferrer noopener"
-                target="_blank"
-              >
-                Learn more about XFA PDF forms.
-              </a>
-            </span>
-          </div>
-        ) : !hasReports && isCompleted ? (
-          <div className="alert alert-warning">
-            <span>
-              Readable processed this PDF, but an accessibility report could
-              not be generated. This can happen when the Adobe accessibility
-              checker does not support the PDF format, including some XFA form
-              PDFs.{' '}
-              <a
-                className="link font-semibold"
-                href={XFA_HELP_URL}
-                rel="noreferrer noopener"
-                target="_blank"
-              >
-                Learn more about XFA PDF forms.
-              </a>
-            </span>
-          </div>
-        ) : !hasReports ? (
+        {!hasReports && !isCompleted ? (
           <div className="alert alert-info">
             <span>No accessibility reports found for this file yet.</span>
           </div>
@@ -400,6 +419,10 @@ function RouteComponent() {
           ) : null
         ) : null}
       </header>
+
+      {!hasReports && isCompleted ? (
+        <MissingReportPanel hasXfaReportWarning={hasXfaReportWarning} />
+      ) : null}
 
       {beforeReport && afterReport && beforeCounts && afterCounts ? (
         <section className="flex flex-col gap-10 mb-10">
