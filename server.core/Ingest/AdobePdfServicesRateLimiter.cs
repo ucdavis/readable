@@ -52,6 +52,8 @@ public sealed class SqlAdobePdfServicesRateLimiter : IAdobePdfServicesRateLimite
         _dbContextFactory = dbContextFactory;
         _options = AdobePdfServicesRateLimitOptions.FromConfiguration(configuration);
         _logger = logger;
+
+        ValidateSqlServerProviderIfEnabled();
     }
 
     public async Task WaitAsync(string operation, int cost, CancellationToken cancellationToken)
@@ -139,6 +141,26 @@ public sealed class SqlAdobePdfServicesRateLimiter : IAdobePdfServicesRateLimite
                 operation,
                 pausedUntil);
         });
+    }
+
+    private void ValidateSqlServerProviderIfEnabled()
+    {
+        if (!_options.Enabled)
+        {
+            return;
+        }
+
+        using var dbContext = _dbContextFactory.CreateDbContext();
+        if (dbContext.Database.IsSqlServer())
+        {
+            return;
+        }
+
+        var providerName = dbContext.Database.ProviderName ?? "<none>";
+        throw new InvalidOperationException(
+            "SqlAdobePdfServicesRateLimiter requires the EF Core SQL Server provider when rate limiting is enabled " +
+            "because it uses SQL Server-specific sp_getapplock and SYSUTCDATETIME(). " +
+            $"Current provider: {providerName}.");
     }
 
     private async Task<TimeSpan> TryReserveAsync(string operation, int cost, CancellationToken cancellationToken)

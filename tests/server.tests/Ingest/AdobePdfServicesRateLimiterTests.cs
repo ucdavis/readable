@@ -74,7 +74,7 @@ public class AdobePdfServicesRateLimiterTests
     }
 
     [Fact]
-    public void AddFileIngest_WithAdobeServices_RegistersSqlRateLimiter()
+    public void AddFileIngest_WithAdobeServicesAndRateLimitDisabled_RegistersSqlRateLimiter()
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -86,6 +86,7 @@ public class AdobePdfServicesRateLimiterTests
                 {
                     ["PDF_SERVICES_CLIENT_ID"] = "client-id",
                     ["PDF_SERVICES_CLIENT_SECRET"] = "client-secret",
+                    ["AdobePdfServices:RateLimit:Enabled"] = "false",
                 })
                 .Build());
 
@@ -99,6 +100,28 @@ public class AdobePdfServicesRateLimiterTests
 
         provider.GetRequiredService<IAdobePdfServicesRateLimiter>()
             .Should().BeOfType<SqlAdobePdfServicesRateLimiter>();
+    }
+
+    [Fact]
+    public void Constructor_WhenEnabledWithNonSqlServerProvider_ThrowsClearProviderError()
+    {
+        using var provider = CreateInMemoryProvider();
+        var dbContextFactory = provider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["PDF_SERVICES_CLIENT_ID"] = "client-id",
+            })
+            .Build();
+
+        var act = () => new SqlAdobePdfServicesRateLimiter(
+            dbContextFactory,
+            configuration,
+            loggerFactory.CreateLogger<SqlAdobePdfServicesRateLimiter>());
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*SqlAdobePdfServicesRateLimiter*SQL Server*sp_getapplock*SYSUTCDATETIME()*InMemory*");
     }
 
     [Fact]
@@ -132,7 +155,7 @@ public class AdobePdfServicesRateLimiterTests
     [Fact]
     public async Task WaitAsync_WhenCostExceedsCapacity_ThrowsBeforeTouchingSql()
     {
-        using var provider = CreateInMemoryProvider();
+        using var provider = CreateSqlServerProvider();
         var dbContextFactory = provider.GetRequiredService<IDbContextFactory<AppDbContext>>();
         using var loggerFactory = LoggerFactory.Create(_ => { });
         var configuration = new ConfigurationBuilder()
@@ -160,6 +183,15 @@ public class AdobePdfServicesRateLimiterTests
         var services = new ServiceCollection();
         services.AddDbContextFactory<AppDbContext>(options =>
             options.UseInMemoryDatabase($"rate-limiter-{Guid.NewGuid():N}"));
+        return services.BuildServiceProvider();
+    }
+
+    private static ServiceProvider CreateSqlServerProvider()
+    {
+        var services = new ServiceCollection();
+        services.AddDbContextFactory<AppDbContext>(options =>
+            options.UseSqlServer(
+                "Server=(localdb)\\mssqllocaldb;Database=readable-rate-limiter-tests;Trusted_Connection=True;"));
         return services.BuildServiceProvider();
     }
 }
