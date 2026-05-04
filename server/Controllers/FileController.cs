@@ -132,6 +132,7 @@ public class FileController : ApiControllerBase
                 .Select(a => a.ErrorMessage)
                 .FirstOrDefault(),
             AccessibilityReports = reports,
+            AccessibilityReportWarnings = GetAccessibilityReportWarnings(file.ProcessingAttempts),
         });
     }
 
@@ -201,6 +202,71 @@ public class FileController : ApiControllerBase
         };
     }
 
+    private static List<AccessibilityReportWarningDto> GetAccessibilityReportWarnings(
+        IEnumerable<FileProcessingAttempt> attempts)
+    {
+        var metadataJson = attempts
+            .Where(a => !string.IsNullOrWhiteSpace(a.MetadataJson))
+            .OrderByDescending(a => a.AttemptNumber)
+            .Select(a => a.MetadataJson)
+            .FirstOrDefault();
+
+        if (string.IsNullOrWhiteSpace(metadataJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(metadataJson);
+            if (!doc.RootElement.TryGetProperty("accessibilityReports", out var accessibilityReports) ||
+                !accessibilityReports.TryGetProperty("warnings", out var warnings) ||
+                warnings.ValueKind != JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            var result = new List<AccessibilityReportWarningDto>();
+            foreach (var warning in warnings.EnumerateArray())
+            {
+                if (warning.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var stage = GetStringProperty(warning, "stage");
+                var code = GetStringProperty(warning, "code");
+                var message = GetStringProperty(warning, "message");
+                if (string.IsNullOrWhiteSpace(stage) ||
+                    string.IsNullOrWhiteSpace(code) ||
+                    string.IsNullOrWhiteSpace(message))
+                {
+                    continue;
+                }
+
+                result.Add(new AccessibilityReportWarningDto
+                {
+                    Stage = stage,
+                    Code = code,
+                    Message = message,
+                });
+            }
+
+            return result;
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static string? GetStringProperty(JsonElement element, string propertyName)
+    {
+        return element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
+    }
+
     public sealed class FileListItemDto
     {
         public Guid FileId { get; init; }
@@ -225,6 +291,7 @@ public class FileController : ApiControllerBase
         public DateTimeOffset StatusUpdatedAt { get; init; }
         public string? LatestFailureReason { get; init; }
         public List<AccessibilityReportDetailsDto> AccessibilityReports { get; set; } = [];
+        public List<AccessibilityReportWarningDto> AccessibilityReportWarnings { get; set; } = [];
     }
 
     public sealed class AccessibilityReportListItemDto
@@ -247,5 +314,11 @@ public class FileController : ApiControllerBase
         public int? IssueCount { get; init; }
         public JsonElement ReportJson { get; init; }
     }
-}
 
+    public sealed class AccessibilityReportWarningDto
+    {
+        public string Stage { get; init; } = string.Empty;
+        public string Code { get; init; } = string.Empty;
+        public string Message { get; init; } = string.Empty;
+    }
+}

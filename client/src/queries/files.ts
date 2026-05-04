@@ -24,20 +24,27 @@ export type AccessibilityReportDetails = AccessibilityReportListItem & {
   reportJson: AccessibilityReportJson;
 };
 
+export type AccessibilityReportWarning = {
+  code: string;
+  message: string;
+  stage: string;
+};
+
 export type UserFile = {
   accessibilityReports?: AccessibilityReportListItem[];
   contentType: string;
   createdAt: string;
   fileId: string;
+  latestFailureReason?: string | null;
   originalFileName: string;
   sizeBytes: number;
   status: string;
   statusUpdatedAt: string;
-  latestFailureReason?: string | null;
 };
 
 export type UserFileDetails = Omit<UserFile, 'accessibilityReports'> & {
   accessibilityReports: AccessibilityReportDetails[];
+  accessibilityReportWarnings?: AccessibilityReportWarning[];
 };
 
 export const myFilesQueryOptions = () => ({
@@ -146,4 +153,3 @@ export function useDownloadFilesAsZipMutation() {
     mutationFn: (fileIds: string[]) => downloadFilesAsZip(fileIds),
   });
 }
-

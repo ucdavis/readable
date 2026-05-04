@@ -987,6 +987,9 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
 
     private string BuildMetadataJson(PdfProcessResult? pdfResult, int pageCount)
     {
+        var accessibilityReportWarnings =
+            pdfResult?.AccessibilityReportWarnings ?? Array.Empty<PdfAccessibilityReportWarning>();
+
         var metadata = new
         {
             configuration = new
@@ -1002,6 +1005,10 @@ public sealed class FileIngestProcessor : IFileIngestProcessor
             processing = new
             {
                 pageCount,
+            },
+            accessibilityReports = new
+            {
+                warnings = accessibilityReportWarnings,
             },
             autotag = pdfResult?.Autotag
         };

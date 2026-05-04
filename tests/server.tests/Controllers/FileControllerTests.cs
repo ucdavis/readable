@@ -167,6 +167,73 @@ public class FileControllerTests
     }
 
     [Fact]
+    public async Task GetById_when_attempt_metadata_has_report_warning_returns_warning()
+    {
+        using AppDbContext ctx = TestDbContextFactory.CreateInMemory();
+
+        var user = new User
+        {
+            UserId = 1,
+            EntraObjectId = Guid.NewGuid(),
+            Email = "test@example.com",
+            DisplayName = "Test User",
+        };
+        ctx.Users.Add(user);
+
+        var fileId = Guid.NewGuid();
+        ctx.Files.Add(new FileRecord
+        {
+            FileId = fileId,
+            OwnerUserId = user.UserId,
+            OwnerUser = user,
+            OriginalFileName = "xfa.pdf",
+            ContentType = "application/pdf",
+            SizeBytes = 123,
+            Status = FileRecord.Statuses.Completed,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+            StatusUpdatedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+        });
+
+        ctx.FileProcessingAttempts.Add(new FileProcessingAttempt
+        {
+            FileId = fileId,
+            AttemptNumber = 1,
+            Trigger = FileProcessingAttempt.Triggers.Upload,
+            Outcome = FileProcessingAttempt.Outcomes.Succeeded,
+            StartedAt = DateTimeOffset.UtcNow.AddMinutes(-4),
+            FinishedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            MetadataJson =
+                "{\"accessibilityReports\":{\"warnings\":[{\"stage\":\"After\",\"code\":\"XfaUnsupported\",\"message\":\"The Adobe accessibility checker cannot analyze XFA form PDFs.\"}]}}",
+        });
+
+        await ctx.SaveChangesAsync();
+
+        var controller = new FileController(ctx);
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = BuildUser(user.UserId),
+            },
+        };
+
+        var result = await controller.GetById(fileId, CancellationToken.None);
+        result.Result.Should().BeOfType<OkObjectResult>();
+
+        var ok = (OkObjectResult)result.Result!;
+        var dto = (FileController.FileDetailsDto)ok.Value!;
+
+        dto.AccessibilityReports.Should().BeEmpty();
+        dto.AccessibilityReportWarnings.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new FileController.AccessibilityReportWarningDto
+            {
+                Stage = "After",
+                Code = "XfaUnsupported",
+                Message = "The Adobe accessibility checker cannot analyze XFA form PDFs.",
+            });
+    }
+
+    [Fact]
     public async Task List_when_file_failed_returns_latest_failure_reason()
     {
         using AppDbContext ctx = TestDbContextFactory.CreateInMemory();
@@ -246,4 +313,3 @@ public class FileControllerTests
         return new ClaimsPrincipal(identity);
     }
 }
-

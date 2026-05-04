@@ -11,6 +11,9 @@ describe('authenticated index route', () => {
     let userRequestCount = 0;
 
     server.use(
+      http.get('/api/status/banner', () => {
+        return new HttpResponse(null, { status: 204 });
+      }),
       http.get('/api/user/me', () => {
         userRequestCount += 1;
         return HttpResponse.json({
