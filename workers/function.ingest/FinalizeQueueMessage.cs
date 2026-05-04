@@ -63,8 +63,16 @@ public class FinalizeQueueMessage
             ["autotag.provider"] = finalizeMessage.Autotag.Provider
         });
 
-        await _fileIngestProcessor.FinalizeAsync(finalizeMessage, cancellationToken);
+        try
+        {
+            await _fileIngestProcessor.FinalizeAsync(finalizeMessage, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            await ServiceBusMessageSettlement.AbandonMessageAsync(message, messageActions, _logger, ex);
+            throw;
+        }
 
-        await messageActions.CompleteMessageAsync(message, cancellationToken);
+        await ServiceBusMessageSettlement.CompleteMessageAsync(message, messageActions, _logger, cancellationToken);
     }
 }

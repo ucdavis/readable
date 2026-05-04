@@ -12,6 +12,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<FileRecord> Files => Set<FileRecord>();
     public DbSet<FileProcessingAttempt> FileProcessingAttempts => Set<FileProcessingAttempt>();
     public DbSet<AccessibilityReport> AccessibilityReports => Set<AccessibilityReport>();
+    public DbSet<ExternalApiRateLimitBucket> ExternalApiRateLimitBuckets => Set<ExternalApiRateLimitBucket>();
+    public DbSet<ExternalApiRateLimitReservation> ExternalApiRateLimitReservations => Set<ExternalApiRateLimitReservation>();
 
     public DbSet<WeatherForecast> WeatherForecasts => Set<WeatherForecast>();
 
@@ -25,6 +27,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         FileRecord.OnModelCreating(modelBuilder);
         FileProcessingAttempt.OnModelCreating(modelBuilder);
         AccessibilityReport.OnModelCreating(modelBuilder);
+        ExternalApiRateLimitBucket.OnModelCreating(modelBuilder);
+        ExternalApiRateLimitReservation.OnModelCreating(modelBuilder);
         ApiKey.OnModelCreating(modelBuilder);
 
         base.OnModelCreating(modelBuilder);

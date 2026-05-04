@@ -63,8 +63,16 @@ public class FailedQueueMessage
             ["error.type"] = failedMessage.ErrorCode
         });
 
-        await _fileIngestProcessor.FailAsync(failedMessage, cancellationToken);
+        try
+        {
+            await _fileIngestProcessor.FailAsync(failedMessage, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            await ServiceBusMessageSettlement.AbandonMessageAsync(message, messageActions, _logger, ex);
+            throw;
+        }
 
-        await messageActions.CompleteMessageAsync(message, cancellationToken);
+        await ServiceBusMessageSettlement.CompleteMessageAsync(message, messageActions, _logger, cancellationToken);
     }
 }

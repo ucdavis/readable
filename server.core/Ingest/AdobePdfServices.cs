@@ -5,6 +5,7 @@ using Adobe.PDFServicesSDK.pdfjobs.jobs;
 using Adobe.PDFServicesSDK.pdfjobs.parameters.autotag;
 using Adobe.PDFServicesSDK.pdfjobs.parameters.pdfaccessibilitychecker;
 using Adobe.PDFServicesSDK.pdfjobs.results;
+using System.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -44,14 +45,19 @@ public sealed class AdobePdfServices : IAdobePdfServices
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<AdobePdfServices> _logger;
+    private readonly IAdobePdfServicesRateLimiter _rateLimiter;
 
     public string AutotagProviderName => FileIngestOptions.AutotagProviders.Adobe;
     public string AccessibilityCheckerName => "AdobePdfServices";
 
-    public AdobePdfServices(IConfiguration configuration, ILogger<AdobePdfServices> logger)
+    public AdobePdfServices(
+        IConfiguration configuration,
+        ILogger<AdobePdfServices> logger,
+        IAdobePdfServicesRateLimiter rateLimiter)
     {
         _configuration = configuration;
         _logger = logger;
+        _rateLimiter = rateLimiter;
     }
 
     /// <summary>
@@ -71,6 +77,10 @@ public sealed class AdobePdfServices : IAdobePdfServices
         var pdfServices = CreateClient();
 
         await using var inputStream = File.OpenRead(inputPdfPath);
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.Autotag,
+            "upload",
+            cancellationToken);
         IAsset asset = pdfServices.Upload(inputStream, PDFServicesMediaType.PDF.GetMIMETypeValue());
 
         AutotagPDFParams autotagParams = AutotagPDFParams
@@ -79,17 +89,33 @@ public sealed class AdobePdfServices : IAdobePdfServices
             .Build();
 
         AutotagPDFJob job = new AutotagPDFJob(asset).SetParams(autotagParams);
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.Autotag,
+            "submit",
+            cancellationToken);
         var location = pdfServices.Submit(job);
 
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.Autotag,
+            "get_job_result",
+            cancellationToken);
         PDFServicesResponse<AutotagPDFResult> response =
             pdfServices.GetJobResult<AutotagPDFResult>(location, typeof(AutotagPDFResult));
 
         var taggedAsset = response.Result.TaggedPDF;
         var reportAsset = response.Result.Report;
 
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.Autotag,
+            "get_tagged_content",
+            cancellationToken);
         var taggedStreamAsset = pdfServices.GetContent(taggedAsset);
         await WriteStreamAssetAsync(taggedStreamAsset, outputTaggedPdfPath, cancellationToken);
 
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.Autotag,
+            "get_report_content",
+            cancellationToken);
         var reportStreamAsset = pdfServices.GetContent(reportAsset);
         await WriteStreamAssetAsync(reportStreamAsset, outputTaggingReportPath, cancellationToken);
 
@@ -136,10 +162,15 @@ public sealed class AdobePdfServices : IAdobePdfServices
             {
                 throw;
             }
-            catch (Exception ex) when (
-                attempt < maxAttempts
-                && IsRetryableAccessibilityCheckerException(ex))
+            catch (Exception ex) when (IsRetryableAccessibilityCheckerException(ex))
             {
+                await RecordAccessibilityCheckerThrottleAsync(ex, cancellationToken);
+
+                if (attempt >= maxAttempts)
+                {
+                    throw;
+                }
+
                 var delay = ComputeRetryDelay(attempt, baseDelay, maxDelay);
                 _logger.LogWarning(
                     ex,
@@ -167,6 +198,10 @@ public sealed class AdobePdfServices : IAdobePdfServices
         var pdfServices = CreateClient();
 
         await using var inputStream = File.OpenRead(inputPdfPath);
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+            "upload",
+            cancellationToken);
         IAsset asset = pdfServices.Upload(inputStream, PDFServicesMediaType.PDF.GetMIMETypeValue());
 
         var job = new PDFAccessibilityCheckerJob(asset);
@@ -186,16 +221,28 @@ public sealed class AdobePdfServices : IAdobePdfServices
             job = job.SetParams(builder.Build());
         }
 
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+            "submit",
+            cancellationToken);
         var location = pdfServices.Submit(job);
         PDFServicesResponse<PDFAccessibilityCheckerResult> response =
-            pdfServices.GetJobResult<PDFAccessibilityCheckerResult>(location, typeof(PDFAccessibilityCheckerResult));
+            await GetAccessibilityCheckerResultAsync(pdfServices, location, cancellationToken);
 
         var outputAsset = response.Result.Asset;
         var reportAsset = response.Result.Report;
 
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+            "get_output_content",
+            cancellationToken);
         var outputStreamAsset = pdfServices.GetContent(outputAsset);
         await WriteStreamAssetAsync(outputStreamAsset, outputPdfPath, cancellationToken);
 
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+            "get_report_content",
+            cancellationToken);
         var reportStreamAsset = pdfServices.GetContent(reportAsset);
         await WriteStreamAssetAsync(reportStreamAsset, outputReportPath, cancellationToken);
 
@@ -213,6 +260,96 @@ public sealed class AdobePdfServices : IAdobePdfServices
             outputReportPath);
 
         return new AdobeAccessibilityCheckOutput(outputPdfPath, outputReportPath, reportJson);
+    }
+
+    private async Task<PDFServicesResponse<PDFAccessibilityCheckerResult>> GetAccessibilityCheckerResultAsync(
+        PDFServices pdfServices,
+        string location,
+        CancellationToken cancellationToken)
+    {
+        var maxPollDuration = GetAccessibilityCheckerMaxPollDuration();
+        var stopwatch = Stopwatch.StartNew();
+        var attempts = 0;
+        string? lastStatus = null;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (stopwatch.Elapsed >= maxPollDuration)
+            {
+                throw new TimeoutException(
+                    $"Adobe Accessibility Checker job polling exceeded {maxPollDuration.TotalSeconds:N0}s. " +
+                    $"location={location}; lastStatus={lastStatus ?? "unknown"}; attempts={attempts}; elapsedMs={stopwatch.ElapsedMilliseconds}");
+            }
+
+            await WaitForAdobePdfServicesCallAsync(
+                AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+                "get_job_status",
+                cancellationToken);
+            var statusResponse = pdfServices.GetJobStatus(location);
+            attempts++;
+            var status = statusResponse.Status;
+            lastStatus = status;
+            if (string.Equals(status, "DONE", StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+
+            if (string.Equals(status, "FAILED", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Adobe Accessibility Checker job failed while polling status. location={location}; status={status}; attempts={attempts}");
+            }
+
+            var retryIntervalSeconds = Math.Max(1, statusResponse.GetRetryInterval());
+            await Task.Delay(TimeSpan.FromSeconds(retryIntervalSeconds), cancellationToken);
+        }
+
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+            "get_job_result",
+            cancellationToken);
+        return pdfServices.GetJobResult<PDFAccessibilityCheckerResult>(
+            location,
+            typeof(PDFAccessibilityCheckerResult));
+    }
+
+    private async Task RecordAccessibilityCheckerThrottleAsync(Exception exception, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _rateLimiter.RecordThrottleAsync(
+                AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+                exception,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception rateLimiterException)
+        {
+            _logger.LogWarning(
+                rateLimiterException,
+                "Failed to record Adobe Accessibility Checker shared throttle cooldown.");
+        }
+    }
+
+    private async Task WaitForAdobePdfServicesCallAsync(
+        string operation,
+        string callName,
+        CancellationToken cancellationToken)
+    {
+        using var scope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["adobe.pdf_services.operation"] = operation,
+            ["adobe.pdf_services.call"] = callName,
+        });
+
+        await _rateLimiter.WaitAsync(
+            operation,
+            cost: 1,
+            cancellationToken);
     }
 
     private int GetAccessibilityCheckerMaxRetries()
@@ -243,6 +380,16 @@ public sealed class AdobePdfServices : IAdobePdfServices
             ?? _configuration.GetValue<double?>("ADOBE_ACCESSIBILITY_CHECKER_RETRY_MAX_DELAY_SECONDS");
 
         return TimeSpan.FromSeconds(Math.Max(0, configuredSeconds ?? 30));
+    }
+
+    private TimeSpan GetAccessibilityCheckerMaxPollDuration()
+    {
+        var configuredSeconds =
+            _configuration.GetValue<double?>("AdobePdfServices:AccessibilityCheckerMaxPollDurationSeconds")
+            ?? _configuration.GetValue<double?>("AdobePdfServices__AccessibilityCheckerMaxPollDurationSeconds")
+            ?? _configuration.GetValue<double?>("ADOBE_ACCESSIBILITY_CHECKER_MAX_POLL_DURATION_SECONDS");
+
+        return TimeSpan.FromSeconds(Math.Max(1, configuredSeconds ?? 600));
     }
 
     private static TimeSpan ComputeRetryDelay(int failedAttempt, TimeSpan baseDelay, TimeSpan maxDelay)
