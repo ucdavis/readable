@@ -30,6 +30,15 @@ type FlattenedRule = {
   status: string;
 };
 
+const XFA_HELP_URL =
+  'https://experienceleague.adobe.com/en/docs/experience-manager-learn/forms/document-services/pdf-forms-and-documents';
+
+function hasXfaUnsupportedWarning(
+  warnings: { code: string }[] | undefined
+) {
+  return warnings?.some((w) => w.code === 'XfaUnsupported') ?? false;
+}
+
 function getSummaryCounts(reportJson: AccessibilityReportJson | undefined) {
   const summary = reportJson?.Summary;
   if (!summary || typeof summary !== 'object') {
@@ -263,6 +272,10 @@ function RouteComponent() {
 
   const file = fileQuery.data;
   const isCompleted = file.status === 'Completed';
+  const hasReports = (file.accessibilityReports?.length ?? 0) > 0;
+  const hasXfaReportWarning = hasXfaUnsupportedWarning(
+    file.accessibilityReportWarnings
+  );
 
   const afterFailed = afterRows.filter((r) => isFailedStatus(r.status));
 
@@ -326,8 +339,40 @@ function RouteComponent() {
           </div>
         ) : null}
 
-        {!file.accessibilityReports ||
-        file.accessibilityReports.length === 0 ? (
+        {!hasReports && hasXfaReportWarning ? (
+          <div className="alert alert-warning">
+            <span>
+              Readable processed this PDF, but an accessibility report could
+              not be generated because the Adobe accessibility checker cannot
+              analyze XFA form PDFs.{' '}
+              <a
+                className="link font-semibold"
+                href={XFA_HELP_URL}
+                rel="noreferrer noopener"
+                target="_blank"
+              >
+                Learn more about XFA PDF forms.
+              </a>
+            </span>
+          </div>
+        ) : !hasReports && isCompleted ? (
+          <div className="alert alert-warning">
+            <span>
+              Readable processed this PDF, but an accessibility report could
+              not be generated. This can happen when the Adobe accessibility
+              checker does not support the PDF format, including some XFA form
+              PDFs.{' '}
+              <a
+                className="link font-semibold"
+                href={XFA_HELP_URL}
+                rel="noreferrer noopener"
+                target="_blank"
+              >
+                Learn more about XFA PDF forms.
+              </a>
+            </span>
+          </div>
+        ) : !hasReports ? (
           <div className="alert alert-info">
             <span>No accessibility reports found for this file yet.</span>
           </div>

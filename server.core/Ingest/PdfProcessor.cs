@@ -35,14 +35,27 @@ public sealed record PdfProcessResult(
     string? AfterAccessibilityReportJson = null,
     string? AfterAccessibilityReportPath = null,
     int PageCount = 0,
-    PdfAutotagMetadata? Autotag = null);
+    PdfAutotagMetadata? Autotag = null,
+    IReadOnlyList<PdfAccessibilityReportWarning>? AccessibilityReportWarnings = null);
 
 public sealed record PdfIntakeResult(
     bool RequiresAutotag,
     int PageCount,
     string? BeforeAccessibilityReportJson,
     string? BeforeAccessibilityReportPath,
-    PdfAutotagMetadata Autotag);
+    PdfAutotagMetadata Autotag,
+    IReadOnlyList<PdfAccessibilityReportWarning>? AccessibilityReportWarnings = null);
+
+public sealed record PdfAccessibilityReportWarning(
+    string Stage,
+    string Code,
+    string Message);
+
+public static class PdfAccessibilityReportWarningCodes
+{
+    public const string XfaUnsupported = "XfaUnsupported";
+    public const string CheckerFailed = "CheckerFailed";
+}
 
 public sealed record PdfFinalizeContext(
     int PageCount,
@@ -161,6 +174,8 @@ public sealed class PdfProcessor : IPdfPipelineProcessor
         var sourcePageCount = TryReadPageCount(sourcePath);
         EnforceMaxUploadPages(sourcePageCount);
 
+        var accessibilityReportWarnings = new List<PdfAccessibilityReportWarning>();
+
         // Best-effort: generate a "before" accessibility report on the original uploaded PDF.
         AdobeAccessibilityCheckOutput? beforeAccessibilityReport = null;
         try
@@ -190,6 +205,7 @@ public sealed class PdfProcessor : IPdfPipelineProcessor
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to generate BEFORE accessibility report for {fileId}", fileId);
+            accessibilityReportWarnings.Add(BuildAccessibilityReportWarning("Before", ex));
         }
 
         var pageCount = 0;
@@ -420,6 +436,7 @@ public sealed class PdfProcessor : IPdfPipelineProcessor
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to generate accessibility report for {fileId}", fileId);
+            accessibilityReportWarnings.Add(BuildAccessibilityReportWarning("After", ex));
         }
 
         _logger.LogInformation(
@@ -435,7 +452,8 @@ public sealed class PdfProcessor : IPdfPipelineProcessor
             accessibilityReport?.ReportJson,
             accessibilityReport?.ReportPath,
             PageCount: pageCount,
-            Autotag: autotagMetadata);
+            Autotag: autotagMetadata,
+            AccessibilityReportWarnings: accessibilityReportWarnings);
     }
 
     public async Task<PdfIntakeResult> PrepareForQueuedAutotagAsync(
@@ -458,6 +476,7 @@ public sealed class PdfProcessor : IPdfPipelineProcessor
         var sourcePageCount = TryReadPageCount(sourcePath);
         EnforceMaxUploadPages(sourcePageCount);
 
+        var accessibilityReportWarnings = new List<PdfAccessibilityReportWarning>();
         AdobeAccessibilityCheckOutput? beforeAccessibilityReport = null;
         try
         {
@@ -486,6 +505,7 @@ public sealed class PdfProcessor : IPdfPipelineProcessor
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to generate BEFORE accessibility report for {fileId}", fileId);
+            accessibilityReportWarnings.Add(BuildAccessibilityReportWarning("Before", ex));
         }
 
         var sourceInfo = ReadSourcePdfInfo(
@@ -516,7 +536,8 @@ public sealed class PdfProcessor : IPdfPipelineProcessor
                     Required: false,
                     SkippedReason: "already-tagged",
                     ChunkCount: 0,
-                    LocalReportPaths: []));
+                    LocalReportPaths: []),
+                AccessibilityReportWarnings: accessibilityReportWarnings);
         }
 
         if (sourceInfo.TaggingState == PdfTaggingState.TaggedBroken && retagTriggers.Count > 0)
@@ -537,7 +558,8 @@ public sealed class PdfProcessor : IPdfPipelineProcessor
                 Required: true,
                 SkippedReason: null,
                 ChunkCount: 1,
-                LocalReportPaths: []));
+                LocalReportPaths: []),
+            AccessibilityReportWarnings: accessibilityReportWarnings);
     }
 
     public async Task<PdfProcessResult> FinalizeTaggedPdfAsync(
@@ -581,6 +603,7 @@ public sealed class PdfProcessor : IPdfPipelineProcessor
             finalPdfPath = taggedPdfPath;
         }
 
+        var accessibilityReportWarnings = new List<PdfAccessibilityReportWarning>();
         AdobeAccessibilityCheckOutput? accessibilityReport = null;
         try
         {
@@ -609,6 +632,7 @@ public sealed class PdfProcessor : IPdfPipelineProcessor
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to generate accessibility report for {fileId}", fileId);
+            accessibilityReportWarnings.Add(BuildAccessibilityReportWarning("After", ex));
         }
 
         _logger.LogInformation(
@@ -624,7 +648,37 @@ public sealed class PdfProcessor : IPdfPipelineProcessor
             AfterAccessibilityReportJson: accessibilityReport?.ReportJson,
             AfterAccessibilityReportPath: accessibilityReport?.ReportPath,
             PageCount: context.PageCount,
-            Autotag: context.Autotag);
+            Autotag: context.Autotag,
+            AccessibilityReportWarnings: accessibilityReportWarnings);
+    }
+
+    private static PdfAccessibilityReportWarning BuildAccessibilityReportWarning(string stage, Exception exception)
+    {
+        if (IsXfaUnsupportedException(exception))
+        {
+            return new PdfAccessibilityReportWarning(
+                stage,
+                PdfAccessibilityReportWarningCodes.XfaUnsupported,
+                "The Adobe accessibility checker cannot analyze XFA form PDFs.");
+        }
+
+        return new PdfAccessibilityReportWarning(
+            stage,
+            PdfAccessibilityReportWarningCodes.CheckerFailed,
+            "The Adobe accessibility checker could not generate an accessibility report.");
+    }
+
+    private static bool IsXfaUnsupportedException(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current.Message.Contains("XFA", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private string GetAutotagProviderName()

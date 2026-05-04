@@ -137,6 +137,70 @@ public class FileIngestProcessorTests
     }
 
     [Fact]
+    public async Task ProcessAsync_WhenAccessibilityCheckerWarningExists_PersistsWarningInMetadata()
+    {
+        var fileId = Guid.NewGuid();
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"ingest_{Guid.NewGuid():N}")
+            .EnableSensitiveDataLogging()
+            .Options;
+
+        await SeedFileAsync(options, fileId, "xfa.pdf");
+
+        var tempDirectory = CreateTempDirectory();
+        try
+        {
+            var dbContextFactory = new InMemoryDbContextFactory(options);
+            var pdf = new WarningPdfProcessor(CreateTempPdf(tempDirectory));
+            using var loggerFactory = LoggerFactory.Create(_ => { });
+
+            var sut = new FileIngestProcessor(
+                dbContextFactory,
+                new FakeBlobStreamOpener(),
+                pdf,
+                new FakeBlobStorage(),
+                new ConfigurationBuilder().Build(),
+                Options.Create(new PdfProcessorOptions()),
+                loggerFactory.CreateLogger<FileIngestProcessor>());
+
+            var request = new BlobIngestRequest(
+                new Uri("https://example.blob.core.windows.net/incoming/xfa.pdf"),
+                "incoming",
+                "xfa.pdf",
+                fileId.ToString());
+
+            await sut.ProcessAsync(request, CancellationToken.None);
+
+            await using var verify = new AppDbContext(options);
+            var reports = await verify.AccessibilityReports
+                .Where(x => x.FileId == fileId)
+                .ToListAsync();
+            reports.Should().BeEmpty();
+
+            var attempt = await verify.FileProcessingAttempts.SingleAsync(x => x.FileId == fileId);
+            attempt.Outcome.Should().Be(FileProcessingAttempt.Outcomes.Succeeded);
+            attempt.MetadataJson.Should().NotBeNullOrWhiteSpace();
+
+            using var metadata = JsonDocument.Parse(attempt.MetadataJson!);
+            var warnings = metadata.RootElement
+                .GetProperty("accessibilityReports")
+                .GetProperty("warnings")
+                .EnumerateArray()
+                .ToList();
+            warnings.Should().ContainSingle();
+
+            var warning = warnings.Single();
+            warning.GetProperty("stage").GetString().Should().Be("After");
+            warning.GetProperty("code").GetString().Should().Be(PdfAccessibilityReportWarningCodes.XfaUnsupported);
+            warning.GetProperty("message").GetString().Should().Be("The Adobe accessibility checker cannot analyze XFA form PDFs.");
+        }
+        finally
+        {
+            DeleteTempDirectory(tempDirectory);
+        }
+    }
+
+    [Fact]
     public async Task ProcessAsync_WithOpenDataLoaderProvider_EnqueuesAutotagAndLeavesAttemptOpen()
     {
         var fileId = Guid.NewGuid();
@@ -1059,6 +1123,30 @@ public class FileIngestProcessorTests
         public Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
         {
             throw new InvalidOperationException("boom");
+        }
+    }
+
+    private sealed class WarningPdfProcessor : IPdfProcessor
+    {
+        private readonly string _outputPath;
+
+        public WarningPdfProcessor(string outputPath)
+        {
+            _outputPath = outputPath;
+        }
+
+        public Task<PdfProcessResult> ProcessAsync(string fileId, Stream pdfStream, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(new PdfProcessResult(
+                _outputPath,
+                PageCount: 2,
+                AccessibilityReportWarnings:
+                [
+                    new PdfAccessibilityReportWarning(
+                        "After",
+                        PdfAccessibilityReportWarningCodes.XfaUnsupported,
+                        "The Adobe accessibility checker cannot analyze XFA form PDFs.")
+                ]));
         }
     }
 
