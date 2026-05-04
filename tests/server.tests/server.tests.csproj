@@ -31,6 +31,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\server.core\server.core.csproj" />
     <ProjectReference Include="..\..\server\server.csproj" />
+    <ProjectReference Include="..\..\workers\function.ingest\function_ingest.csproj" />
     <ProjectReference Include="..\..\workers\opendataloader.api\opendataloader.api.csproj" />
   </ItemGroup>
 

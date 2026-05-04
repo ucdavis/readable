@@ -69,48 +69,10 @@ public class FinalizeQueueMessage
         }
         catch (Exception ex)
         {
-            await AbandonMessageAsync(message, messageActions, ex);
+            await ServiceBusMessageSettlement.AbandonMessageAsync(message, messageActions, _logger, ex);
             throw;
         }
 
-        await CompleteMessageAsync(message, messageActions, cancellationToken);
-    }
-
-    private async Task CompleteMessageAsync(
-        ServiceBusReceivedMessage message,
-        ServiceBusMessageActions messageActions,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await messageActions.CompleteMessageAsync(message, cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            _logger.LogError(
-                exception,
-                "Failed to complete Service Bus message {messageId}; not abandoning after successful processing.",
-                message.MessageId);
-            throw;
-        }
-    }
-
-    private async Task AbandonMessageAsync(
-        ServiceBusReceivedMessage message,
-        ServiceBusMessageActions messageActions,
-        Exception exception)
-    {
-        try
-        {
-            await messageActions.AbandonMessageAsync(message, cancellationToken: CancellationToken.None);
-        }
-        catch (Exception abandonException)
-        {
-            _logger.LogWarning(
-                abandonException,
-                "Failed to abandon Service Bus message {messageId} after processing error {errorType}",
-                message.MessageId,
-                exception.GetType().Name);
-        }
+        await ServiceBusMessageSettlement.CompleteMessageAsync(message, messageActions, _logger, cancellationToken);
     }
 }
