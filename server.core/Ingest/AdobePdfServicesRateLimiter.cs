@@ -20,6 +20,7 @@ public interface IAdobePdfServicesRateLimiter
 
 public static class AdobePdfServicesRateLimitOperations
 {
+    public const string Autotag = "Autotag";
     public const string AccessibilityChecker = "AccessibilityChecker";
 }
 

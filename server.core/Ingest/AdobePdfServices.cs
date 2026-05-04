@@ -77,6 +77,10 @@ public sealed class AdobePdfServices : IAdobePdfServices
         var pdfServices = CreateClient();
 
         await using var inputStream = File.OpenRead(inputPdfPath);
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.Autotag,
+            "upload",
+            cancellationToken);
         IAsset asset = pdfServices.Upload(inputStream, PDFServicesMediaType.PDF.GetMIMETypeValue());
 
         AutotagPDFParams autotagParams = AutotagPDFParams
@@ -85,17 +89,33 @@ public sealed class AdobePdfServices : IAdobePdfServices
             .Build();
 
         AutotagPDFJob job = new AutotagPDFJob(asset).SetParams(autotagParams);
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.Autotag,
+            "submit",
+            cancellationToken);
         var location = pdfServices.Submit(job);
 
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.Autotag,
+            "get_job_result",
+            cancellationToken);
         PDFServicesResponse<AutotagPDFResult> response =
             pdfServices.GetJobResult<AutotagPDFResult>(location, typeof(AutotagPDFResult));
 
         var taggedAsset = response.Result.TaggedPDF;
         var reportAsset = response.Result.Report;
 
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.Autotag,
+            "get_tagged_content",
+            cancellationToken);
         var taggedStreamAsset = pdfServices.GetContent(taggedAsset);
         await WriteStreamAssetAsync(taggedStreamAsset, outputTaggedPdfPath, cancellationToken);
 
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.Autotag,
+            "get_report_content",
+            cancellationToken);
         var reportStreamAsset = pdfServices.GetContent(reportAsset);
         await WriteStreamAssetAsync(reportStreamAsset, outputTaggingReportPath, cancellationToken);
 
@@ -178,7 +198,10 @@ public sealed class AdobePdfServices : IAdobePdfServices
         var pdfServices = CreateClient();
 
         await using var inputStream = File.OpenRead(inputPdfPath);
-        await WaitForAccessibilityCheckerCallAsync("upload", cancellationToken);
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+            "upload",
+            cancellationToken);
         IAsset asset = pdfServices.Upload(inputStream, PDFServicesMediaType.PDF.GetMIMETypeValue());
 
         var job = new PDFAccessibilityCheckerJob(asset);
@@ -198,7 +221,10 @@ public sealed class AdobePdfServices : IAdobePdfServices
             job = job.SetParams(builder.Build());
         }
 
-        await WaitForAccessibilityCheckerCallAsync("submit", cancellationToken);
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+            "submit",
+            cancellationToken);
         var location = pdfServices.Submit(job);
         PDFServicesResponse<PDFAccessibilityCheckerResult> response =
             await GetAccessibilityCheckerResultAsync(pdfServices, location, cancellationToken);
@@ -206,11 +232,17 @@ public sealed class AdobePdfServices : IAdobePdfServices
         var outputAsset = response.Result.Asset;
         var reportAsset = response.Result.Report;
 
-        await WaitForAccessibilityCheckerCallAsync("get_output_content", cancellationToken);
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+            "get_output_content",
+            cancellationToken);
         var outputStreamAsset = pdfServices.GetContent(outputAsset);
         await WriteStreamAssetAsync(outputStreamAsset, outputPdfPath, cancellationToken);
 
-        await WaitForAccessibilityCheckerCallAsync("get_report_content", cancellationToken);
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+            "get_report_content",
+            cancellationToken);
         var reportStreamAsset = pdfServices.GetContent(reportAsset);
         await WriteStreamAssetAsync(reportStreamAsset, outputReportPath, cancellationToken);
 
@@ -250,7 +282,10 @@ public sealed class AdobePdfServices : IAdobePdfServices
                     $"location={location}; lastStatus={lastStatus ?? "unknown"}; attempts={attempts}; elapsedMs={stopwatch.ElapsedMilliseconds}");
             }
 
-            await WaitForAccessibilityCheckerCallAsync("get_job_status", cancellationToken);
+            await WaitForAdobePdfServicesCallAsync(
+                AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+                "get_job_status",
+                cancellationToken);
             var statusResponse = pdfServices.GetJobStatus(location);
             attempts++;
             var status = statusResponse.Status;
@@ -270,7 +305,10 @@ public sealed class AdobePdfServices : IAdobePdfServices
             await Task.Delay(TimeSpan.FromSeconds(retryIntervalSeconds), cancellationToken);
         }
 
-        await WaitForAccessibilityCheckerCallAsync("get_job_result", cancellationToken);
+        await WaitForAdobePdfServicesCallAsync(
+            AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+            "get_job_result",
+            cancellationToken);
         return pdfServices.GetJobResult<PDFAccessibilityCheckerResult>(
             location,
             typeof(PDFAccessibilityCheckerResult));
@@ -297,16 +335,19 @@ public sealed class AdobePdfServices : IAdobePdfServices
         }
     }
 
-    private async Task WaitForAccessibilityCheckerCallAsync(string callName, CancellationToken cancellationToken)
+    private async Task WaitForAdobePdfServicesCallAsync(
+        string operation,
+        string callName,
+        CancellationToken cancellationToken)
     {
         using var scope = _logger.BeginScope(new Dictionary<string, object?>
         {
-            ["adobe.pdf_services.operation"] = AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+            ["adobe.pdf_services.operation"] = operation,
             ["adobe.pdf_services.call"] = callName,
         });
 
         await _rateLimiter.WaitAsync(
-            AdobePdfServicesRateLimitOperations.AccessibilityChecker,
+            operation,
             cost: 1,
             cancellationToken);
     }

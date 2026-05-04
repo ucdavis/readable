@@ -48,50 +48,69 @@ public class ProcessQueueMessage
             ["messaging.message.id"] = message.MessageId
         });
 
+        var body = message.Body.ToString();
+        _logger.LogInformation("Message ID: {id}", message.MessageId);
+        _logger.LogInformation("Message Content-Type: {contentType}", message.ContentType);
+
+        if (!StorageBlobCreatedEventParser.TryParse(body, out var request, out var error))
+        {
+            var parseError = error ?? "Invalid CloudEvent.";
+            _logger.LogError(
+                "Failed to parse CloudEvent message {messageId}. contentType={contentType}; deliveryCount={deliveryCount}; error={error}",
+                message.MessageId,
+                message.ContentType,
+                message.DeliveryCount,
+                parseError);
+
+            await messageActions.DeadLetterMessageAsync(
+                message,
+                deadLetterReason: "InvalidCloudEvent",
+                deadLetterErrorDescription: parseError,
+                cancellationToken: cancellationToken);
+            return;
+        }
+
+        activity?.SetTag("url.full", request.BlobUri.ToString());
+        activity?.SetTag("blob.container", request.ContainerName);
+        activity?.SetTag("blob.name", request.BlobName);
+        activity?.SetTag("file.id", request.FileId);
+
+        using var fileScope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["file.id"] = request.FileId,
+            ["blob.container"] = request.ContainerName,
+            ["blob.name"] = request.BlobName,
+            ["url.full"] = request.BlobUri.ToString()
+        });
+
         try
         {
-            var body = message.Body.ToString();
-            _logger.LogInformation("Message ID: {id}", message.MessageId);
-            _logger.LogInformation("Message Content-Type: {contentType}", message.ContentType);
-
-            if (!StorageBlobCreatedEventParser.TryParse(body, out var request, out var error))
-            {
-                var parseError = error ?? "Invalid CloudEvent.";
-                _logger.LogError(
-                    "Failed to parse CloudEvent message {messageId}. contentType={contentType}; deliveryCount={deliveryCount}; error={error}",
-                    message.MessageId,
-                    message.ContentType,
-                    message.DeliveryCount,
-                    parseError);
-
-                await messageActions.DeadLetterMessageAsync(
-                    message,
-                    deadLetterReason: "InvalidCloudEvent",
-                    deadLetterErrorDescription: parseError,
-                    cancellationToken: cancellationToken);
-                return;
-            }
-
-            activity?.SetTag("url.full", request.BlobUri.ToString());
-            activity?.SetTag("blob.container", request.ContainerName);
-            activity?.SetTag("blob.name", request.BlobName);
-            activity?.SetTag("file.id", request.FileId);
-
-            using var fileScope = _logger.BeginScope(new Dictionary<string, object?>
-            {
-                ["file.id"] = request.FileId,
-                ["blob.container"] = request.ContainerName,
-                ["blob.name"] = request.BlobName,
-                ["url.full"] = request.BlobUri.ToString()
-            });
-
             await _fileIngestProcessor.ProcessAsync(request, cancellationToken);
-
-            await messageActions.CompleteMessageAsync(message, cancellationToken);
         }
         catch (Exception ex)
         {
             await AbandonMessageAsync(message, messageActions, ex);
+            throw;
+        }
+
+        await CompleteMessageAsync(message, messageActions, cancellationToken);
+    }
+
+    private async Task CompleteMessageAsync(
+        ServiceBusReceivedMessage message,
+        ServiceBusMessageActions messageActions,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await messageActions.CompleteMessageAsync(message, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "Failed to complete Service Bus message {messageId}; not abandoning after successful processing.",
+                message.MessageId);
             throw;
         }
     }
