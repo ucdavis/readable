@@ -1,8 +1,13 @@
 const defaultMaxUploadPages = 100;
 
-const configuredMaxUploadPages = Number(import.meta.env.VITE_MAX_UPLOAD_PAGES);
+const configuredMaxUploadPages = import.meta.env.VITE_MAX_UPLOAD_PAGES;
+const parsedMaxUploadPages =
+  typeof configuredMaxUploadPages === 'string' &&
+  /^\d+$/.test(configuredMaxUploadPages)
+    ? parseInt(configuredMaxUploadPages, 10)
+    : Number.NaN;
 
 export const maxUploadPages =
-  Number.isFinite(configuredMaxUploadPages) && configuredMaxUploadPages >= 0
-    ? configuredMaxUploadPages
+  Number.isFinite(parsedMaxUploadPages) && parsedMaxUploadPages >= 0
+    ? parsedMaxUploadPages
     : defaultMaxUploadPages;
