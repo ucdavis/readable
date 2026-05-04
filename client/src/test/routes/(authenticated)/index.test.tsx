@@ -53,4 +53,47 @@ describe('authenticated index route', () => {
       cleanup();
     }
   });
+
+  it('marks completed files without reports as unavailable', async () => {
+    const fileId = '9e9273e4-52a1-4c43-81ec-d5e61f65a75d';
+
+    server.use(
+      http.get('/api/status/banner', () => {
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.get('/api/user/me', () => {
+        return HttpResponse.json({
+          email: 'user@example.com',
+          id: 'user-1',
+          name: 'Test User',
+          roles: [],
+        });
+      }),
+      http.get('/api/file', () => {
+        return HttpResponse.json([
+          {
+            accessibilityReports: [],
+            contentType: 'application/pdf',
+            createdAt: '2026-05-04T18:05:00Z',
+            fileId,
+            latestFailureReason: null,
+            originalFileName: 'xfa.pdf',
+            sizeBytes: 123,
+            status: 'Completed',
+            statusUpdatedAt: '2026-05-04T18:09:29Z',
+          },
+        ]);
+      })
+    );
+
+    const { cleanup } = renderRoute({ initialPath: '/' });
+
+    try {
+      expect(await screen.findByText('Report unavailable')).toBeInTheDocument();
+      expect(screen.getByText('Details in report view')).toBeInTheDocument();
+      expect(screen.queryByText('No report yet')).not.toBeInTheDocument();
+    } finally {
+      cleanup();
+    }
+  });
 });

@@ -475,9 +475,14 @@ export function PdfActivityCard({
                         ) : file.status !== 'Completed' ? (
                           <span className="text-base-content/70">—</span>
                         ) : !afterReport ? (
-                          <span className="text-base-content/70">
-                            No report yet
-                          </span>
+                          <div className="space-y-1">
+                            <span className="badge badge-warning badge-outline whitespace-nowrap">
+                              Report unavailable
+                            </span>
+                            <div className="text-sm text-base-content/80">
+                              Details in report view
+                            </div>
+                          </div>
                         ) : afterIssues === null ? (
                           <div className="">
                             Report ready • After:{' '}
@@ -600,7 +605,6 @@ export function PdfActivityCard({
     </div>
   );
 }
-
 
 
 
