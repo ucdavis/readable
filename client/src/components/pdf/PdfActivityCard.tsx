@@ -18,7 +18,6 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 
 const MAX_BATCH_SIZE = 50;
 
-
 export type PdfActivityCardProps = {
   activeUploadCount: number;
   canCancelUpload: (fileId: string) => boolean;
@@ -202,7 +201,6 @@ export function PdfActivityCard({
       },
     });
   }, [recentlyDeletedIds, undeleteMutation]);
-
 
   return (
     <div className="card bg-base-100 shadow">
@@ -484,13 +482,16 @@ export function PdfActivityCard({
                             </div>
                           </div>
                         ) : afterIssues === null ? (
-                          <div className="">
-                            Report ready • After:{' '}
-                            {formatDateTime(afterReport.generatedAt)}
+                          <div className="space-y-1">
+                            <div className="font-medium">Report ready</div>
+                            <div className="text-sm text-base-content/60">
+                              Generated{' '}
+                              {formatDateTime(afterReport.generatedAt)}
+                            </div>
                           </div>
                         ) : (
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
+                          <div className="space-y-1.5">
+                            <div className="flex flex-wrap items-center gap-2">
                               {afterIssues === 0 ? (
                                 <span className="badge whitespace-nowrap badge-success badge-sm">
                                   All checks passed
@@ -507,15 +508,18 @@ export function PdfActivityCard({
                                 </span>
                               ) : null}
                             </div>
-                            <div>
+                            <div className="font-medium">
                               {typeof beforeIssues === 'number' ? (
                                 <>
                                   Issues: {beforeIssues} → {afterIssues}
                                 </>
                               ) : (
                                 <>Issues remaining: {afterIssues}</>
-                              )}{' '}
-                              • After: {formatDateTime(afterReport.generatedAt)}
+                              )}
+                            </div>
+                            <div className="text-sm text-base-content/60">
+                              Generated{' '}
+                              {formatDateTime(afterReport.generatedAt)}
                             </div>
                           </div>
                         )}
@@ -605,12 +609,3 @@ export function PdfActivityCard({
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
