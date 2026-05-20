@@ -559,8 +559,8 @@ function FAQs() {
             >
               <p>
                 Think of Readable as a combination of automated tagging plus a
-                set of targeted “Fix” actions (similar to what Acrobat can do
-                quickly), followed by a report that highlights what remains.
+                set of targeted metadata, structure, text, and alt-text fixes,
+                followed by a report that highlights what remains.
               </p>
 
               <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -586,7 +586,7 @@ function FAQs() {
                       />
                       <span>
                         Title metadata (and “show title in title bar”) + primary
-                        language
+                        language + tagged-PDF marker
                       </span>
                     </li>
                     <li className="flex gap-3">
@@ -596,6 +596,16 @@ function FAQs() {
                       />
                       <span>
                         Tagged-PDF tab order set to “Use Document Structure”
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <CheckCircleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-success mt-0.5"
+                      />
+                      <span>
+                        Repairs some garbled text and broken internal text
+                        mappings so screen readers receive cleaner text
                       </span>
                     </li>
                     <li className="flex gap-3">
@@ -614,6 +624,16 @@ function FAQs() {
                         className="h-5 w-5 flex-none text-success mt-0.5"
                       />
                       <span>
+                        Decorative or broken figure tags removed or demoted when
+                        they should not receive alt text
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <CheckCircleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-success mt-0.5"
+                      />
+                      <span>
                         Bookmarks (outlines) generated when the tag structure
                         supports it
                       </span>
@@ -624,8 +644,8 @@ function FAQs() {
                         className="h-5 w-5 flex-none text-success mt-0.5"
                       />
                       <span>
-                        Table summaries, and demotion of likely layout tables to
-                        reduce false failures
+                        Table summaries, layout-table demotion, no-header table
+                        demotion, and first-row header promotion when confident
                       </span>
                     </li>
                     <li className="flex gap-3">
@@ -636,6 +656,16 @@ function FAQs() {
                       <span>
                         Cleanup of untagged annotations (may remove them if they
                         can’t be associated with the structure tree)
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <CheckCircleIcon
+                        aria-hidden="true"
+                        className="h-5 w-5 flex-none text-success mt-0.5"
+                      />
+                      <span>
+                        Narrow heading cleanup, such as demoting skipped
+                        table/form label headings
                       </span>
                     </li>
                   </ul>
@@ -666,8 +696,8 @@ function FAQs() {
                         className="h-5 w-5 flex-none text-warning mt-0.5"
                       />
                       <span>
-                        Complex tables (true headers, TR/TH/TD structure,
-                        spanning cells, regularity)
+                        Complex table validation, spanning cells, nuanced header
+                        relationships, and regularity checks
                       </span>
                     </li>
                     <li className="flex gap-3">
@@ -676,8 +706,8 @@ function FAQs() {
                         className="h-5 w-5 flex-none text-warning mt-0.5"
                       />
                       <span>
-                        Lists + heading hierarchy issues that require editorial
-                        judgment
+                        List structure and heading hierarchy issues that require
+                        editorial judgment
                       </span>
                     </li>
                     <li className="flex gap-3">
