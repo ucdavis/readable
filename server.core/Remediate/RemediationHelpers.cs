@@ -1,5 +1,4 @@
 using System.Text;
-using OpenAI.Chat;
 
 namespace server.core.Remediate;
 
@@ -34,15 +33,4 @@ internal static class RemediationHelpers
 
         return sb.ToString().Trim();
     }
-
-    public static string ExtractFirstTextOrEmpty(ChatCompletion completion)
-    {
-        if (completion.Content.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        return completion.Content[0].Text ?? string.Empty;
-    }
 }
-

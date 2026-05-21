@@ -1,26 +1,39 @@
-using System.ClientModel;
+#pragma warning disable OPENAI001
+
 using System.Text;
-using OpenAI.Chat;
+using OpenAI.Responses;
 
 namespace server.core.Remediate.AltText;
 
 public sealed class OpenAIAltTextService : IAltTextService
 {
-    private readonly ChatClient _chatClient;
+    private readonly IOpenAIResponseGenerationClient _client;
+    private readonly string _model;
 
     public OpenAIAltTextService(string apiKey, string model)
+        : this(model, CreateClient(apiKey))
+    {
+    }
+
+    internal OpenAIAltTextService(string model, IOpenAIResponseGenerationClient client)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            throw new ArgumentException("OpenAI model is required.", nameof(model));
+        }
+
+        _model = model;
+        _client = client;
+    }
+
+    private static OpenAIResponseGenerationClient CreateClient(string apiKey)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new ArgumentException("OpenAI API key is required.", nameof(apiKey));
         }
 
-        if (string.IsNullOrWhiteSpace(model))
-        {
-            throw new ArgumentException("OpenAI model is required.", nameof(model));
-        }
-
-        _chatClient = new ChatClient(model: model, apiKey: apiKey);
+        return new OpenAIResponseGenerationClient(apiKey);
     }
 
     /// <summary>
@@ -35,18 +48,20 @@ public sealed class OpenAIAltTextService : IAltTextService
         cancellationToken.ThrowIfCancellationRequested();
 
         var prompt = BuildImagePrompt(request.ContextBefore, request.ContextAfter);
-        var imageData = BinaryData.FromBytes(request.ImageBytes);
+        var options = OpenAIResponseOptions.Create(
+            _model,
+            "pdf_image_alt_text",
+            OpenAIResponseOptions.AltTextMaxOutputTokens);
 
-        List<ChatMessage> messages =
-        [
-            new SystemChatMessage(BuildSystemInstructions(request.PrimaryLanguage)),
-            new UserChatMessage(
-                ChatMessageContentPart.CreateTextPart(prompt),
-                ChatMessageContentPart.CreateImagePart(imageData, request.MimeType)),
-        ];
+        options.Instructions = BuildSystemInstructions(request.PrimaryLanguage);
+        options.InputItems.Add(
+            ResponseItem.CreateUserMessageItem(
+                [
+                    ResponseContentPart.CreateInputTextPart(prompt),
+                    OpenAIResponseOptions.CreateInputImagePart(request.ImageBytes, request.MimeType),
+                ]));
 
-        ClientResult<ChatCompletion> result = await _chatClient.CompleteChatAsync(messages, new ChatCompletionOptions(), cancellationToken);
-        var text = RemediationHelpers.ExtractFirstTextOrEmpty(result.Value);
+        var text = await _client.CreateResponseAsync(options, cancellationToken);
         return NormalizeAltText(text, fallback: GetFallbackAltTextForImage());
     }
 
@@ -57,14 +72,17 @@ public sealed class OpenAIAltTextService : IAltTextService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        List<ChatMessage> messages =
-        [
-            new SystemChatMessage(BuildSystemInstructions(request.PrimaryLanguage)),
-            new UserChatMessage(BuildLinkPrompt(request.Target, request.LinkText, request.ContextBefore, request.ContextAfter)),
-        ];
+        var options = OpenAIResponseOptions.Create(
+            _model,
+            "pdf_link_alt_text",
+            OpenAIResponseOptions.LinkAltTextMaxOutputTokens);
 
-        ClientResult<ChatCompletion> result = await _chatClient.CompleteChatAsync(messages, new ChatCompletionOptions(), cancellationToken);
-        var text = RemediationHelpers.ExtractFirstTextOrEmpty(result.Value);
+        options.Instructions = BuildSystemInstructions(request.PrimaryLanguage);
+        options.InputItems.Add(
+            ResponseItem.CreateUserMessageItem(
+                BuildLinkPrompt(request.Target, request.LinkText, request.ContextBefore, request.ContextAfter)));
+
+        var text = await _client.CreateResponseAsync(options, cancellationToken);
         return NormalizeAltText(text, fallback: GetFallbackAltTextForLink());
     }
 
