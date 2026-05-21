@@ -13,6 +13,7 @@ internal interface IOpenAIResponseGenerationClient
 
 internal sealed class OpenAIResponseGenerationClient : IOpenAIResponseGenerationClient
 {
+    private const string DefaultEndpoint = "https://us.api.openai.com/v1";
     private readonly ResponsesClient _client;
 
     public OpenAIResponseGenerationClient(string apiKey)
@@ -22,17 +23,14 @@ internal sealed class OpenAIResponseGenerationClient : IOpenAIResponseGeneration
 
     public OpenAIResponseGenerationClient(string apiKey, string? endpoint)
     {
-        if (string.IsNullOrWhiteSpace(endpoint))
-        {
-            _client = new ResponsesClient(apiKey);
-            return;
-        }
-
         _client = new ResponsesClient(
             new ApiKeyCredential(apiKey),
             new OpenAIClientOptions
             {
-                Endpoint = NormalizeEndpoint(endpoint),
+                Endpoint = NormalizeEndpoint(
+                    string.IsNullOrWhiteSpace(endpoint)
+                        ? DefaultEndpoint
+                        : endpoint),
             });
     }
 
