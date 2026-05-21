@@ -201,6 +201,7 @@ stages:
                     appSettings: |
                       [
                         { "name": "OPENAI_API_KEY", "value": "$(OPENAI_API_KEY)", "slotSetting": false },
+                        { "name": "OPENAI_ENDPOINT", "value": "$(OPENAI_ENDPOINT)", "slotSetting": false },
                         { "name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": "$(OTEL_EXPORTER_OTLP_ENDPOINT)", "slotSetting": false },
                         { "name": "OTEL_EXPORTER_OTLP_HEADERS", "value": "$(OTEL_EXPORTER_OTLP_HEADERS)", "slotSetting": false },
                         { "name": "OTEL_EXPORTER_OTLP_PROTOCOL", "value": "grpc", "slotSetting": false },
@@ -219,6 +220,7 @@ stages:
                     appSettings: |
                       [
                         { "name": "OPENAI_API_KEY", "value": "$(OPENAI_API_KEY)", "slotSetting": false },
+                        { "name": "OPENAI_ENDPOINT", "value": "$(OPENAI_ENDPOINT)", "slotSetting": false },
                         { "name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": "$(OTEL_EXPORTER_OTLP_ENDPOINT)", "slotSetting": false },
                         { "name": "OTEL_EXPORTER_OTLP_HEADERS", "value": "$(OTEL_EXPORTER_OTLP_HEADERS)", "slotSetting": false },
                         { "name": "OTEL_EXPORTER_OTLP_PROTOCOL", "value": "grpc", "slotSetting": false },
