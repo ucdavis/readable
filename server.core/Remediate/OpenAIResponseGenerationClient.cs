@@ -99,7 +99,6 @@ internal static class OpenAIResponseOptions
 
     public static ResponseContentPart CreateInputImagePart(byte[] imageBytes, string mimeType)
     {
-        var dataUri = $"data:{mimeType};base64,{Convert.ToBase64String(imageBytes)}";
-        return ResponseContentPart.CreateInputImagePart(new Uri(dataUri), imageDetailLevel: null);
+        return ResponseContentPart.CreateInputImagePart(BinaryData.FromBytes(imageBytes, mimeType));
     }
 }

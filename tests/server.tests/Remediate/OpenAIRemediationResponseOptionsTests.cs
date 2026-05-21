@@ -73,6 +73,16 @@ public sealed class OpenAIRemediationResponseOptionsTests
     }
 
     [Fact]
+    public void CreateInputImagePart_WithLargeImage_DoesNotConstructUri()
+    {
+        var imageBytes = new byte[2_000_000];
+
+        var part = OpenAIResponseOptions.CreateInputImagePart(imageBytes, "image/png");
+
+        part.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task TableClassificationService_UsesJsonSchemaResponsesOptions()
     {
         var client = new CapturingResponseGenerationClient(

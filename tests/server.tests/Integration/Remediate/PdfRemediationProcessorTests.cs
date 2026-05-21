@@ -1,5 +1,9 @@
 using FluentAssertions;
+using iText.IO.Image;
 using iText.Kernel.Pdf;
+using iText.Layout;
+using iText.Layout.Element;
+using iText.Layout.Properties;
 using Microsoft.Extensions.Logging.Abstractions;
 using server.core.Remediate;
 using server.core.Remediate.AltText;
@@ -63,15 +67,11 @@ public sealed class PdfRemediationProcessorTests
     [Fact]
     public async Task ProcessAsync_RepeatedRasterFigures_AddsAltWithoutDemotingToSpan()
     {
-        var repoRoot = FindRepoRoot();
-        var inputPdfPath = Path.Combine(
-            repoRoot,
-            "tests",
-            "server.tests",
-            "Fixtures",
-            "pdfs",
-            "09_hr.ucdavis.edu_CAREER-ucdavis-idp-form_original.pdf");
-        File.Exists(inputPdfPath).Should().BeTrue($"fixture should exist at {inputPdfPath}");
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-repeated-raster-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+        CreateTaggedPdfWithRepeatedRasterFigures(inputPdfPath);
 
         using (var inputPdf = new PdfDocument(new PdfReader(inputPdfPath)))
         {
@@ -81,9 +81,6 @@ public sealed class PdfRemediationProcessorTests
             inputFigures.Should().HaveCount(3, "fixture has the same tagged raster figure repeated on each page");
             inputFigures.Should().OnlyContain(f => !HasNonEmptyAlt(f));
         }
-
-        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-repeated-raster-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(runRoot);
 
         try
         {
@@ -118,6 +115,32 @@ public sealed class PdfRemediationProcessorTests
             {
                 Directory.Delete(runRoot, recursive: true);
             }
+        }
+    }
+
+    private static void CreateTaggedPdfWithRepeatedRasterFigures(string outputPath)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+
+        using var pdf = new PdfDocument(new PdfWriter(outputPath));
+        pdf.SetTagged();
+
+        using var document = new Document(pdf);
+        var imageData = ImageDataFactory.Create(Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lN3fWQAAAABJRU5ErkJggg=="));
+
+        for (var pageNumber = 1; pageNumber <= 3; pageNumber++)
+        {
+            if (pageNumber > 1)
+            {
+                document.Add(new AreaBreak(AreaBreakType.NEXT_PAGE));
+            }
+
+            var image = new Image(imageData)
+                .SetWidth(120)
+                .SetHeight(120);
+            image.GetAccessibilityProperties().SetRole("Figure");
+            document.Add(image);
         }
     }
 
