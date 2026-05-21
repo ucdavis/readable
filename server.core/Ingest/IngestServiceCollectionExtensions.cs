@@ -179,6 +179,7 @@ public static class IngestServiceCollectionExtensions
 
                 return new OpenAiRemediationConfig(
                     apiKey,
+                    GetOpenAiEndpoint(configuration),
                     altTextModel,
                     pdfTitleModel,
                     pdfTableClassificationModel,
@@ -187,22 +188,22 @@ public static class IngestServiceCollectionExtensions
             services.AddSingleton<IAltTextService>(sp =>
             {
                 var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
-                return new OpenAIAltTextService(cfg.ApiKey, cfg.AltTextModel);
+                return new OpenAIAltTextService(cfg.ApiKey, cfg.AltTextModel, cfg.Endpoint);
             });
             services.AddSingleton<IPdfTitleService>(sp =>
             {
                 var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
-                return new OpenAIPdfTitleService(cfg.ApiKey, cfg.PdfTitleModel);
+                return new OpenAIPdfTitleService(cfg.ApiKey, cfg.PdfTitleModel, cfg.Endpoint);
             });
             services.AddSingleton<IPdfTableClassificationService>(sp =>
             {
                 var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
-                return new OpenAIPdfTableClassificationService(cfg.ApiKey, cfg.PdfTableClassificationModel);
+                return new OpenAIPdfTableClassificationService(cfg.ApiKey, cfg.PdfTableClassificationModel, cfg.Endpoint);
             });
             services.AddSingleton<IPdfCharacterEncodingRepairService>(sp =>
             {
                 var cfg = sp.GetRequiredService<OpenAiRemediationConfig>();
-                return new OpenAIPdfCharacterEncodingRepairService(cfg.ApiKey, cfg.PdfCharacterEncodingModel);
+                return new OpenAIPdfCharacterEncodingRepairService(cfg.ApiKey, cfg.PdfCharacterEncodingModel, cfg.Endpoint);
             });
             if (options.UsePdfBookmarks)
             {
@@ -249,8 +250,20 @@ public static class IngestServiceCollectionExtensions
             ?? configuration["OpenAI__ApiKey"];
     }
 
+    private static string? GetOpenAiEndpoint(IConfiguration configuration)
+    {
+        return
+            configuration["OPENAI_ENDPOINT"]
+            ?? configuration["OPENAI_BASE_URL"]
+            ?? configuration["OpenAI:Endpoint"]
+            ?? configuration["OpenAI:BaseUrl"]
+            ?? configuration["OpenAI__Endpoint"]
+            ?? configuration["OpenAI__BaseUrl"];
+    }
+
     private sealed record OpenAiRemediationConfig(
         string ApiKey,
+        string? Endpoint,
         string AltTextModel,
         string PdfTitleModel,
         string PdfTableClassificationModel,

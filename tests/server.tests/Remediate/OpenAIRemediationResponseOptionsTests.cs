@@ -15,6 +15,19 @@ namespace server.tests.Remediate;
 public sealed class OpenAIRemediationResponseOptionsTests
 {
     [Fact]
+    public void ResponseGenerationClient_WhenEndpointProvided_UsesConfiguredEndpoint()
+    {
+        var client = new OpenAIResponseGenerationClient("test-key", "https://us.api.openai.com");
+        var field = typeof(OpenAIResponseGenerationClient).GetField(
+            "_client",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        field.Should().NotBeNull();
+        var responsesClient = field!.GetValue(client).Should().BeOfType<ResponsesClient>().Subject;
+        responsesClient.Endpoint.Should().Be(new Uri("https://us.api.openai.com/v1"));
+    }
+
+    [Fact]
     public async Task PdfTitleService_UsesResponsesOptions()
     {
         var client = new CapturingResponseGenerationClient("Generated title");

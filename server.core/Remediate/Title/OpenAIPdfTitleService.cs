@@ -12,7 +12,12 @@ public sealed class OpenAIPdfTitleService : IPdfTitleService
     private readonly string _model;
 
     public OpenAIPdfTitleService(string apiKey, string model)
-        : this(model, CreateClient(apiKey))
+        : this(apiKey, model, endpoint: null)
+    {
+    }
+
+    public OpenAIPdfTitleService(string apiKey, string model, string? endpoint)
+        : this(model, CreateClient(apiKey, endpoint))
     {
     }
 
@@ -27,14 +32,14 @@ public sealed class OpenAIPdfTitleService : IPdfTitleService
         _client = client;
     }
 
-    private static OpenAIResponseGenerationClient CreateClient(string apiKey)
+    private static OpenAIResponseGenerationClient CreateClient(string apiKey, string? endpoint)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new ArgumentException("OpenAI API key is required.", nameof(apiKey));
         }
 
-        return new OpenAIResponseGenerationClient(apiKey);
+        return new OpenAIResponseGenerationClient(apiKey, endpoint);
     }
 
     /// <summary>
