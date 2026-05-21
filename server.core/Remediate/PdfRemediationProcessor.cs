@@ -1492,7 +1492,8 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
     private static bool IsPlaceholderImageAltText(string altText)
     {
         altText = RemediationHelpers.NormalizeWhitespace(altText);
-        return string.Equals(altText, PlaceholderImageAltText, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(altText, PlaceholderImageAltText, StringComparison.OrdinalIgnoreCase)
+            || IsNumberedImagePlaceholderAltText(altText);
     }
 
     private static bool IsMeaningfulImageAltText(string altText)
@@ -1500,6 +1501,32 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
     private static bool ShouldGenerateAltForFigure(PdfDictionary figure)
         => !HasNonEmptyAlt(figure) || HasPlaceholderAlt(figure);
+
+    private static bool IsNumberedImagePlaceholderAltText(string altText)
+    {
+        const string prefix = "image ";
+
+        if (!altText.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var number = altText.AsSpan(prefix.Length);
+        if (number.IsEmpty)
+        {
+            return false;
+        }
+
+        foreach (var ch in number)
+        {
+            if (!char.IsAsciiDigit(ch))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// Writes an <c>/Alt</c> entry to a structure element if the provided text is non-empty.
