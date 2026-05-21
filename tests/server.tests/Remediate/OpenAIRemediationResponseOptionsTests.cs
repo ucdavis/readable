@@ -15,6 +15,24 @@ namespace server.tests.Remediate;
 public sealed class OpenAIRemediationResponseOptionsTests
 {
     [Fact]
+    public void ResponseGenerationClient_WhenEndpointMissing_UsesUsRegionalEndpoint()
+    {
+        var client = new OpenAIResponseGenerationClient("test-key");
+        var responsesClient = GetResponsesClient(client);
+
+        responsesClient.Endpoint.Should().Be(new Uri("https://us.api.openai.com/v1"));
+    }
+
+    [Fact]
+    public void ResponseGenerationClient_WhenEndpointProvided_UsesConfiguredEndpoint()
+    {
+        var client = new OpenAIResponseGenerationClient("test-key", "https://us.api.openai.com");
+        var responsesClient = GetResponsesClient(client);
+
+        responsesClient.Endpoint.Should().Be(new Uri("https://us.api.openai.com/v1"));
+    }
+
+    [Fact]
     public async Task PdfTitleService_UsesResponsesOptions()
     {
         var client = new CapturingResponseGenerationClient("Generated title");
@@ -169,6 +187,16 @@ public sealed class OpenAIRemediationResponseOptionsTests
         using var stream = new MemoryStream();
         content.WriteTo(stream, CancellationToken.None);
         return JsonDocument.Parse(Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
+    private static ResponsesClient GetResponsesClient(OpenAIResponseGenerationClient client)
+    {
+        var field = typeof(OpenAIResponseGenerationClient).GetField(
+            "_client",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        field.Should().NotBeNull();
+        return field!.GetValue(client).Should().BeOfType<ResponsesClient>().Subject;
     }
 
     private sealed class CapturingResponseGenerationClient : IOpenAIResponseGenerationClient

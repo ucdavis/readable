@@ -22,6 +22,11 @@ public sealed class PdfRemediationOptions
     public double CharacterEncodingRepairConfidenceThreshold { get; set; } = 0.50;
 
     /// <summary>
+    /// Maximum number of independent OpenAI remediation calls to run at the same time inside one PDF job.
+    /// </summary>
+    public int OpenAiMaxConcurrency { get; set; } = 4;
+
+    /// <summary>
     /// When enabled, demotes small <c>/Table</c> tag-tree elements that have no <c>/TH</c> header cells to <c>/Div</c>.
     /// </summary>
     /// <remarks>

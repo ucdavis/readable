@@ -312,6 +312,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     demoteNoHeaderTables: _options.DemoteNoHeaderTables,
                     promoteFirstRowHeadersForNoHeaderTables: _options.PromoteFirstRowHeadersForNoHeaderTables,
                     classificationTimeout: TimeSpan.FromSeconds(Math.Max(1, _options.NoHeaderTableClassificationTimeoutSeconds)),
+                    openAiMaxConcurrency: _options.OpenAiMaxConcurrency,
                     cancellationToken);
             }
             foreach (var tableRemediation in noHeaderTableRemediations)
@@ -397,7 +398,8 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             var imageAltFailures = 0;
             var linkOccurrences = 0;
             var linkAltSet = 0;
-            var rasterAltByImageHash = new Dictionary<string, string>(StringComparer.Ordinal);
+            var rasterImageAltWorkByHash = new Dictionary<string, ImageAltTextWorkItem>(StringComparer.Ordinal);
+            var linkAltWorkItems = new List<LinkAltTextWorkItem>();
 
             using (LogStage.Begin(
                        _logger,
@@ -449,46 +451,18 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                         }
 
                         var imageHash = Convert.ToHexString(SHA256.HashData(bytes));
-                        if (rasterAltByImageHash.TryGetValue(imageHash, out var cachedAltText))
+                        if (rasterImageAltWorkByHash.TryGetValue(imageHash, out var existingWorkItem))
                         {
                             imageAltDedupeHits++;
-                            SetAlt(figure, cachedAltText);
-                            if (!string.IsNullOrWhiteSpace(cachedAltText))
-                            {
-                                imageAltSet++;
-                            }
-
+                            existingWorkItem.Figures.Add(figure);
                             continue;
                         }
 
-                        string altText;
-                        try
-                        {
-                            altText = await _altTextService.GetAltTextForImageAsync(
-                                new ImageAltTextRequest(bytes, mimeType, occ.ContextBefore, occ.ContextAfter, primaryLanguage),
-                                cancellationToken);
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            throw;
-                        }
-                        catch (Exception ex)
-                        {
-                            imageAltFailures++;
-                            _logger.LogWarning(
-                                ex,
-                                "Failed to generate raster image alt text for {fileId} page={pageNumber}. Figure will remain without Alt for manual remediation.",
-                                fileId,
-                                pageNumber);
-                            continue;
-                        }
-
-                        rasterAltByImageHash[imageHash] = altText;
-                        SetAlt(figure, altText);
-                        if (!string.IsNullOrWhiteSpace(altText))
-                        {
-                            imageAltSet++;
-                        }
+                        rasterImageAltWorkByHash[imageHash] = new ImageAltTextWorkItem(
+                            imageHash,
+                            new ImageAltTextRequest(bytes, mimeType, occ.ContextBefore, occ.ContextAfter, primaryLanguage),
+                            pageNumber,
+                            figure);
                     }
 
                     if (!_options.GenerateLinkAltText)
@@ -513,14 +487,56 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                         }
 
                         var target = TryGetLinkTarget(occ.LinkAnnotation);
-                        var altText = await _altTextService.GetAltTextForLinkAsync(
-                            new LinkAltTextRequest(target, occ.LinkText, occ.ContextBefore, occ.ContextAfter, primaryLanguage),
-                            cancellationToken);
-                        SetAlt(link, altText);
-                        if (!string.IsNullOrWhiteSpace(altText))
+                        linkAltWorkItems.Add(
+                            new LinkAltTextWorkItem(
+                                link,
+                                new LinkAltTextRequest(target, occ.LinkText, occ.ContextBefore, occ.ContextAfter, primaryLanguage),
+                                pageNumber));
+                    }
+                }
+
+                var rasterResults = await RunOpenAiTextWorkAsync(
+                    rasterImageAltWorkByHash.Values.ToArray(),
+                    (item, ct) => _altTextService.GetAltTextForImageAsync(item.Request, ct),
+                    cancellationToken);
+                foreach (var result in rasterResults)
+                {
+                    if (result.Exception is not null)
+                    {
+                        imageAltFailures++;
+                        _logger.LogWarning(
+                            result.Exception,
+                            "Failed to generate raster image alt text for {fileId} page={pageNumber}. Figure will remain without Alt for manual remediation.",
+                            fileId,
+                            result.Item.PageNumber);
+                        continue;
+                    }
+
+                    foreach (var figure in result.Item.Figures)
+                    {
+                        SetAlt(figure, result.Text ?? string.Empty);
+                        if (!string.IsNullOrWhiteSpace(result.Text))
                         {
-                            linkAltSet++;
+                            imageAltSet++;
                         }
+                    }
+                }
+
+                var linkResults = await RunOpenAiTextWorkAsync(
+                    linkAltWorkItems,
+                    (item, ct) => _altTextService.GetAltTextForLinkAsync(item.Request, ct),
+                    cancellationToken);
+                foreach (var result in linkResults)
+                {
+                    if (result.Exception is not null)
+                    {
+                        throw result.Exception;
+                    }
+
+                    SetAlt(result.Item.Link, result.Text ?? string.Empty);
+                    if (!string.IsNullOrWhiteSpace(result.Text))
+                    {
+                        linkAltSet++;
                     }
                 }
             }
@@ -573,7 +589,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
                     if (targetMcidsByPage.Count > 0)
                     {
-                        Dictionary<string, string> altByImageHash = new(StringComparer.Ordinal);
+                        Dictionary<string, ImageAltTextWorkItem> vectorImageAltWorkByHash = new(StringComparer.Ordinal);
 
                         IPdfRasterDocument? rasterDoc = null;
                         try
@@ -766,57 +782,54 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                                         }
 
                                         var hash = Convert.ToHexString(SHA256.HashData(pngBytes));
-                                        if (altByImageHash.TryGetValue(hash, out var dedupedAlt))
+                                        if (vectorImageAltWorkByHash.TryGetValue(hash, out var existingWorkItem))
                                         {
                                             vectorAltDedupeHits++;
-                                            SetAlt(candidate.Figure, dedupedAlt);
-                                            if (IsMeaningfulImageAltText(dedupedAlt))
-                                            {
-                                                vectorNonPlaceholderAltSet++;
-                                            }
-                                            else if (IsPlaceholderImageAltText(dedupedAlt))
-                                            {
-                                                vectorAltPlaceholderResponses++;
-                                            }
-
+                                            existingWorkItem.Figures.Add(candidate.Figure);
                                             continue;
                                         }
 
-                                        string altText;
-                                        try
-                                        {
-                                            altText = await _altTextService.GetAltTextForImageAsync(
+                                        vectorImageAltWorkByHash[hash] = new ImageAltTextWorkItem(
+                                            hash,
                                                 new ImageAltTextRequest(
                                                     pngBytes,
                                                     "image/png",
                                                     candidate.ContextBefore,
                                                     candidate.ContextAfter,
                                                     primaryLanguage),
-                                                cancellationToken);
-                                        }
-                                        catch (OperationCanceledException)
-                                        {
-                                            throw;
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            vectorAltFailures++;
-                                            _logger.LogWarning(ex, "Failed to generate vector figure alt text on page {pageNumber}.", pageNumber);
-                                            continue;
-                                        }
+                                            pageNumber,
+                                            candidate.Figure);
+                                    }
+                                }
+                            }
 
-                                        altByImageHash[hash] = altText;
-                                        vectorUniqueImages++;
+                            var vectorResults = await RunOpenAiTextWorkAsync(
+                                vectorImageAltWorkByHash.Values.ToArray(),
+                                (item, ct) => _altTextService.GetAltTextForImageAsync(item.Request, ct),
+                                cancellationToken);
+                            foreach (var result in vectorResults)
+                            {
+                                if (result.Exception is not null)
+                                {
+                                    vectorAltFailures++;
+                                    _logger.LogWarning(
+                                        result.Exception,
+                                        "Failed to generate vector figure alt text on page {pageNumber}.",
+                                        result.Item.PageNumber);
+                                    continue;
+                                }
 
-                                        SetAlt(candidate.Figure, altText);
-                                        if (IsMeaningfulImageAltText(altText))
-                                        {
-                                            vectorNonPlaceholderAltSet++;
-                                        }
-                                        else if (IsPlaceholderImageAltText(altText))
-                                        {
-                                            vectorAltPlaceholderResponses++;
-                                        }
+                                vectorUniqueImages++;
+                                foreach (var figure in result.Item.Figures)
+                                {
+                                    SetAlt(figure, result.Text ?? string.Empty);
+                                    if (IsMeaningfulImageAltText(result.Text ?? string.Empty))
+                                    {
+                                        vectorNonPlaceholderAltSet++;
+                                    }
+                                    else if (IsPlaceholderImageAltText(result.Text ?? string.Empty))
+                                    {
+                                        vectorAltPlaceholderResponses++;
                                     }
                                 }
                             }
@@ -1537,6 +1550,73 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
         structElem.Put(PdfName.Alt, new PdfString(altText, PdfEncodings.UNICODE_BIG));
     }
+
+    private async Task<IReadOnlyList<OpenAiTextWorkResult<TItem>>> RunOpenAiTextWorkAsync<TItem>(
+        IReadOnlyList<TItem> items,
+        Func<TItem, CancellationToken, Task<string>> generateAsync,
+        CancellationToken cancellationToken)
+    {
+        if (items.Count == 0)
+        {
+            return [];
+        }
+
+        var maxConcurrency = Math.Clamp(_options.OpenAiMaxConcurrency, 1, 8);
+        using var semaphore = new SemaphoreSlim(maxConcurrency);
+        var tasks = items.Select(async item =>
+        {
+            await semaphore.WaitAsync(cancellationToken);
+            try
+            {
+                var text = await generateAsync(item, cancellationToken);
+                return new OpenAiTextWorkResult<TItem>(item, text, null);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return new OpenAiTextWorkResult<TItem>(item, null, ex);
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        return await Task.WhenAll(tasks);
+    }
+
+    private sealed class ImageAltTextWorkItem
+    {
+        public ImageAltTextWorkItem(
+            string hash,
+            ImageAltTextRequest request,
+            int pageNumber,
+            PdfDictionary figure)
+        {
+            Hash = hash;
+            Request = request;
+            PageNumber = pageNumber;
+            Figures = [figure];
+        }
+
+        public string Hash { get; }
+        public ImageAltTextRequest Request { get; }
+        public int PageNumber { get; }
+        public List<PdfDictionary> Figures { get; }
+    }
+
+    private sealed record LinkAltTextWorkItem(
+        PdfDictionary Link,
+        LinkAltTextRequest Request,
+        int PageNumber);
+
+    private sealed record OpenAiTextWorkResult<TItem>(
+        TItem Item,
+        string? Text,
+        Exception? Exception);
 
     private sealed class VectorFigureCandidate
     {
