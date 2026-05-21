@@ -96,6 +96,48 @@ public sealed class PdfRemediationProcessorDecorativeFigureTests
         }
     }
 
+    [Fact]
+    public async Task ProcessAsync_StrokedHorizontalRuleFigure_DemotesWithoutCallingAltTextService()
+    {
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-vector-rule-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateTaggedPdfWithHorizontalRuleFigure(inputPdfPath);
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+
+            var altText = new FakeAltTextService();
+            var sut = new PdfRemediationProcessor(
+                altText,
+                new NoopPdfBookmarkService(),
+                new FakePdfTitleService(),
+                new DetailPdfPageRasterizer(),
+                NullLogger<PdfRemediationProcessor>.Instance);
+
+            await sut.ProcessAsync(
+                fileId: "fixture",
+                inputPdfPath: inputPdfPath,
+                outputPdfPath: outputPdfPath,
+                cancellationToken: CancellationToken.None);
+
+            using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
+            var outputFigures = ListStructElementsByRole(outputPdf, PdfName.Figure);
+
+            outputFigures.Should().BeEmpty("stroked decorative rules should be demoted instead of left as figures missing alt text");
+            altText.ImageCalls.Should().Be(0);
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
     private static void CreateTaggedPdfWithPlaceholderVectorFigure(
         string outputPath,
         float figureWidth = 120,
@@ -161,6 +203,74 @@ public sealed class PdfRemediationProcessorDecorativeFigureTests
         canvas.SetFillColor(ColorConstants.BLACK);
         canvas.Rectangle(100, 500, figureWidth, figureHeight);
         canvas.Fill();
+        canvas.RestoreState();
+        canvas.EndMarkedContent();
+        canvas.Release();
+    }
+
+    private static void CreateTaggedPdfWithHorizontalRuleFigure(string outputPath)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+
+        const int mcid = 0;
+
+        using var pdf = new PdfDocument(new PdfWriter(outputPath));
+        var page = pdf.AddNewPage();
+        var pageDict = page.GetPdfObject();
+
+        var catalog = pdf.GetCatalog().GetPdfObject();
+
+        var structTreeRoot = new PdfDictionary();
+        structTreeRoot.MakeIndirect(pdf);
+        structTreeRoot.Put(PdfName.Type, PdfName.StructTreeRoot);
+
+        var parentTree = new PdfDictionary();
+        parentTree.MakeIndirect(pdf);
+        structTreeRoot.Put(PdfName.ParentTree, parentTree);
+
+        var documentElem = new PdfDictionary();
+        documentElem.MakeIndirect(pdf);
+        documentElem.Put(PdfName.Type, new PdfName("StructElem"));
+        documentElem.Put(PdfName.S, new PdfName("Document"));
+        documentElem.Put(PdfName.P, structTreeRoot);
+
+        var figureElem = new PdfDictionary();
+        figureElem.MakeIndirect(pdf);
+        figureElem.Put(PdfName.Type, new PdfName("StructElem"));
+        figureElem.Put(PdfName.S, PdfName.Figure);
+        figureElem.Put(PdfName.P, documentElem);
+        figureElem.Put(PdfName.Pg, pageDict);
+
+        var markedContentRef = new PdfDictionary();
+        markedContentRef.Put(PdfName.Type, new PdfName("MCR"));
+        markedContentRef.Put(PdfName.Pg, pageDict);
+        markedContentRef.Put(PdfName.MCID, new PdfNumber(mcid));
+        figureElem.Put(PdfName.K, markedContentRef);
+
+        var kids = new PdfArray();
+        kids.Add(figureElem);
+        documentElem.Put(PdfName.K, kids);
+
+        structTreeRoot.Put(PdfName.K, documentElem);
+
+        var markInfo = new PdfDictionary();
+        markInfo.MakeIndirect(pdf);
+        markInfo.Put(PdfName.Marked, PdfBoolean.ValueOf(true));
+
+        catalog.Put(PdfName.MarkInfo, markInfo);
+        catalog.Put(PdfName.StructTreeRoot, structTreeRoot);
+
+        var markedContentProperties = new PdfDictionary();
+        markedContentProperties.Put(PdfName.MCID, new PdfNumber(mcid));
+
+        var canvas = new PdfCanvas(page);
+        canvas.BeginMarkedContent(PdfName.Figure, markedContentProperties);
+        canvas.SaveState();
+        canvas.SetStrokeColor(ColorConstants.BLACK);
+        canvas.SetLineWidth(1);
+        canvas.MoveTo(72, 500);
+        canvas.LineTo(540, 500);
+        canvas.Stroke();
         canvas.RestoreState();
         canvas.EndMarkedContent();
         canvas.Release();

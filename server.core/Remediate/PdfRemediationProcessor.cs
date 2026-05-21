@@ -2030,6 +2030,15 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     return null;
                 }
 
+                var strokeExpansion = GetStrokeExpansion(pathRenderInfo);
+                if (strokeExpansion > 0)
+                {
+                    minX -= strokeExpansion;
+                    minY -= strokeExpansion;
+                    maxX += strokeExpansion;
+                    maxY += strokeExpansion;
+                }
+
                 return new Rectangle((float)minX, (float)minY, (float)(maxX - minX), (float)(maxY - minY));
             }
 
@@ -2067,6 +2076,32 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 minY = Math.Min(minY, ty);
                 maxX = Math.Max(maxX, tx);
                 maxY = Math.Max(maxY, ty);
+            }
+
+            private static double GetStrokeExpansion(PathRenderInfo pathRenderInfo)
+            {
+                if ((pathRenderInfo.GetOperation() & PathRenderInfo.STROKE) == 0)
+                {
+                    return 0;
+                }
+
+                var lineWidth = pathRenderInfo.GetLineWidth();
+                var ctm = pathRenderInfo.GetCtm();
+
+                var a = ctm.Get(iText.Kernel.Geom.Matrix.I11);
+                var b = ctm.Get(iText.Kernel.Geom.Matrix.I12);
+                var c = ctm.Get(iText.Kernel.Geom.Matrix.I21);
+                var d = ctm.Get(iText.Kernel.Geom.Matrix.I22);
+                var xScale = Math.Sqrt((a * a) + (b * b));
+                var yScale = Math.Sqrt((c * c) + (d * d));
+                var scale = Math.Max(xScale, yScale);
+                if (scale <= 0)
+                {
+                    scale = 1;
+                }
+
+                var visualLineWidth = lineWidth > 0 ? lineWidth * scale : 0.5;
+                return visualLineWidth / 2d;
             }
 
             private record struct PendingVectorFigure(Rectangle Bounds, int TextCharIndex);
