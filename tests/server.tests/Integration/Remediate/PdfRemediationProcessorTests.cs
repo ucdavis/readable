@@ -59,6 +59,65 @@ public sealed class PdfRemediationProcessorTests
         }
     }
 
+    [Fact]
+    public async Task ProcessAsync_RepeatedRasterFigures_AddsAltWithoutDemotingToSpan()
+    {
+        var repoRoot = FindRepoRoot();
+        var inputPdfPath = Path.Combine(
+            repoRoot,
+            "tests",
+            "server.tests",
+            "Fixtures",
+            "pdfs",
+            "09_hr.ucdavis.edu_CAREER-ucdavis-idp-form_original.pdf");
+        File.Exists(inputPdfPath).Should().BeTrue($"fixture should exist at {inputPdfPath}");
+
+        using (var inputPdf = new PdfDocument(new PdfReader(inputPdfPath)))
+        {
+            inputPdf.IsTagged().Should().BeTrue();
+
+            var inputFigures = ListStructElementsByRole(inputPdf, PdfName.Figure);
+            inputFigures.Should().HaveCount(3, "fixture has the same tagged raster figure repeated on each page");
+            inputFigures.Should().OnlyContain(f => !HasNonEmptyAlt(f));
+        }
+
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-repeated-raster-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            var sut = new PdfRemediationProcessor(
+                new FakeAltTextService(),
+                new NoopPdfBookmarkService(),
+                new FakePdfTitleService(),
+                NullLogger<PdfRemediationProcessor>.Instance);
+
+            var result = await sut.ProcessAsync(
+                fileId: "fixture",
+                inputPdfPath: inputPdfPath,
+                outputPdfPath: outputPdfPath,
+                cancellationToken: CancellationToken.None);
+
+            using var outputPdf = new PdfDocument(new PdfReader(result.OutputPdfPath));
+
+            var outputFigures = ListStructElementsByRole(outputPdf, PdfName.Figure);
+            outputFigures.Should().HaveCount(3);
+            outputFigures.Should().OnlyContain(f => GetAlt(f) == "fake image alt text");
+
+            ListStructElementsByRole(outputPdf, RoleSpan)
+                .Should()
+                .BeEmpty("repeated raster image figures should not be demoted to /Span with image content");
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
     private sealed class FakeAltTextService : IAltTextService
     {
         public Task<string> GetAltTextForImageAsync(ImageAltTextRequest request, CancellationToken cancellationToken)
@@ -113,6 +172,8 @@ public sealed class PdfRemediationProcessorTests
     }
 
     private static string? GetAlt(PdfDictionary structElem) => structElem.GetAsString(PdfName.Alt)?.ToUnicodeString();
+
+    private static readonly PdfName RoleSpan = new("Span");
 
     private static List<PdfDictionary> ListStructElementsByRole(PdfDocument pdf, PdfName role)
     {

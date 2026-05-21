@@ -446,26 +446,6 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                             continue;
                         }
 
-                        if (occ.Bounds is not null)
-                        {
-                            var imageHash = Convert.ToHexString(SHA256.HashData(bytes));
-                            var repeatedSignature = PdfFigureVisualHeuristics.BuildRepeatedChromeSignature(imageHash, occ.Bounds, page.GetPageSizeWithRotation());
-                            if (repeatedSignature is not null)
-                            {
-                                var changeCount = CountDecorativeChanges(
-                                    () => decorativeFigures.DemoteRepeatedChromeFigure(
-                                        figure,
-                                        repeatedSignature,
-                                        "same image appears repeatedly in the same page position",
-                                        pageNumber));
-                                if (changeCount > 0)
-                                {
-                                    decorativeFigureAltSkipped += changeCount;
-                                    continue;
-                                }
-                            }
-                        }
-
                         string altText;
                         try
                         {
