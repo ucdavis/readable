@@ -1,28 +1,40 @@
-using System.ClientModel;
+#pragma warning disable OPENAI001
+
 using System.Text;
-using OpenAI.Chat;
+using OpenAI.Responses;
+using server.core.Remediate;
 
 namespace server.core.Remediate.Title;
 
 public sealed class OpenAIPdfTitleService : IPdfTitleService
 {
-    private readonly ChatClient _chatClient;
+    private readonly IOpenAIResponseGenerationClient _client;
     private readonly string _model;
 
     public OpenAIPdfTitleService(string apiKey, string model)
+        : this(model, CreateClient(apiKey))
     {
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            throw new ArgumentException("OpenAI API key is required.", nameof(apiKey));
-        }
+    }
 
+    internal OpenAIPdfTitleService(string model, IOpenAIResponseGenerationClient client)
+    {
         if (string.IsNullOrWhiteSpace(model))
         {
             throw new ArgumentException("OpenAI model is required.", nameof(model));
         }
 
         _model = model;
-        _chatClient = new ChatClient(model: model, apiKey: apiKey);
+        _client = client;
+    }
+
+    private static OpenAIResponseGenerationClient CreateClient(string apiKey)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new ArgumentException("OpenAI API key is required.", nameof(apiKey));
+        }
+
+        return new OpenAIResponseGenerationClient(apiKey);
     }
 
     /// <summary>
@@ -38,18 +50,14 @@ public sealed class OpenAIPdfTitleService : IPdfTitleService
 
         var prompt = BuildPrompt(request.CurrentTitle, request.ExtractedText, request.PrimaryLanguage);
 
-        List<ChatMessage> messages =
-        [
-            new UserChatMessage(prompt),
-        ];
+        var options = OpenAIResponseOptions.Create(
+            _model,
+            "pdf_title",
+            OpenAIResponseOptions.TitleMaxOutputTokens);
 
-        ClientResult<ChatCompletion> result =
-            await _chatClient.CompleteChatAsync(
-                messages,
-                RemediationHelpers.CreateFastChatOptions(_model, maxOutputTokenCount: 200),
-                cancellationToken);
+        options.InputItems.Add(ResponseItem.CreateUserMessageItem(prompt));
 
-        return RemediationHelpers.ExtractFirstTextOrEmpty(result.Value);
+        return await _client.CreateResponseAsync(options, cancellationToken);
     }
 
     /// <summary>

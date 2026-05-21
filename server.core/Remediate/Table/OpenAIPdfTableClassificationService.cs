@@ -1,7 +1,8 @@
-using System.ClientModel;
+#pragma warning disable OPENAI001
+
 using System.Text;
 using System.Text.Json;
-using OpenAI.Chat;
+using OpenAI.Responses;
 
 namespace server.core.Remediate.Table;
 
@@ -31,23 +32,33 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
         }
         """u8.ToArray());
 
-    private readonly ChatClient _chatClient;
+    private readonly IOpenAIResponseGenerationClient _client;
     private readonly string _model;
 
     public OpenAIPdfTableClassificationService(string apiKey, string model)
+        : this(model, CreateClient(apiKey))
     {
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            throw new ArgumentException("OpenAI API key is required.", nameof(apiKey));
-        }
+    }
 
+    internal OpenAIPdfTableClassificationService(string model, IOpenAIResponseGenerationClient client)
+    {
         if (string.IsNullOrWhiteSpace(model))
         {
             throw new ArgumentException("OpenAI model is required.", nameof(model));
         }
 
         _model = model;
-        _chatClient = new ChatClient(model: model, apiKey: apiKey);
+        _client = client;
+    }
+
+    private static OpenAIResponseGenerationClient CreateClient(string apiKey)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new ArgumentException("OpenAI API key is required.", nameof(apiKey));
+        }
+
+        return new OpenAIResponseGenerationClient(apiKey);
     }
 
     public async Task<PdfTableClassificationResult> ClassifyAsync(
@@ -56,22 +67,16 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        List<ChatMessage> messages =
-        [
-            new SystemChatMessage(BuildSystemInstructions()),
-            new UserChatMessage(BuildPrompt(request)),
-        ];
+        var options = OpenAIResponseOptions.Create(
+            _model,
+            "pdf_table_classification",
+            OpenAIResponseOptions.TableClassificationMaxOutputTokens,
+            OpenAIResponseOptions.CreateJsonSchemaFormat("pdf_table_classification", ClassificationSchema));
 
-        var options = RemediationHelpers.CreateFastChatOptions(_model, maxOutputTokenCount: 500);
-        options.ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
-            jsonSchemaFormatName: "pdf_table_classification",
-            jsonSchema: ClassificationSchema,
-            jsonSchemaIsStrict: true);
+        options.Instructions = BuildSystemInstructions();
+        options.InputItems.Add(ResponseItem.CreateUserMessageItem(BuildPrompt(request)));
 
-        ClientResult<ChatCompletion> result =
-            await _chatClient.CompleteChatAsync(messages, options, cancellationToken);
-
-        var text = RemediationHelpers.ExtractFirstTextOrEmpty(result.Value);
+        var text = await _client.CreateResponseAsync(options, cancellationToken);
         return ParseResult(text);
     }
 

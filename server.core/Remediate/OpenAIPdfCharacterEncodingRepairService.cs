@@ -1,7 +1,8 @@
-using System.ClientModel;
+#pragma warning disable OPENAI001
+
 using System.Text;
 using System.Text.Json;
-using OpenAI.Chat;
+using OpenAI.Responses;
 
 namespace server.core.Remediate;
 
@@ -62,23 +63,33 @@ public sealed class OpenAIPdfCharacterEncodingRepairService : IPdfCharacterEncod
         }
         """u8.ToArray());
 
-    private readonly ChatClient _chatClient;
+    private readonly IOpenAIResponseGenerationClient _client;
     private readonly string _model;
 
     public OpenAIPdfCharacterEncodingRepairService(string apiKey, string model)
+        : this(model, CreateClient(apiKey))
     {
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            throw new ArgumentException("OpenAI API key is required.", nameof(apiKey));
-        }
+    }
 
+    internal OpenAIPdfCharacterEncodingRepairService(string model, IOpenAIResponseGenerationClient client)
+    {
         if (string.IsNullOrWhiteSpace(model))
         {
             throw new ArgumentException("OpenAI model is required.", nameof(model));
         }
 
         _model = model;
-        _chatClient = new ChatClient(model: model, apiKey: apiKey);
+        _client = client;
+    }
+
+    private static OpenAIResponseGenerationClient CreateClient(string apiKey)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new ArgumentException("OpenAI API key is required.", nameof(apiKey));
+        }
+
+        return new OpenAIResponseGenerationClient(apiKey);
     }
 
     public async Task<PdfCharacterEncodingRepairResponse> ProposeRepairsAsync(
@@ -92,22 +103,16 @@ public sealed class OpenAIPdfCharacterEncodingRepairService : IPdfCharacterEncod
             return new PdfCharacterEncodingRepairResponse(Array.Empty<PdfCharacterEncodingRepairProposal>());
         }
 
-        List<ChatMessage> messages =
-        [
-            new SystemChatMessage(BuildSystemInstructions()),
-            new UserChatMessage(BuildPrompt(request)),
-        ];
+        var options = OpenAIResponseOptions.Create(
+            _model,
+            "pdf_character_encoding_repairs",
+            OpenAIResponseOptions.CharacterEncodingRepairMaxOutputTokens,
+            OpenAIResponseOptions.CreateJsonSchemaFormat("pdf_character_encoding_repairs", RepairSchema));
 
-        var options = RemediationHelpers.CreateFastChatOptions(_model, maxOutputTokenCount: 4000);
-        options.ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
-            jsonSchemaFormatName: "pdf_character_encoding_repairs",
-            jsonSchema: RepairSchema,
-            jsonSchemaIsStrict: true);
+        options.Instructions = BuildSystemInstructions();
+        options.InputItems.Add(ResponseItem.CreateUserMessageItem(BuildPrompt(request)));
 
-        ClientResult<ChatCompletion> result =
-            await _chatClient.CompleteChatAsync(messages, options, cancellationToken);
-
-        return ParseResponse(RemediationHelpers.ExtractFirstTextOrEmpty(result.Value));
+        return ParseResponse(await _client.CreateResponseAsync(options, cancellationToken));
     }
 
     public async Task<PdfCharacterEncodingActualTextRepairResponse> ProposeActualTextRepairsAsync(
@@ -121,22 +126,16 @@ public sealed class OpenAIPdfCharacterEncodingRepairService : IPdfCharacterEncod
             return new PdfCharacterEncodingActualTextRepairResponse(Array.Empty<PdfCharacterEncodingActualTextRepairProposal>());
         }
 
-        List<ChatMessage> messages =
-        [
-            new SystemChatMessage(BuildActualTextSystemInstructions()),
-            new UserChatMessage(BuildActualTextPrompt(request)),
-        ];
+        var options = OpenAIResponseOptions.Create(
+            _model,
+            "pdf_character_encoding_actual_text_repairs",
+            OpenAIResponseOptions.CharacterEncodingRepairMaxOutputTokens,
+            OpenAIResponseOptions.CreateJsonSchemaFormat("pdf_character_encoding_actual_text_repairs", ActualTextRepairSchema));
 
-        var options = RemediationHelpers.CreateFastChatOptions(_model, maxOutputTokenCount: 4000);
-        options.ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
-            jsonSchemaFormatName: "pdf_character_encoding_actual_text_repairs",
-            jsonSchema: ActualTextRepairSchema,
-            jsonSchemaIsStrict: true);
+        options.Instructions = BuildActualTextSystemInstructions();
+        options.InputItems.Add(ResponseItem.CreateUserMessageItem(BuildActualTextPrompt(request)));
 
-        ClientResult<ChatCompletion> result =
-            await _chatClient.CompleteChatAsync(messages, options, cancellationToken);
-
-        return ParseActualTextResponse(RemediationHelpers.ExtractFirstTextOrEmpty(result.Value));
+        return ParseActualTextResponse(await _client.CreateResponseAsync(options, cancellationToken));
     }
 
     private static string BuildSystemInstructions() =>
