@@ -144,20 +144,29 @@ public sealed class PdfRemediationProcessorImageExtractionTests
 
     private sealed class CapturingAltTextService : IAltTextService
     {
+        private readonly object _lock = new();
         public List<ImageAltTextRequest> ImageRequests { get; } = new();
         public List<LinkAltTextRequest> LinkRequests { get; } = new();
 
         public Task<string> GetAltTextForImageAsync(ImageAltTextRequest request, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            ImageRequests.Add(request);
+            lock (_lock)
+            {
+                ImageRequests.Add(request);
+            }
+
             return Task.FromResult("fake image alt text");
         }
 
         public Task<string> GetAltTextForLinkAsync(LinkAltTextRequest request, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            LinkRequests.Add(request);
+            lock (_lock)
+            {
+                LinkRequests.Add(request);
+            }
+
             return Task.FromResult("fake link alt text");
         }
 

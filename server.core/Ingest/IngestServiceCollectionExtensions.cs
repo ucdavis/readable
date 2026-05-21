@@ -134,6 +134,13 @@ public static class IngestServiceCollectionExtensions
                     configuration.GetValue<double?>("Ingest:CharacterEncodingRepairConfidenceThreshold")
                     ?? configuration.GetValue<double?>("INGEST_CHARACTER_ENCODING_REPAIR_CONFIDENCE_THRESHOLD")
                     ?? 0.50;
+
+                o.OpenAiMaxConcurrency = Math.Clamp(
+                    configuration.GetValue<int?>("Ingest:OpenAiMaxConcurrency")
+                    ?? configuration.GetValue<int?>("INGEST_OPENAI_MAX_CONCURRENCY")
+                    ?? 4,
+                    1,
+                    8);
             });
 
             services.AddSingleton<OpenAiRemediationConfig>(sp =>

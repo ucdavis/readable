@@ -34,6 +34,12 @@ public sealed class PdfRemediationOptionsTests
     }
 
     [Fact]
+    public void Defaults_OpenAiMaxConcurrency_IsFour()
+    {
+        new PdfRemediationOptions().OpenAiMaxConcurrency.Should().Be(4);
+    }
+
+    [Fact]
     public void IngestOptions_WhenAiCharacterEncodingRepairMissing_DefaultsTrue()
     {
         BuildRemediationOptions().UseAiCharacterEncodingRepair.Should().BeTrue();
@@ -55,6 +61,24 @@ public sealed class PdfRemediationOptionsTests
         {
             ["Ingest:UseAiCharacterEncodingRepair"] = "false",
         }).UseAiCharacterEncodingRepair.Should().BeFalse();
+    }
+
+    [Fact]
+    public void IngestOptions_WhenOpenAiMaxConcurrencyConfigured_BindsValue()
+    {
+        BuildRemediationOptions(new Dictionary<string, string?>
+        {
+            ["Ingest:OpenAiMaxConcurrency"] = "2",
+        }).OpenAiMaxConcurrency.Should().Be(2);
+    }
+
+    [Fact]
+    public void IngestOptions_WhenOpenAiMaxConcurrencyTooHigh_ClampsToEight()
+    {
+        BuildRemediationOptions(new Dictionary<string, string?>
+        {
+            ["INGEST_OPENAI_MAX_CONCURRENCY"] = "99",
+        }).OpenAiMaxConcurrency.Should().Be(8);
     }
 
     private static PdfRemediationOptions BuildRemediationOptions(

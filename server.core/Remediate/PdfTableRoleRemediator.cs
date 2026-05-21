@@ -81,6 +81,7 @@ internal static class PdfTableRoleRemediator
         bool demoteNoHeaderTables,
         bool promoteFirstRowHeadersForNoHeaderTables,
         TimeSpan classificationTimeout,
+        int openAiMaxConcurrency,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -103,7 +104,8 @@ internal static class PdfTableRoleRemediator
 
         var pageObjNumToPageNumber = BuildPageObjectNumberToPageNumberMap(pdf);
         var pageMcidTextCache = new Dictionary<int, Dictionary<int, string>>();
-        var results = new List<PdfNoHeaderTableRemediation>();
+        var results = new List<PdfNoHeaderTableRemediation?>();
+        var classificationCandidates = new List<TableClassificationCandidate>();
 
         foreach (var table in tables)
         {
@@ -134,31 +136,39 @@ internal static class PdfTableRoleRemediator
             }
 
             var request = inventory.ToClassificationRequest(primaryLanguage);
-            PdfTableClassificationResult classification;
-            try
+            var resultIndex = results.Count;
+            results.Add(null);
+            classificationCandidates.Add(new TableClassificationCandidate(resultIndex, inventory, request));
+        }
+
+        var classificationOutcomes = await ClassifyNoHeaderTablesAsync(
+            tableClassificationService,
+            classificationCandidates,
+            classificationTimeout,
+            openAiMaxConcurrency,
+            cancellationToken);
+
+        foreach (var outcome in classificationOutcomes.OrderBy(o => o.Candidate.ResultIndex))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var inventory = outcome.Candidate.Inventory;
+            if (outcome.Exception is OperationCanceledException)
             {
-                classification = await ClassifyWithTimeoutAsync(
-                    tableClassificationService,
-                    request,
-                    classificationTimeout,
-                    cancellationToken);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                results.Add(CreateUnchangedResult(inventory, "left unchanged; table classification timed out"));
+                results[outcome.Candidate.ResultIndex] =
+                    CreateUnchangedResult(inventory, "left unchanged; table classification timed out");
                 continue;
             }
-            catch (OperationCanceledException)
+
+            if (outcome.Exception is not null)
             {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                results.Add(CreateUnchangedResult(
+                results[outcome.Candidate.ResultIndex] = CreateUnchangedResult(
                     inventory,
-                    $"left unchanged; table classification failed: {ex.GetType().Name}"));
+                    $"left unchanged; table classification failed: {outcome.Exception.GetType().Name}");
                 continue;
             }
+
+            var classification = outcome.Classification!;
 
             var confidence = Math.Clamp(classification.Confidence, 0, 1);
             var isConfidentDataTable = classification.Kind == PdfTableKind.DataTable
@@ -168,16 +178,16 @@ internal static class PdfTableRoleRemediator
             {
                 if (!promoteFirstRowHeadersForNoHeaderTables)
                 {
-                    results.Add(CreateUnchangedResult(
+                    results[outcome.Candidate.ResultIndex] = CreateUnchangedResult(
                         inventory,
                         BuildClassifierDecisionReason(
                             "classified as data table; first-row header promotion disabled",
-                            classification)));
+                            classification));
                     continue;
                 }
 
                 var promoted = PromoteHeaderRowToTableHead(inventory, cancellationToken);
-                results.Add(
+                results[outcome.Candidate.ResultIndex] =
                     new PdfNoHeaderTableRemediation(
                         promoted
                             ? PdfNoHeaderTableRemediationAction.PromotedHeaderRow
@@ -189,24 +199,24 @@ internal static class PdfTableRoleRemediator
                             promoted
                                 ? "classified as data table; moved header row into THead and promoted cells to TH"
                                 : "classified as data table but no usable header row was available to promote",
-                            classification)));
+                            classification));
                 continue;
             }
 
             if (!demoteNoHeaderTables)
             {
-                results.Add(CreateUnchangedResult(
+                results[outcome.Candidate.ResultIndex] = CreateUnchangedResult(
                     inventory,
                     BuildClassifierDecisionReason(
                         classification.Kind == PdfTableKind.DataTable
                             ? $"data-table classifier confidence {confidence:0.00} was below {MinClassifierConfidence:0.00}; no-header table demotion disabled"
                             : "classified as non-data table; no-header table demotion disabled",
-                        classification)));
+                        classification));
                 continue;
             }
 
-            DemoteTableAndDescendants(table, cancellationToken);
-            results.Add(
+            DemoteTableAndDescendants(inventory.Element, cancellationToken);
+            results[outcome.Candidate.ResultIndex] =
                 new PdfNoHeaderTableRemediation(
                     PdfNoHeaderTableRemediationAction.DemotedNoHeaderTable,
                     inventory.RowCount,
@@ -216,10 +226,54 @@ internal static class PdfTableRoleRemediator
                         classification.Kind == PdfTableKind.DataTable
                             ? $"data-table classifier confidence {confidence:0.00} was below {MinClassifierConfidence:0.00}; demoted table roles"
                             : "classified as non-data table; demoted table roles",
-                        classification)));
+                        classification));
         }
 
-        return results;
+        return results.Where(r => r is not null).Select(r => r!).ToArray();
+    }
+
+    private static async Task<IReadOnlyList<TableClassificationOutcome>> ClassifyNoHeaderTablesAsync(
+        IPdfTableClassificationService tableClassificationService,
+        IReadOnlyList<TableClassificationCandidate> candidates,
+        TimeSpan classificationTimeout,
+        int openAiMaxConcurrency,
+        CancellationToken cancellationToken)
+    {
+        if (candidates.Count == 0)
+        {
+            return [];
+        }
+
+        var maxConcurrency = Math.Clamp(openAiMaxConcurrency, 1, 8);
+        using var semaphore = new SemaphoreSlim(maxConcurrency);
+        var tasks = candidates.Select(async candidate =>
+        {
+            await semaphore.WaitAsync(cancellationToken);
+            try
+            {
+                var classification = await ClassifyWithTimeoutAsync(
+                    tableClassificationService,
+                    candidate.Request,
+                    classificationTimeout,
+                    cancellationToken);
+
+                return new TableClassificationOutcome(candidate, classification, null);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return new TableClassificationOutcome(candidate, null, ex);
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        return await Task.WhenAll(tasks);
     }
 
     private static string BuildClassifierDecisionReason(
@@ -260,6 +314,16 @@ internal static class PdfTableRoleRemediator
             throw new OperationCanceledException("Table classification timed out.", ex, timeoutCts.Token);
         }
     }
+
+    private sealed record TableClassificationCandidate(
+        int ResultIndex,
+        TableInventory Inventory,
+        PdfTableClassificationRequest Request);
+
+    private sealed record TableClassificationOutcome(
+        TableClassificationCandidate Candidate,
+        PdfTableClassificationResult? Classification,
+        Exception? Exception);
 
     private static PdfNoHeaderTableRemediation CreateUnchangedResult(TableInventory inventory, string reason) =>
         new(

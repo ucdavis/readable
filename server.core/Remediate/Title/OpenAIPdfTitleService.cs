@@ -7,6 +7,7 @@ namespace server.core.Remediate.Title;
 public sealed class OpenAIPdfTitleService : IPdfTitleService
 {
     private readonly ChatClient _chatClient;
+    private readonly string _model;
 
     public OpenAIPdfTitleService(string apiKey, string model)
     {
@@ -20,6 +21,7 @@ public sealed class OpenAIPdfTitleService : IPdfTitleService
             throw new ArgumentException("OpenAI model is required.", nameof(model));
         }
 
+        _model = model;
         _chatClient = new ChatClient(model: model, apiKey: apiKey);
     }
 
@@ -42,7 +44,10 @@ public sealed class OpenAIPdfTitleService : IPdfTitleService
         ];
 
         ClientResult<ChatCompletion> result =
-            await _chatClient.CompleteChatAsync(messages, new ChatCompletionOptions(), cancellationToken);
+            await _chatClient.CompleteChatAsync(
+                messages,
+                RemediationHelpers.CreateFastChatOptions(_model, maxOutputTokenCount: 200),
+                cancellationToken);
 
         return RemediationHelpers.ExtractFirstTextOrEmpty(result.Value);
     }

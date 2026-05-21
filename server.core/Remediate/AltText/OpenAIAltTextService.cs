@@ -7,6 +7,7 @@ namespace server.core.Remediate.AltText;
 public sealed class OpenAIAltTextService : IAltTextService
 {
     private readonly ChatClient _chatClient;
+    private readonly string _model;
 
     public OpenAIAltTextService(string apiKey, string model)
     {
@@ -20,6 +21,7 @@ public sealed class OpenAIAltTextService : IAltTextService
             throw new ArgumentException("OpenAI model is required.", nameof(model));
         }
 
+        _model = model;
         _chatClient = new ChatClient(model: model, apiKey: apiKey);
     }
 
@@ -45,7 +47,10 @@ public sealed class OpenAIAltTextService : IAltTextService
                 ChatMessageContentPart.CreateImagePart(imageData, request.MimeType)),
         ];
 
-        ClientResult<ChatCompletion> result = await _chatClient.CompleteChatAsync(messages, new ChatCompletionOptions(), cancellationToken);
+        ClientResult<ChatCompletion> result = await _chatClient.CompleteChatAsync(
+            messages,
+            RemediationHelpers.CreateFastChatOptions(_model, maxOutputTokenCount: 300),
+            cancellationToken);
         var text = RemediationHelpers.ExtractFirstTextOrEmpty(result.Value);
         return NormalizeAltText(text, fallback: GetFallbackAltTextForImage());
     }
@@ -63,7 +68,10 @@ public sealed class OpenAIAltTextService : IAltTextService
             new UserChatMessage(BuildLinkPrompt(request.Target, request.LinkText, request.ContextBefore, request.ContextAfter)),
         ];
 
-        ClientResult<ChatCompletion> result = await _chatClient.CompleteChatAsync(messages, new ChatCompletionOptions(), cancellationToken);
+        ClientResult<ChatCompletion> result = await _chatClient.CompleteChatAsync(
+            messages,
+            RemediationHelpers.CreateFastChatOptions(_model, maxOutputTokenCount: 300),
+            cancellationToken);
         var text = RemediationHelpers.ExtractFirstTextOrEmpty(result.Value);
         return NormalizeAltText(text, fallback: GetFallbackAltTextForLink());
     }

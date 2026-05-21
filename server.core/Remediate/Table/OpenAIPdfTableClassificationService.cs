@@ -32,6 +32,7 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
         """u8.ToArray());
 
     private readonly ChatClient _chatClient;
+    private readonly string _model;
 
     public OpenAIPdfTableClassificationService(string apiKey, string model)
     {
@@ -45,6 +46,7 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
             throw new ArgumentException("OpenAI model is required.", nameof(model));
         }
 
+        _model = model;
         _chatClient = new ChatClient(model: model, apiKey: apiKey);
     }
 
@@ -60,13 +62,11 @@ public sealed class OpenAIPdfTableClassificationService : IPdfTableClassificatio
             new UserChatMessage(BuildPrompt(request)),
         ];
 
-        ChatCompletionOptions options = new()
-        {
-            ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
-                jsonSchemaFormatName: "pdf_table_classification",
-                jsonSchema: ClassificationSchema,
-                jsonSchemaIsStrict: true),
-        };
+        var options = RemediationHelpers.CreateFastChatOptions(_model, maxOutputTokenCount: 500);
+        options.ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
+            jsonSchemaFormatName: "pdf_table_classification",
+            jsonSchema: ClassificationSchema,
+            jsonSchemaIsStrict: true);
 
         ClientResult<ChatCompletion> result =
             await _chatClient.CompleteChatAsync(messages, options, cancellationToken);

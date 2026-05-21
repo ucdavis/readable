@@ -392,6 +392,53 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
     }
 
     [Fact]
+    public async Task ProcessAsync_NoHeaderTableClassification_UsesConfiguredConcurrency()
+    {
+        var runRoot = Path.Combine(
+            Path.GetTempPath(),
+            "readable-tests",
+            $"no-header-classification-concurrency-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            CreateVerificationPdfShape(inputPdfPath);
+
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            var tableClassificationService = new OverlappingPdfTableClassificationService(expectedCalls: 2);
+            var sut = new PdfRemediationProcessor(
+                new ThrowingAltTextService(),
+                new NoopPdfBookmarkService(),
+                NoopPdfPageRasterizer.Instance,
+                tableClassificationService,
+                new StablePdfTitleService(),
+                Options.Create(new PdfRemediationOptions
+                {
+                    OpenAiMaxConcurrency = 2,
+                    NoHeaderTableClassificationTimeoutSeconds = 5,
+                }),
+                NullLogger<PdfRemediationProcessor>.Instance);
+
+            await sut.ProcessAsync(
+                fileId: "no-header-classification-concurrency",
+                inputPdfPath: inputPdfPath,
+                outputPdfPath: outputPdfPath,
+                cancellationToken: CancellationToken.None);
+
+            tableClassificationService.CallCount.Should().Be(2);
+            tableClassificationService.MaxObservedConcurrency.Should().BeGreaterThan(1);
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void ListStructElementsByRole_WhenStructTreeContainsCycle_StopsTraversal()
     {
         using var stream = new MemoryStream();
@@ -923,6 +970,73 @@ public sealed class PdfRemediationProcessorNoHeaderTableTests
         {
             CallCount++;
             return new TaskCompletionSource<PdfTableClassificationResult>().Task;
+        }
+    }
+
+    private sealed class OverlappingPdfTableClassificationService : IPdfTableClassificationService
+    {
+        private readonly int _expectedCalls;
+        private readonly TaskCompletionSource _allExpectedCallsStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _callCount;
+        private int _inFlight;
+        private int _maxObservedConcurrency;
+
+        public OverlappingPdfTableClassificationService(int expectedCalls)
+        {
+            _expectedCalls = expectedCalls;
+        }
+
+        public int CallCount => Volatile.Read(ref _callCount);
+
+        public int MaxObservedConcurrency => Volatile.Read(ref _maxObservedConcurrency);
+
+        public async Task<PdfTableClassificationResult> ClassifyAsync(
+            PdfTableClassificationRequest request,
+            CancellationToken cancellationToken)
+        {
+            request.RowCount.Should().BeGreaterThanOrEqualTo(2);
+            request.MaxColumnCount.Should().BeGreaterThanOrEqualTo(2);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var inFlight = Interlocked.Increment(ref _inFlight);
+            UpdateMaxObservedConcurrency(inFlight);
+
+            if (Interlocked.Increment(ref _callCount) >= _expectedCalls)
+            {
+                _allExpectedCallsStarted.TrySetResult();
+            }
+
+            try
+            {
+                await _allExpectedCallsStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+                await Task.Delay(50, cancellationToken);
+                return new PdfTableClassificationResult(
+                    PdfTableKind.NotDataTable,
+                    0.95,
+                    "Synthetic classifier response.");
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _inFlight);
+            }
+        }
+
+        private void UpdateMaxObservedConcurrency(int value)
+        {
+            while (true)
+            {
+                var current = Volatile.Read(ref _maxObservedConcurrency);
+                if (value <= current)
+                {
+                    return;
+                }
+
+                if (Interlocked.CompareExchange(ref _maxObservedConcurrency, value, current) == current)
+                {
+                    return;
+                }
+            }
         }
     }
 

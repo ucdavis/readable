@@ -63,6 +63,7 @@ public sealed class OpenAIPdfCharacterEncodingRepairService : IPdfCharacterEncod
         """u8.ToArray());
 
     private readonly ChatClient _chatClient;
+    private readonly string _model;
 
     public OpenAIPdfCharacterEncodingRepairService(string apiKey, string model)
     {
@@ -76,6 +77,7 @@ public sealed class OpenAIPdfCharacterEncodingRepairService : IPdfCharacterEncod
             throw new ArgumentException("OpenAI model is required.", nameof(model));
         }
 
+        _model = model;
         _chatClient = new ChatClient(model: model, apiKey: apiKey);
     }
 
@@ -96,13 +98,11 @@ public sealed class OpenAIPdfCharacterEncodingRepairService : IPdfCharacterEncod
             new UserChatMessage(BuildPrompt(request)),
         ];
 
-        ChatCompletionOptions options = new()
-        {
-            ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
-                jsonSchemaFormatName: "pdf_character_encoding_repairs",
-                jsonSchema: RepairSchema,
-                jsonSchemaIsStrict: true),
-        };
+        var options = RemediationHelpers.CreateFastChatOptions(_model, maxOutputTokenCount: 4000);
+        options.ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
+            jsonSchemaFormatName: "pdf_character_encoding_repairs",
+            jsonSchema: RepairSchema,
+            jsonSchemaIsStrict: true);
 
         ClientResult<ChatCompletion> result =
             await _chatClient.CompleteChatAsync(messages, options, cancellationToken);
@@ -127,13 +127,11 @@ public sealed class OpenAIPdfCharacterEncodingRepairService : IPdfCharacterEncod
             new UserChatMessage(BuildActualTextPrompt(request)),
         ];
 
-        ChatCompletionOptions options = new()
-        {
-            ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
-                jsonSchemaFormatName: "pdf_character_encoding_actual_text_repairs",
-                jsonSchema: ActualTextRepairSchema,
-                jsonSchemaIsStrict: true),
-        };
+        var options = RemediationHelpers.CreateFastChatOptions(_model, maxOutputTokenCount: 4000);
+        options.ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
+            jsonSchemaFormatName: "pdf_character_encoding_actual_text_repairs",
+            jsonSchema: ActualTextRepairSchema,
+            jsonSchemaIsStrict: true);
 
         ClientResult<ChatCompletion> result =
             await _chatClient.CompleteChatAsync(messages, options, cancellationToken);
