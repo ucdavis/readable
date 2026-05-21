@@ -392,10 +392,12 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
 
             var imageOccurrences = 0;
             var imageAltSet = 0;
+            var imageAltDedupeHits = 0;
             var imageAltSkippedUnsupported = 0;
             var imageAltFailures = 0;
             var linkOccurrences = 0;
             var linkAltSet = 0;
+            var rasterAltByImageHash = new Dictionary<string, string>(StringComparer.Ordinal);
 
             using (LogStage.Begin(
                        _logger,
@@ -446,6 +448,19 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                             continue;
                         }
 
+                        var imageHash = Convert.ToHexString(SHA256.HashData(bytes));
+                        if (rasterAltByImageHash.TryGetValue(imageHash, out var cachedAltText))
+                        {
+                            imageAltDedupeHits++;
+                            SetAlt(figure, cachedAltText);
+                            if (!string.IsNullOrWhiteSpace(cachedAltText))
+                            {
+                                imageAltSet++;
+                            }
+
+                            continue;
+                        }
+
                         string altText;
                         try
                         {
@@ -468,6 +483,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                             continue;
                         }
 
+                        rasterAltByImageHash[imageHash] = altText;
                         SetAlt(figure, altText);
                         if (!string.IsNullOrWhiteSpace(altText))
                         {
@@ -878,10 +894,11 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             }
 
             _logger.LogInformation(
-                "PDF remediation image alt summary: {fileId} imageOccurrences={imageOccurrences} imageAltSet={imageAltSet} imageAltSkippedUnsupported={imageAltSkippedUnsupported} imageAltFailures={imageAltFailures} decorativeFigureAltSkipped={decorativeFigureAltSkipped} decorativeFiguresRemoved={decorativeFiguresRemoved} decorativeFiguresDemoted={decorativeFiguresDemoted} remainingFiguresMissingAlt={remainingFiguresMissingAlt} contentlessFiguresRemoved={contentlessFiguresRemoved} contentlessFiguresDemoted={contentlessFiguresDemoted}",
+                "PDF remediation image alt summary: {fileId} imageOccurrences={imageOccurrences} imageAltSet={imageAltSet} imageAltDedupeHits={imageAltDedupeHits} imageAltSkippedUnsupported={imageAltSkippedUnsupported} imageAltFailures={imageAltFailures} decorativeFigureAltSkipped={decorativeFigureAltSkipped} decorativeFiguresRemoved={decorativeFiguresRemoved} decorativeFiguresDemoted={decorativeFiguresDemoted} remainingFiguresMissingAlt={remainingFiguresMissingAlt} contentlessFiguresRemoved={contentlessFiguresRemoved} contentlessFiguresDemoted={contentlessFiguresDemoted}",
                 fileId,
                 imageOccurrences,
                 imageAltSet,
+                imageAltDedupeHits,
                 imageAltSkippedUnsupported,
                 imageAltFailures,
                 decorativeFigureAltSkipped,

@@ -29,8 +29,9 @@ public sealed class PdfRemediationProcessorTests
         try
         {
             var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            var altText = new FakeAltTextService();
             var sut = new PdfRemediationProcessor(
-                new FakeAltTextService(),
+                altText,
                 new NoopPdfBookmarkService(),
                 new FakePdfTitleService(),
                 NullLogger<PdfRemediationProcessor>.Instance);
@@ -87,8 +88,9 @@ public sealed class PdfRemediationProcessorTests
         try
         {
             var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            var altText = new FakeAltTextService();
             var sut = new PdfRemediationProcessor(
-                new FakeAltTextService(),
+                altText,
                 new NoopPdfBookmarkService(),
                 new FakePdfTitleService(),
                 NullLogger<PdfRemediationProcessor>.Instance);
@@ -104,6 +106,7 @@ public sealed class PdfRemediationProcessorTests
             var outputFigures = ListStructElementsByRole(outputPdf, PdfName.Figure);
             outputFigures.Should().HaveCount(3);
             outputFigures.Should().OnlyContain(f => GetAlt(f) == "fake image alt text");
+            altText.ImageCalls.Should().Be(1, "identical raster images should reuse generated alt text");
 
             ListStructElementsByRole(outputPdf, RoleSpan)
                 .Should()
@@ -120,10 +123,13 @@ public sealed class PdfRemediationProcessorTests
 
     private sealed class FakeAltTextService : IAltTextService
     {
+        public int ImageCalls { get; private set; }
+
         public Task<string> GetAltTextForImageAsync(ImageAltTextRequest request, CancellationToken cancellationToken)
         {
             _ = request;
             cancellationToken.ThrowIfCancellationRequested();
+            ImageCalls++;
             return Task.FromResult("fake image alt text");
         }
 
