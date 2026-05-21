@@ -54,6 +54,7 @@ public sealed class PdfRemediationProcessorVectorFigureAltTests
             var outputPlaceholderCount = outputFigures.Count(f => IsPlaceholderAlt(f));
 
             outputPlaceholderCount.Should().BeLessThan(inputPlaceholderCount, "vector figure remediation should reduce placeholder alt text");
+            outputFigures.Should().Contain(f => GetAlt(f) == "generated alt text");
             altText.ImageCalls.Should().BeGreaterThan(0, "vector figure remediation should call the alt text service at least once");
         }
         finally
@@ -97,7 +98,7 @@ public sealed class PdfRemediationProcessorVectorFigureAltTests
         figureElem.Put(PdfName.S, PdfName.Figure);
         figureElem.Put(PdfName.P, documentElem);
         figureElem.Put(PdfName.Pg, pageDict);
-        figureElem.Put(PdfName.Alt, new PdfString("alt text for image", PdfEncodings.UNICODE_BIG));
+        figureElem.Put(PdfName.Alt, new PdfString("image 3", PdfEncodings.UNICODE_BIG));
 
         var markedContentRef = new PdfDictionary();
         markedContentRef.Put(PdfName.Type, new PdfName("MCR"));
@@ -216,9 +217,12 @@ public sealed class PdfRemediationProcessorVectorFigureAltTests
 
     private static bool IsPlaceholderAlt(PdfDictionary structElem)
     {
-        var alt = structElem.GetAsString(PdfName.Alt)?.ToUnicodeString() ?? string.Empty;
-        return string.Equals(alt.Trim(), "alt text for image", StringComparison.OrdinalIgnoreCase);
+        var alt = GetAlt(structElem)?.Trim() ?? string.Empty;
+        return string.Equals(alt, "alt text for image", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(alt, "image 3", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static string? GetAlt(PdfDictionary structElem) => structElem.GetAsString(PdfName.Alt)?.ToUnicodeString();
 
     private static List<PdfDictionary> ListStructElementsByRole(PdfDocument pdf, PdfName role)
     {
