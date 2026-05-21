@@ -342,6 +342,19 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     fileId);
             }
 
+            PdfXObjectStructureAssociationRemediationResult xObjectStructureRemediation;
+            using (LogStage.Begin(_logger, fileId, "remediate_xobject_structure_associations", null, kind: "Remediation stage"))
+            {
+                xObjectStructureRemediation = PdfXObjectStructureAssociationRemediator.Remediate(pdf, cancellationToken);
+            }
+            _logger.LogInformation(
+                "XObject structure association remediation in {fileId}: inspected={inspected} protected={protected} disconnected={disconnected} inlineAltApplied={inlineAltApplied}.",
+                fileId,
+                xObjectStructureRemediation.Inspected,
+                xObjectStructureRemediation.Protected,
+                xObjectStructureRemediation.Disconnected,
+                xObjectStructureRemediation.InlineAltApplied);
+
             Dictionary<int, int> pageObjNumToPageNumber;
             PdfStructTreeIndex figureIndex;
             using (LogStage.Begin(_logger, fileId, "build_struct_tree_indices", null, kind: "Remediation stage"))
