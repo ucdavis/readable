@@ -36,6 +36,10 @@ internal static class PdfAnnotationRemediator
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var dict = annotation.GetPdfObject();
+                if (PdfName.Widget.Equals(annotation.GetSubtype()))
+                {
+                    continue;
+                }
 
                 var structParent = dict.GetAsNumber(StructParentKey)?.IntValue();
                 if (structParent is null)

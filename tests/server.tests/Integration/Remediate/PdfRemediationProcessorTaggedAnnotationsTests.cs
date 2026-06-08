@@ -104,7 +104,106 @@ public sealed class PdfRemediationProcessorTaggedAnnotationsTests
         }
     }
 
+    [Fact]
+    public async Task ProcessAsync_WhenPdfHasUntaggedFormField_PreservesWidgetAndAcroFormField()
+    {
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"remediate-form-widget-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var inputPdfPath = Path.Combine(runRoot, "input.pdf");
+            var outputPdfPath = Path.Combine(runRoot, "output.pdf");
+            CreateTaggedPdfWithUntaggedTextField(inputPdfPath);
+
+            using (var inputPdf = new PdfDocument(new PdfReader(inputPdfPath)))
+            {
+                inputPdf.IsTagged().Should().BeTrue();
+                CountWidgetAnnotations(inputPdf).Should().Be(1);
+                CountAcroFormFields(inputPdf).Should().Be(1);
+            }
+
+            var sut = new PdfRemediationProcessor(
+                new FakeAltTextService(),
+                new NoopPdfBookmarkService(),
+                new FakePdfTitleService(),
+                NullLogger<PdfRemediationProcessor>.Instance);
+
+            await sut.ProcessAsync(
+                fileId: "fillable-form",
+                inputPdfPath: inputPdfPath,
+                outputPdfPath: outputPdfPath,
+                cancellationToken: CancellationToken.None);
+
+            using var outputPdf = new PdfDocument(new PdfReader(outputPdfPath));
+            outputPdf.IsTagged().Should().BeTrue();
+            CountWidgetAnnotations(outputPdf).Should().Be(1);
+            CountAcroFormFields(outputPdf).Should().Be(1);
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
     private sealed record AnnotationStats(int TotalAnnotations, int TaggedAnnotations, int UntaggedAnnotations);
+
+    private static void CreateTaggedPdfWithUntaggedTextField(string outputPath)
+    {
+        using var pdf = new PdfDocument(new PdfWriter(outputPath));
+        pdf.SetTagged();
+
+        var page = pdf.AddNewPage();
+        var widget = new PdfDictionary();
+        widget.Put(PdfName.Type, PdfName.Annot);
+        widget.Put(PdfName.Subtype, PdfName.Widget);
+        widget.Put(PdfName.Rect, new PdfArray(new[] { 72, 700, 300, 724 }));
+        widget.Put(PdfName.FT, PdfName.Tx);
+        widget.Put(PdfName.T, new PdfString("department"));
+        widget.Put(PdfName.V, new PdfString("Readable"));
+        widget.Put(PdfName.F, new PdfNumber(4));
+        widget.MakeIndirect(pdf);
+
+        var annots = new PdfArray();
+        annots.Add(widget.GetIndirectReference());
+        page.GetPdfObject().Put(PdfName.Annots, annots);
+
+        var fields = new PdfArray();
+        fields.Add(widget.GetIndirectReference());
+
+        var acroForm = new PdfDictionary();
+        acroForm.Put(PdfName.Fields, fields);
+        acroForm.Put(PdfName.NeedAppearances, PdfBoolean.TRUE);
+        acroForm.MakeIndirect(pdf);
+
+        pdf.GetCatalog().GetPdfObject().Put(PdfName.AcroForm, acroForm.GetIndirectReference());
+    }
+
+    private static int CountWidgetAnnotations(PdfDocument pdf)
+    {
+        var total = 0;
+        for (var pageNumber = 1; pageNumber <= pdf.GetNumberOfPages(); pageNumber++)
+        {
+            foreach (var annotation in pdf.GetPage(pageNumber).GetAnnotations())
+            {
+                if (PdfName.Widget.Equals(annotation.GetSubtype()))
+                {
+                    total++;
+                }
+            }
+        }
+
+        return total;
+    }
+
+    private static int CountAcroFormFields(PdfDocument pdf)
+    {
+        var acroForm = pdf.GetCatalog().GetPdfObject().GetAsDictionary(PdfName.AcroForm);
+        return acroForm?.GetAsArray(PdfName.Fields)?.Size() ?? 0;
+    }
 
     private static AnnotationStats ReadAnnotationStats(string pdfPath)
     {
