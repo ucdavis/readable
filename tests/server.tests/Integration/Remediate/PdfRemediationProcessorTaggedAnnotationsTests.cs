@@ -139,6 +139,10 @@ public sealed class PdfRemediationProcessorTaggedAnnotationsTests
             outputPdf.IsTagged().Should().BeTrue();
             CountWidgetAnnotations(outputPdf).Should().Be(1);
             CountAcroFormFields(outputPdf).Should().Be(1);
+
+            var annotationStats = ReadAnnotationStats(outputPdfPath);
+            annotationStats.UntaggedAnnotations.Should().Be(0, "the preserved form widget should be tagged");
+            annotationStats.TaggedAnnotations.Should().Be(1);
         }
         finally
         {
@@ -155,6 +159,7 @@ public sealed class PdfRemediationProcessorTaggedAnnotationsTests
     {
         using var pdf = new PdfDocument(new PdfWriter(outputPath));
         pdf.SetTagged();
+        AddRootStructureElement(pdf);
 
         var page = pdf.AddNewPage();
         var widget = new PdfDictionary();
@@ -180,6 +185,20 @@ public sealed class PdfRemediationProcessorTaggedAnnotationsTests
         acroForm.MakeIndirect(pdf);
 
         pdf.GetCatalog().GetPdfObject().Put(PdfName.AcroForm, acroForm.GetIndirectReference());
+    }
+
+    private static void AddRootStructureElement(PdfDocument pdf)
+    {
+        var structTreeRoot = pdf.GetCatalog().GetPdfObject().GetAsDictionary(PdfName.StructTreeRoot);
+        structTreeRoot.Should().NotBeNull();
+
+        var documentStruct = new PdfDictionary();
+        documentStruct.Put(PdfName.Type, PdfName.StructElem);
+        documentStruct.Put(PdfName.S, PdfName.Document);
+        documentStruct.Put(PdfName.P, structTreeRoot!.GetIndirectReference());
+        documentStruct.MakeIndirect(pdf);
+
+        structTreeRoot.Put(PdfName.K, documentStruct.GetIndirectReference());
     }
 
     private static int CountWidgetAnnotations(PdfDocument pdf)
