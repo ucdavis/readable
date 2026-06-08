@@ -128,6 +128,20 @@ Storage__ConnectionString='<storage-connection-string>' \
 dotnet run --project workers/opendataloader.api
 ```
 
+Run the OpenDataLoader CLI locally through Docker without installing Java/Python packages on the host:
+
+```bash
+docker build -f workers/opendataloader.api/Dockerfile -t readable-opendataloader-local:latest .
+
+ODL_COMMAND_PATH="$PWD/tools/opendataloader-pdf-docker" \
+READABLE_RUN_EXTERNAL_PDF_TESTS=1 \
+dotnet test tests/server.tests/server.tests.csproj \
+  --filter "FullyQualifiedName~PdfProcessorOpenDataLoaderExternalTests"
+```
+
+The wrapper script mounts only the input PDF directory and output directory into the container, then runs
+`opendataloader-pdf` from the worker image.
+
 ## Development
 
 ### Backend Development
