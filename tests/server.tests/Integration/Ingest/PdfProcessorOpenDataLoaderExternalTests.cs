@@ -1,0 +1,372 @@
+using System.Collections;
+using System.Text.Json;
+using FluentAssertions;
+using iText.Kernel.Pdf;
+using iText.Kernel.Pdf.Annot;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using opendataloader.api;
+using server.core.Ingest;
+using server.core.Remediate;
+using server.core.Remediate.AltText;
+using server.core.Remediate.Title;
+
+namespace server.tests.Integration.Ingest;
+
+public sealed class PdfProcessorOpenDataLoaderExternalTests
+{
+    private const string ExternalTestFlag = "READABLE_RUN_EXTERNAL_PDF_TESTS";
+    private static readonly PdfName StructParentKey = new("StructParent");
+
+    [Fact]
+    public async Task FormsFixture_WithRealOpenDataLoaderAndAdobe_PreservesFieldsAndPassesTaggedFormFields()
+    {
+        if (!ExternalPdfTestsEnabled())
+        {
+            return;
+        }
+
+        var repoRoot = FindRepoRoot();
+        var inputPdfPath = Path.Combine(repoRoot, "tests", "server.tests", "Fixtures", "pdfs", "forms.pdf");
+        File.Exists(inputPdfPath).Should().BeTrue($"fixture should exist at {inputPdfPath}");
+
+        var configuration = BuildConfiguration(repoRoot);
+        AdobePdfServices.EnsureCredentialsConfigured(configuration);
+
+        var odlOptions = OpenDataLoaderOptions.FromConfiguration(configuration);
+        RuntimeDependencyProbe.FindOnPath(odlOptions.CommandPath)
+            .Should()
+            .NotBeNull(
+                "external ODL test requires {0} on PATH or ODL_COMMAND_PATH set; " +
+                "to avoid installing Java locally, build the worker image and set ODL_COMMAND_PATH=tools/opendataloader-pdf-docker",
+                odlOptions.CommandPath);
+
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"odl-adobe-forms-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runRoot);
+
+        try
+        {
+            var adobe = new AdobePdfServices(
+                configuration,
+                NullLogger<AdobePdfServices>.Instance,
+                new NoopAdobePdfServicesRateLimiter());
+            var remediation = new PdfRemediationProcessor(
+                new FakeAltTextService(),
+                new Remediate.NoopPdfBookmarkService(),
+                new FakePdfTitleService(),
+                NullLogger<PdfRemediationProcessor>.Instance);
+            var processor = new PdfProcessor(
+                adobe,
+                remediation,
+                Options.Create(new PdfProcessorOptions
+                {
+                    UseAdobePdfServices = true,
+                    UsePdfRemediationProcessor = true,
+                    UsePdfBookmarks = false,
+                    AutotagTaggedPdfs = false,
+                    WorkDirRoot = runRoot,
+                }),
+                NullLogger<PdfProcessor>.Instance);
+
+            await using var intakeInput = File.OpenRead(inputPdfPath);
+            var intake = await processor.PrepareForQueuedAutotagAsync(
+                fileId: "forms-fixture-external",
+                pdfStream: intakeInput,
+                cancellationToken: CancellationToken.None);
+
+            intake.RequiresAutotag.Should().BeTrue("the forms fixture should follow the same ODL retag path as production");
+            AdobeRuleStatus(intake.BeforeAccessibilityReportJson, "Forms", "Tagged form fields")
+                .Should()
+                .Be("Failed");
+
+            var odlOutputDirectory = Path.Combine(runRoot, "odl-output");
+            Directory.CreateDirectory(odlOutputDirectory);
+            var odl = new OpenDataLoaderRunner(
+                NullLogger<OpenDataLoaderRunner>.Instance,
+                odlOptions);
+
+            var odlResult = await odl.ConvertAsync(inputPdfPath, odlOutputDirectory, CancellationToken.None);
+            odlResult.ExitCode.Should().Be(0, $"OpenDataLoader stderr: {odlResult.StandardError}");
+            odlResult.TaggedPdfPath.Should().NotBeNullOrWhiteSpace("OpenDataLoader should produce a tagged PDF");
+            File.Exists(odlResult.TaggedPdfPath!).Should().BeTrue();
+
+            await using var taggedInput = File.OpenRead(odlResult.TaggedPdfPath!);
+            var finalized = await processor.FinalizeTaggedPdfAsync(
+                fileId: "forms-fixture-external",
+                pdfStream: taggedInput,
+                context: new PdfFinalizeContext(intake.PageCount, intake.Autotag),
+                cancellationToken: CancellationToken.None);
+
+            File.Exists(finalized.OutputPdfPath).Should().BeTrue();
+            var finalStats = ReadFormWidgetStats(finalized.OutputPdfPath);
+            finalStats.AcroFormFieldCount.Should().BeGreaterThan(0);
+            finalStats.WidgetAnnotationCount.Should().BeGreaterThan(0);
+            finalStats.UnassociatedWidgetAnnotationCount.Should()
+                .Be(0, "all form widget annotations should be associated with the structure parent tree");
+
+            AdobeRuleStatus(finalized.AfterAccessibilityReportJson, "Forms", "Tagged form fields")
+                .Should()
+                .Be("Passed");
+        }
+        finally
+        {
+            if (Directory.Exists(runRoot))
+            {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+    }
+
+    private sealed record FormWidgetStats(
+        int AcroFormFieldCount,
+        int WidgetAnnotationCount,
+        int UnassociatedWidgetAnnotationCount);
+
+    private static bool ExternalPdfTestsEnabled()
+    {
+        return string.Equals(Environment.GetEnvironmentVariable(ExternalTestFlag), "1", StringComparison.Ordinal);
+    }
+
+    private static IConfiguration BuildConfiguration(string repoRoot)
+    {
+        var values = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        LoadEnvFile(Path.Combine(repoRoot, "server", ".env"), values);
+        LoadEnvFile(Path.Combine(repoRoot, ".env"), values);
+
+        foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            if (entry.Key is string key)
+            {
+                values[key] = entry.Value?.ToString();
+            }
+        }
+
+        return new ConfigurationBuilder()
+            .AddInMemoryCollection(values)
+            .Build();
+    }
+
+    private static void LoadEnvFile(string path, Dictionary<string, string?> values)
+    {
+        if (!File.Exists(path))
+        {
+            return;
+        }
+
+        foreach (var rawLine in File.ReadLines(path))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#') || !line.Contains('='))
+            {
+                continue;
+            }
+
+            var equalsIndex = line.IndexOf('=');
+            var key = line[..equalsIndex].Trim();
+            if (key.Length == 0)
+            {
+                continue;
+            }
+
+            values[key] = line[(equalsIndex + 1)..].Trim().Trim('"', '\'');
+        }
+    }
+
+    private static string? AdobeRuleStatus(string? reportJson, string sectionName, string ruleName)
+    {
+        if (string.IsNullOrWhiteSpace(reportJson))
+        {
+            return null;
+        }
+
+        using var doc = JsonDocument.Parse(reportJson);
+        if (!doc.RootElement.TryGetProperty("Detailed Report", out var detailedReport) ||
+            !detailedReport.TryGetProperty(sectionName, out var section) ||
+            section.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var item in section.EnumerateArray())
+        {
+            if (item.TryGetProperty("Rule", out var rule) &&
+                string.Equals(rule.GetString(), ruleName, StringComparison.Ordinal) &&
+                item.TryGetProperty("Status", out var status))
+            {
+                return status.GetString();
+            }
+        }
+
+        return null;
+    }
+
+    private static FormWidgetStats ReadFormWidgetStats(string pdfPath)
+    {
+        using var pdf = new PdfDocument(new PdfReader(pdfPath));
+
+        var parentTree = TryGetParentTree(pdf);
+        var widgetAnnotationCount = 0;
+        var unassociatedWidgetAnnotationCount = 0;
+
+        for (var pageNumber = 1; pageNumber <= pdf.GetNumberOfPages(); pageNumber++)
+        {
+            foreach (var annotation in pdf.GetPage(pageNumber).GetAnnotations())
+            {
+                if (!PdfName.Widget.Equals(annotation.GetSubtype()))
+                {
+                    continue;
+                }
+
+                widgetAnnotationCount++;
+
+                var structParent = annotation.GetPdfObject().GetAsNumber(StructParentKey)?.IntValue();
+                if (structParent is null || parentTree is null || !NumberTreeContainsKey(parentTree, structParent.Value))
+                {
+                    unassociatedWidgetAnnotationCount++;
+                }
+            }
+        }
+
+        return new FormWidgetStats(
+            CountAcroFormFields(pdf),
+            widgetAnnotationCount,
+            unassociatedWidgetAnnotationCount);
+    }
+
+    private static int CountAcroFormFields(PdfDocument pdf)
+    {
+        var acroForm = pdf.GetCatalog().GetPdfObject().GetAsDictionary(PdfName.AcroForm);
+        return acroForm?.GetAsArray(PdfName.Fields)?.Size() ?? 0;
+    }
+
+    private static PdfDictionary? TryGetParentTree(PdfDocument pdf)
+    {
+        var catalogDict = pdf.GetCatalog().GetPdfObject();
+        var structTreeRootDict = catalogDict.GetAsDictionary(PdfName.StructTreeRoot);
+        return structTreeRootDict?.GetAsDictionary(PdfName.ParentTree);
+    }
+
+    private static bool NumberTreeContainsKey(PdfDictionary numberTree, int key)
+    {
+        var visited = new HashSet<(int objNum, int genNum)>();
+        return NumberTreeContainsKeyRecursive(numberTree, key, visited);
+    }
+
+    private static bool NumberTreeContainsKeyRecursive(
+        PdfDictionary node,
+        int key,
+        HashSet<(int objNum, int genNum)> visited)
+    {
+        var nodeRef = node.GetIndirectReference();
+        if (nodeRef is not null)
+        {
+            var refKey = (nodeRef.GetObjNumber(), nodeRef.GetGenNumber());
+            if (!visited.Add(refKey))
+            {
+                return false;
+            }
+        }
+
+        var nums = node.GetAsArray(PdfName.Nums);
+        if (nums is not null)
+        {
+            for (var i = 0; i + 1 < nums.Size(); i += 2)
+            {
+                if (nums.GetAsNumber(i)?.IntValue() == key)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        var kids = node.GetAsArray(PdfName.Kids);
+        if (kids is null)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < kids.Size(); i++)
+        {
+            var kidObj = Dereference(kids.Get(i));
+            if (kidObj is not PdfDictionary kidDict)
+            {
+                continue;
+            }
+
+            var limits = kidDict.GetAsArray(PdfName.Limits);
+            if (limits is not null && limits.Size() >= 2)
+            {
+                var low = limits.GetAsNumber(0)?.IntValue();
+                var high = limits.GetAsNumber(1)?.IntValue();
+                if (low is not null && high is not null && (key < low.Value || key > high.Value))
+                {
+                    continue;
+                }
+            }
+
+            if (NumberTreeContainsKeyRecursive(kidDict, key, visited))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static PdfObject Dereference(PdfObject obj)
+    {
+        return obj is PdfIndirectReference reference
+            ? reference.GetRefersTo(true) ?? new PdfNull()
+            : obj;
+    }
+
+    private sealed class FakeAltTextService : IAltTextService
+    {
+        public Task<string> GetAltTextForImageAsync(ImageAltTextRequest request, CancellationToken cancellationToken)
+        {
+            _ = request;
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult("fake image alt text");
+        }
+
+        public Task<string> GetAltTextForLinkAsync(LinkAltTextRequest request, CancellationToken cancellationToken)
+        {
+            _ = request;
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult("fake link alt text");
+        }
+
+        public string GetFallbackAltTextForImage() => "fake image alt text";
+
+        public string GetFallbackAltTextForLink() => "fake link alt text";
+    }
+
+    private sealed class FakePdfTitleService : IPdfTitleService
+    {
+        public Task<string> GenerateTitleAsync(PdfTitleRequest request, CancellationToken cancellationToken)
+        {
+            _ = request;
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult("fake title");
+        }
+    }
+
+    private static string FindRepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "app.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        if (dir is null)
+        {
+            throw new DirectoryNotFoundException("Unable to locate repo root (missing app.sln).");
+        }
+
+        return dir.FullName;
+    }
+}

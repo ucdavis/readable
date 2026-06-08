@@ -227,7 +227,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     cancellationToken);
             }
 
-            var isTagged = pdf.IsTagged();
+            var isTagged = HasStructureTreeRootKids(pdf);
             _logger.LogInformation(
                 "PDF remediation input characteristics: {fileId} pages={pages} isTagged={isTagged}",
                 fileId,
@@ -328,6 +328,19 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             using (LogStage.Begin(_logger, fileId, "ensure_table_summaries", null, kind: "Remediation stage"))
             {
                 PdfTableSummaryRemediator.EnsureTablesHaveSummary(pdf, cancellationToken);
+            }
+
+            int taggedFormWidgets;
+            using (LogStage.Begin(_logger, fileId, "ensure_form_field_tags", null, kind: "Remediation stage"))
+            {
+                taggedFormWidgets = PdfAnnotationRemediator.EnsureWidgetAnnotationsAreTagged(pdf, cancellationToken);
+            }
+            if (taggedFormWidgets > 0)
+            {
+                _logger.LogInformation(
+                    "Tagged {count} form widget annotation(s) in {fileId}.",
+                    taggedFormWidgets,
+                    fileId);
             }
 
             int removedAnnotations;
@@ -1076,6 +1089,18 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             pdf.GetCatalog().GetPdfObject().GetAsString(PdfName.Lang)?.ToUnicodeString() ?? string.Empty);
 
         return string.IsNullOrWhiteSpace(language) ? null : language;
+    }
+
+    private static bool HasStructureTreeRootKids(PdfDocument pdf)
+    {
+        var structTreeRoot = pdf.GetCatalog().GetPdfObject().GetAsDictionary(PdfName.StructTreeRoot);
+        var rootKids = structTreeRoot?.Get(PdfName.K);
+        if (rootKids is null || rootKids is PdfNull)
+        {
+            return false;
+        }
+
+        return rootKids is not PdfArray kids || kids.Size() > 0;
     }
 
     /// <summary>

@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+image="${ODL_DOCKER_IMAGE:-readable-opendataloader-local:latest}"
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <input.pdf> --output-dir <output-dir> [opendataloader-pdf args...]" >&2
+  exit 2
+fi
+
+input_path="$1"
+shift
+
+output_dir=""
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output-dir)
+      if [[ $# -lt 2 ]]; then
+        echo "--output-dir requires a value" >&2
+        exit 2
+      fi
+      output_dir="$2"
+      args+=("--output-dir" "/output")
+      shift 2
+      ;;
+    *)
+      args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$output_dir" ]]; then
+  echo "Missing required --output-dir argument" >&2
+  exit 2
+fi
+
+if [[ ! -f "$input_path" ]]; then
+  echo "Input PDF does not exist: $input_path" >&2
+  exit 2
+fi
+
+mkdir -p "$output_dir"
+
+input_dir="$(cd "$(dirname "$input_path")" && pwd)"
+input_file="$(basename "$input_path")"
+output_dir_abs="$(cd "$output_dir" && pwd)"
+
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+  cat >&2 <<EOF
+Docker image '$image' was not found.
+
+Build it from the repo root with:
+  docker build -f workers/opendataloader.api/Dockerfile -t $image .
+
+Or set ODL_DOCKER_IMAGE to an existing image that contains opendataloader-pdf.
+EOF
+  exit 127
+fi
+
+exec docker run --rm \
+  --entrypoint opendataloader-pdf \
+  -v "$input_dir:/input:ro" \
+  -v "$output_dir_abs:/output" \
+  "$image" \
+  "/input/$input_file" \
+  "${args[@]}"
