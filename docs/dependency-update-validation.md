@@ -5,7 +5,7 @@ Validated on 2026-09-08 on branch `srk/update-dependencies-odl`.
 ## Updates
 
 - OpenDataLoader PDF 2.4.1 to 2.5.7. The worker image was rebuilt from refreshed .NET 8 base images and reports .NET/ASP.NET Core 8.0.31.
-- .NET SDK minimum 8.0.425; EF Core and the local EF tool 8.0.31.
+- .NET SDK 8.0.4xx feature band, patch 8.0.425 or later within that band; EF Core and the local EF tool 8.0.31.
 - iText and its Bouncy Castle adapter 9.7.0, Adobe PDF Services 4.4.0, OpenAI 2.13.0, Azure Storage/Service Bus, Functions worker packages, and OpenTelemetry.
 - Microsoft Identity Web 4.14.2 and Swashbuckle 10.2.3. Swagger's API-key definition was adapted to the current OpenAPI types. OpenAI Responses now uses `ResponsesClientOptions`.
 - Compatible React, TanStack, Vite, Vitest, Tailwind, DaisyUI, Gunrock, testing, and lint dependencies. Small compatibility edits satisfy the updated lint rules. The router generated its updated route tree.
@@ -58,10 +58,10 @@ The newsletter received a generated title and four image descriptions. All four 
 
 The form's two remaining automated failures are "Character encoding" and "Hides annotation". Adobe also retains two manual checks for the form and three for the newsletter. Passing automated checks is not a claim of full accessibility compliance.
 
-Local outputs and Adobe reports are retained under the ignored directory `outputs/dependency-smoke-live-ai/`:
+Local outputs and Adobe reports are retained under the ignored directory `outputs/dependency-smoke-live-ai/`. These files are not published in the repository. Run the command below from the repository root to generate them locally:
 
-- [Remediated form](../outputs/dependency-smoke-live-ai/forms.remediated.pdf)
-- [Remediated newsletter](../outputs/dependency-smoke-live-ai/untagged.remediated.pdf)
+- Remediated form: `outputs/dependency-smoke-live-ai/forms.remediated.pdf`
+- Remediated newsletter: `outputs/dependency-smoke-live-ai/untagged.remediated.pdf`
 
 To repeat the live service checks after building the worker image:
 
