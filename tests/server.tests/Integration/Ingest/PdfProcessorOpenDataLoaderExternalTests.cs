@@ -3,6 +3,7 @@ using System.Text.Json;
 using FluentAssertions;
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Annot;
+using iText.Kernel.Pdf.Canvas.Parser;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -19,16 +20,14 @@ public sealed class PdfProcessorOpenDataLoaderExternalTests
     private const string ExternalTestFlag = "READABLE_RUN_EXTERNAL_PDF_TESTS";
     private static readonly PdfName StructParentKey = new("StructParent");
 
-    [Fact]
-    public async Task FormsFixture_WithRealOpenDataLoaderAndAdobe_PreservesFieldsAndPassesTaggedFormFields()
+    [ExternalPdfTheory]
+    [InlineData("forms.pdf", true)]
+    [InlineData("untagged.pdf", false)]
+    public async Task Fixture_WithRealOpenDataLoaderAndAdobe_PreservesContentAndTags(
+        string fixtureName, bool hasFormFields)
     {
-        if (!ExternalPdfTestsEnabled())
-        {
-            return;
-        }
-
         var repoRoot = FindRepoRoot();
-        var inputPdfPath = Path.Combine(repoRoot, "tests", "server.tests", "Fixtures", "pdfs", "forms.pdf");
+        var inputPdfPath = Path.Combine(repoRoot, "tests", "server.tests", "Fixtures", "pdfs", fixtureName);
         File.Exists(inputPdfPath).Should().BeTrue($"fixture should exist at {inputPdfPath}");
 
         var configuration = BuildConfiguration(repoRoot);
@@ -42,7 +41,7 @@ public sealed class PdfProcessorOpenDataLoaderExternalTests
                 "to avoid installing Java locally, build the worker image and set ODL_COMMAND_PATH=tools/opendataloader-pdf-docker",
                 odlOptions.CommandPath);
 
-        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"odl-adobe-forms-{Guid.NewGuid():N}");
+        var runRoot = Path.Combine(Path.GetTempPath(), "readable-tests", $"odl-adobe-{Path.GetFileNameWithoutExtension(fixtureName)}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(runRoot);
 
         try
@@ -51,10 +50,23 @@ public sealed class PdfProcessorOpenDataLoaderExternalTests
                 configuration,
                 NullLogger<AdobePdfServices>.Instance,
                 new NoopAdobePdfServicesRateLimiter());
+            var useLiveAi = Environment.GetEnvironmentVariable("READABLE_RUN_EXTERNAL_AI_TESTS") == "1";
+            IAltTextService altText = useLiveAi
+                ? new OpenAIAltTextService(
+                    configuration["OPENAI_API_KEY"]!,
+                    configuration["OPENAI_ALT_TEXT_MODEL"] ?? "gpt-5-mini",
+                    configuration["OPENAI_ENDPOINT"])
+                : new FakeAltTextService();
+            IPdfTitleService title = useLiveAi
+                ? new OpenAIPdfTitleService(
+                    configuration["OPENAI_API_KEY"]!,
+                    configuration["OPENAI_PDF_TITLE_MODEL"] ?? "gpt-5-mini",
+                    configuration["OPENAI_ENDPOINT"])
+                : new FakePdfTitleService();
             var remediation = new PdfRemediationProcessor(
-                new FakeAltTextService(),
+                altText,
                 new Remediate.NoopPdfBookmarkService(),
-                new FakePdfTitleService(),
+                title,
                 NullLogger<PdfRemediationProcessor>.Instance);
             var processor = new PdfProcessor(
                 adobe,
@@ -71,14 +83,16 @@ public sealed class PdfProcessorOpenDataLoaderExternalTests
 
             await using var intakeInput = File.OpenRead(inputPdfPath);
             var intake = await processor.PrepareForQueuedAutotagAsync(
-                fileId: "forms-fixture-external",
+                fileId: $"{Path.GetFileNameWithoutExtension(fixtureName)}-fixture-external",
                 pdfStream: intakeInput,
                 cancellationToken: CancellationToken.None);
 
-            intake.RequiresAutotag.Should().BeTrue("the forms fixture should follow the same ODL retag path as production");
-            AdobeRuleStatus(intake.BeforeAccessibilityReportJson, "Forms", "Tagged form fields")
-                .Should()
-                .Be("Failed");
+            intake.RequiresAutotag.Should().BeTrue("the fixture should follow the ODL retag path");
+            if (hasFormFields)
+            {
+                AdobeRuleStatus(intake.BeforeAccessibilityReportJson, "Forms", "Tagged form fields")
+                    .Should().Be("Failed");
+            }
 
             var odlOutputDirectory = Path.Combine(runRoot, "odl-output");
             Directory.CreateDirectory(odlOutputDirectory);
@@ -93,21 +107,51 @@ public sealed class PdfProcessorOpenDataLoaderExternalTests
 
             await using var taggedInput = File.OpenRead(odlResult.TaggedPdfPath!);
             var finalized = await processor.FinalizeTaggedPdfAsync(
-                fileId: "forms-fixture-external",
+                fileId: $"{Path.GetFileNameWithoutExtension(fixtureName)}-fixture-external",
                 pdfStream: taggedInput,
                 context: new PdfFinalizeContext(intake.PageCount, intake.Autotag),
                 cancellationToken: CancellationToken.None);
 
             File.Exists(finalized.OutputPdfPath).Should().BeTrue();
-            var finalStats = ReadFormWidgetStats(finalized.OutputPdfPath);
-            finalStats.AcroFormFieldCount.Should().BeGreaterThan(0);
-            finalStats.WidgetAnnotationCount.Should().BeGreaterThan(0);
-            finalStats.UnassociatedWidgetAnnotationCount.Should()
-                .Be(0, "all form widget annotations should be associated with the structure parent tree");
+            using var sourcePdf = new PdfDocument(new PdfReader(inputPdfPath));
+            using var finalPdf = new PdfDocument(new PdfReader(finalized.OutputPdfPath));
+            finalPdf.GetNumberOfPages().Should().Be(sourcePdf.GetNumberOfPages());
+            finalPdf.IsTagged().Should().BeTrue();
+            finalPdf.GetDocumentInfo().GetTitle().Should().NotBeNullOrWhiteSpace();
+            if (useLiveAi && !hasFormFields)
+            {
+                finalPdf.GetDocumentInfo().GetTitle().Should()
+                    .NotBe("fake title").And.NotBe("Untitled PDF document");
+            }
+            for (var page = 1; page <= sourcePdf.GetNumberOfPages(); page++)
+            {
+                var sourceText = PdfTextExtractor.GetTextFromPage(sourcePdf.GetPage(page));
+                var finalText = PdfTextExtractor.GetTextFromPage(finalPdf.GetPage(page));
+                finalText.Should().Be(sourceText, $"page {page} text must survive tagging and remediation");
+            }
 
-            AdobeRuleStatus(finalized.AfterAccessibilityReportJson, "Forms", "Tagged form fields")
-                .Should()
-                .Be("Passed");
+            if (hasFormFields)
+            {
+                var sourceStats = ReadFormWidgetStats(inputPdfPath);
+                var finalStats = ReadFormWidgetStats(finalized.OutputPdfPath);
+                finalStats.AcroFormFieldCount.Should().Be(sourceStats.AcroFormFieldCount).And.BeGreaterThan(0);
+                finalStats.WidgetAnnotationCount.Should().Be(sourceStats.WidgetAnnotationCount).And.BeGreaterThan(0);
+                finalStats.UnassociatedWidgetAnnotationCount.Should()
+                    .Be(0, "all form widget annotations should be associated with the structure parent tree");
+                AdobeRuleStatus(finalized.AfterAccessibilityReportJson, "Forms", "Tagged form fields")
+                    .Should().Be("Passed");
+            }
+
+            // Opt in to retaining outputs for visual inspection after the test.
+            var artifactDirectory = Environment.GetEnvironmentVariable("READABLE_EXTERNAL_PDF_ARTIFACT_DIR");
+            if (!string.IsNullOrWhiteSpace(artifactDirectory))
+            {
+                Directory.CreateDirectory(artifactDirectory);
+                var stem = Path.GetFileNameWithoutExtension(fixtureName);
+                File.Copy(finalized.OutputPdfPath, Path.Combine(artifactDirectory, $"{stem}.remediated.pdf"), overwrite: true);
+                await File.WriteAllTextAsync(Path.Combine(artifactDirectory, $"{stem}.before.json"), intake.BeforeAccessibilityReportJson);
+                await File.WriteAllTextAsync(Path.Combine(artifactDirectory, $"{stem}.after.json"), finalized.AfterAccessibilityReportJson);
+            }
         }
         finally
         {
@@ -123,9 +167,15 @@ public sealed class PdfProcessorOpenDataLoaderExternalTests
         int WidgetAnnotationCount,
         int UnassociatedWidgetAnnotationCount);
 
-    private static bool ExternalPdfTestsEnabled()
+    private sealed class ExternalPdfTheoryAttribute : TheoryAttribute
     {
-        return string.Equals(Environment.GetEnvironmentVariable(ExternalTestFlag), "1", StringComparison.Ordinal);
+        public ExternalPdfTheoryAttribute()
+        {
+            if (Environment.GetEnvironmentVariable(ExternalTestFlag) != "1")
+            {
+                Skip = $"Set {ExternalTestFlag}=1 to run real OpenDataLoader and Adobe checks.";
+            }
+        }
     }
 
     private static IConfiguration BuildConfiguration(string repoRoot)

@@ -42,11 +42,11 @@ export default defineConfig({
         secure: false,
         target,
       },
-      '^/api': {
+      '/swagger': {
         secure: false,
         target,
       },
-      '/swagger': {
+      '^/api': {
         secure: false,
         target,
       },

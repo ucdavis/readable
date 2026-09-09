@@ -13,6 +13,7 @@ RUN dotnet publish "workers/opendataloader.api/opendataloader.api.csproj" \
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0-bookworm-slim AS final
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         openjdk-17-jre-headless \
@@ -20,7 +21,7 @@ RUN apt-get update \
         python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install --break-system-packages --no-cache-dir "opendataloader-pdf==2.4.1"
+RUN python3 -m pip install --break-system-packages --no-cache-dir "opendataloader-pdf==2.5.7"
 
 RUN useradd --create-home --uid 10001 appuser
 WORKDIR /app

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 type FailureTooltipState = {
@@ -28,6 +28,7 @@ export function PdfFailureStatusBadge({
 
   const closeFailureTooltip = useCallback(() => {
     setFailureTooltip(null);
+    setFailureTooltipPosition(null);
   }, []);
 
   const openFailureTooltip = useCallback(
@@ -37,9 +38,8 @@ export function PdfFailureStatusBadge({
     [fileId]
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!failureTooltip) {
-      setFailureTooltipPosition(null);
       return;
     }
 

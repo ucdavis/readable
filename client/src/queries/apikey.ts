@@ -2,20 +2,20 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchJson } from '../lib/api.ts';
 
 export type ApiKeyInfo = {
+  createdAt: string | null;
   exists: boolean;
   keyHint: string | null;
-  createdAt: string | null;
 };
 
 export type GeneratedApiKey = {
-  rawKey: string;
-  keyHint: string;
   createdAt: string;
+  keyHint: string;
+  rawKey: string;
 };
 
 export const apiKeyQueryOptions = () => ({
-  queryKey: ['apikey'] as const,
   queryFn: () => fetchJson<ApiKeyInfo>('/api/apikey'),
+  queryKey: ['apikey'] as const,
 });
 
 export const useApiKeyQuery = () => useQuery(apiKeyQueryOptions());

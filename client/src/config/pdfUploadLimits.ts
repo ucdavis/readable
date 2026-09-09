@@ -4,7 +4,7 @@ const configuredMaxUploadPages = import.meta.env.VITE_MAX_UPLOAD_PAGES;
 const parsedMaxUploadPages =
   typeof configuredMaxUploadPages === 'string' &&
   /^\d+$/.test(configuredMaxUploadPages)
-    ? parseInt(configuredMaxUploadPages, 10)
+    ? Number.parseInt(configuredMaxUploadPages, 10)
     : Number.NaN;
 
 export const maxUploadPages =

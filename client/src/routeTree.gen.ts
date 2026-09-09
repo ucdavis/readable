@@ -9,19 +9,19 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as FAQsRouteImport } from './routes/FAQs'
 import { Route as authenticatedRouteRouteImport } from './routes/(authenticated)/route'
+import { Route as FAQsRouteImport } from './routes/FAQs'
 import { Route as authenticatedIndexRouteImport } from './routes/(authenticated)/index'
 import { Route as authenticatedSettingsIndexRouteImport } from './routes/(authenticated)/settings/index'
 import { Route as authenticatedReportsFileIdIndexRouteImport } from './routes/(authenticated)/reports/$fileId/index'
 
+const authenticatedRouteRoute = authenticatedRouteRouteImport.update({
+  id: '/(authenticated)',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FAQsRoute = FAQsRouteImport.update({
   id: '/FAQs',
   path: '/FAQs',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const authenticatedRouteRoute = authenticatedRouteRouteImport.update({
-  id: '/(authenticated)',
   getParentRoute: () => rootRouteImport,
 } as any)
 const authenticatedIndexRoute = authenticatedIndexRouteImport.update({
@@ -45,8 +45,8 @@ const authenticatedReportsFileIdIndexRoute =
 export interface FileRoutesByFullPath {
   '/FAQs': typeof FAQsRoute
   '/': typeof authenticatedIndexRoute
-  '/settings': typeof authenticatedSettingsIndexRoute
-  '/reports/$fileId': typeof authenticatedReportsFileIdIndexRoute
+  '/settings/': typeof authenticatedSettingsIndexRoute
+  '/reports/$fileId/': typeof authenticatedReportsFileIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/FAQs': typeof FAQsRoute
@@ -64,7 +64,7 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/FAQs' | '/' | '/settings' | '/reports/$fileId'
+  fullPaths: '/FAQs' | '/' | '/settings/' | '/reports/$fileId/'
   fileRoutesByTo: FileRoutesByTo
   to: '/FAQs' | '/' | '/settings' | '/reports/$fileId'
   id:
@@ -83,18 +83,18 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/FAQs': {
-      id: '/FAQs'
-      path: '/FAQs'
-      fullPath: '/FAQs'
-      preLoaderRoute: typeof FAQsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/(authenticated)': {
       id: '/(authenticated)'
       path: ''
       fullPath: ''
       preLoaderRoute: typeof authenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/FAQs': {
+      id: '/FAQs'
+      path: '/FAQs'
+      fullPath: '/FAQs'
+      preLoaderRoute: typeof FAQsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(authenticated)/': {
@@ -107,14 +107,14 @@ declare module '@tanstack/react-router' {
     '/(authenticated)/settings/': {
       id: '/(authenticated)/settings/'
       path: '/settings'
-      fullPath: '/settings'
+      fullPath: '/settings/'
       preLoaderRoute: typeof authenticatedSettingsIndexRouteImport
       parentRoute: typeof authenticatedRouteRoute
     }
     '/(authenticated)/reports/$fileId/': {
       id: '/(authenticated)/reports/$fileId/'
       path: '/reports/$fileId'
-      fullPath: '/reports/$fileId'
+      fullPath: '/reports/$fileId/'
       preLoaderRoute: typeof authenticatedReportsFileIdIndexRouteImport
       parentRoute: typeof authenticatedRouteRoute
     }
