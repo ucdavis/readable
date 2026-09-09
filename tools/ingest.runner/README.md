@@ -6,7 +6,7 @@ It uses the same `server.core` ingest services that the `function_ingest` Azure 
 
 ## Prereqs
 
-- .NET SDK 8 (`global.json` roll-forwards to latest patch, e.g. `8.0.416`).
+- .NET SDK 8 (`global.json` roll-forwards to latest patch, minimum `8.0.425`).
 
 ## Run
 

@@ -40,11 +40,13 @@ function FaqItem({
 }: FaqItemProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen || activeHash === id);
 
-  useEffect(() => {
+  const [previousHash, setPreviousHash] = useState(activeHash);
+  if (previousHash !== activeHash) {
+    setPreviousHash(activeHash);
     if (activeHash === id) {
       setIsOpen(true);
     }
-  }, [activeHash, id]);
+  }
 
   return (
     <div
@@ -850,12 +852,12 @@ function FAQs() {
             >
               <p>
                 If a PDF has a password or has permissions restrictions (such as
-                "no editing" or "printing only"), it is encrypted in a way that
-                prevents the processing libraries from opening or modifying the
-                file. Because Readable must read and rewrite the document
-                structure to apply accessibility remediations—adding tags,
-                writing alt text, updating metadata—it cannot do any of that
-                work on a locked document.
+                &quot;no editing&quot; or &quot;printing only&quot;), it is
+                encrypted in a way that prevents the processing libraries from
+                opening or modifying the file. Because Readable must read and
+                rewrite the document structure to apply accessibility
+                remediations—adding tags, writing alt text, updating metadata—it
+                cannot do any of that work on a locked document.
               </p>
               <p className="mt-3">
                 To fix this, open the file in Acrobat (or the original authoring

@@ -142,6 +142,16 @@ dotnet test tests/server.tests/server.tests.csproj \
 The wrapper script mounts only the input PDF directory and output directory into the container, then runs
 `opendataloader-pdf` from the worker image.
 
+The external suite processes both `forms.pdf` and `untagged.pdf` through real ODL and Adobe checks.
+It verifies page text, page counts, tags, titles, and form-field associations. Adobe credentials are
+loaded from `server/.env`; tests are reported as skipped unless `READABLE_RUN_EXTERNAL_PDF_TESTS=1`.
+Set `READABLE_RUN_EXTERNAL_AI_TESTS=1` as well to use configured OpenAI title and alt-text services
+instead of deterministic fakes. This makes real API calls. Set `READABLE_EXTERNAL_PDF_ARTIFACT_DIR`
+to an output directory to retain the remediated PDFs and before/after Adobe reports for inspection.
+
+See [dependency update validation](docs/dependency-update-validation.md) for the September 2026 results.
+
+
 ## Development
 
 ### Backend Development
@@ -200,7 +210,7 @@ You can update individual packages or you can use the `--upgrade` flag to update
 dotnet-outdated --upgrade --version-lock Major
 ```
 
-If you update `Microsoft.EntityFrameworkCore.Design` or another package that a tool depends on, you'll want to update that tool as well to match, ex: `dotnet tool update dotnet-ef --local --version 8.0.21`. That will update it for you but also set the value in our `dotnet-tools.json` so it's consistent for everyone.
+If you update `Microsoft.EntityFrameworkCore.Design` or another package that a tool depends on, you'll want to update that tool as well to match, ex: `dotnet tool update dotnet-ef --local --version 8.0.31`. That will update it for you but also set the value in our `dotnet-tools.json` so it's consistent for everyone.
 
 And as always, after updating dependencies, make sure to run `dotnet build` and `dotnet test` to verify everything is working.
 

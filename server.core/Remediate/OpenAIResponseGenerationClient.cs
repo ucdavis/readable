@@ -1,7 +1,6 @@
 #pragma warning disable OPENAI001
 
 using System.ClientModel;
-using OpenAI;
 using OpenAI.Responses;
 
 namespace server.core.Remediate;
@@ -25,7 +24,7 @@ internal sealed class OpenAIResponseGenerationClient : IOpenAIResponseGeneration
     {
         _client = new ResponsesClient(
             new ApiKeyCredential(apiKey),
-            new OpenAIClientOptions
+            new ResponsesClientOptions
             {
                 Endpoint = NormalizeEndpoint(
                     string.IsNullOrWhiteSpace(endpoint)
