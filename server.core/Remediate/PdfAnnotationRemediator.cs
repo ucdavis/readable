@@ -10,6 +10,100 @@ internal static class PdfAnnotationRemediator
     private static readonly PdfName StructParentKey = new("StructParent");
     private const string RoleForm = "Form";
 
+    /// <summary>
+    /// Removes ODL's generic /Alt only from a form tag containing one labelled widget.
+    /// The widget's /TU supplies its accessible name; a parent /Alt can hide the widget.
+    /// Custom descriptions and tags containing any other content are left for manual review.
+    /// </summary>
+    public static int RemovePlaceholderAltFromLabelledWidgets(PdfDocument pdf, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var root = TryGetStructTreeRoot(pdf);
+        if (root is null)
+        {
+            return 0;
+        }
+
+        var pending = new Stack<PdfObject>();
+        var visited = new HashSet<PdfObject>(ReferenceEqualityComparer.Instance);
+        pending.Push(root);
+        var removed = 0;
+        while (pending.TryPop(out var current))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (current is PdfIndirectReference reference)
+            {
+                current = reference.GetRefersTo(true) ?? new PdfNull();
+            }
+            if (!visited.Add(current))
+            {
+                continue;
+            }
+            if (current is PdfArray children)
+            {
+                for (var i = 0; i < children.Size(); i++)
+                {
+                    pending.Push(children.Get(i));
+                }
+                continue;
+            }
+            if (current is not PdfDictionary element)
+            {
+                continue;
+            }
+
+            if (PdfName.Form.Equals(element.GetAsName(PdfName.S))
+                && string.Equals(element.GetAsString(PdfName.Alt)?.ToUnicodeString(), "Annotation", StringComparison.Ordinal)
+                && !element.ContainsKey(PdfName.ActualText)
+                && HasSingleLabelledWidget(element, cancellationToken))
+            {
+                element.Remove(PdfName.Alt);
+                removed++;
+            }
+
+            // Follow structure children only, never /P, /Parent, or the annotation's object graph.
+            var kids = element.Get(PdfName.K);
+            if (kids is not null)
+            {
+                pending.Push(kids);
+            }
+        }
+        return removed;
+    }
+
+    private static bool HasSingleLabelledWidget(PdfDictionary element, CancellationToken cancellationToken)
+    {
+        var child = element.Get(PdfName.K);
+        if (child is PdfArray children)
+        {
+            if (children.Size() != 1)
+            {
+                return false;
+            }
+            child = children.Get(0);
+        }
+        if (child is not PdfDictionary objr || !ObjrType.Equals(objr.GetAsName(PdfName.Type)))
+        {
+            return false;
+        }
+        var widget = objr.GetAsDictionary(PdfName.Obj);
+        if (widget is null || !PdfName.Widget.Equals(widget.GetAsName(PdfName.Subtype)))
+        {
+            return false;
+        }
+
+        var visited = new HashSet<PdfDictionary>(ReferenceEqualityComparer.Instance);
+        for (var field = widget; field is not null && visited.Add(field); field = field.GetAsDictionary(PdfName.Parent))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (field.ContainsKey(PdfName.TU))
+            {
+                return !string.IsNullOrWhiteSpace(field.GetAsString(PdfName.TU)?.ToUnicodeString());
+            }
+        }
+        return false;
+    }
+
     public static int EnsureWidgetAnnotationsAreTagged(PdfDocument pdf, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
