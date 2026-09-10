@@ -64,6 +64,24 @@ At a high level, PDFs flow through:
 - **PDF title**: extracts text from the first pages and writes a descriptive title into PDF metadata. If there isn't enough text, the existing title is kept (or a placeholder is used when missing).
 - **Alt text (tagged PDFs only)**: fills missing `Alt` text for tagged `Figure` elements, using AI when configured and a fallback otherwise. (Optional) link `Alt` generation is off by default; enable with `INGEST_GENERATE_LINK_ALT_TEXT=true`.
 
+#### Form annotation alt text
+
+ODL 2.5.7 can add `/Alt` text of exactly `Annotation` to a `/Form` tag,
+causing Adobe's `Alternate Text / Hides annotation` check to fail. For tagged
+PDFs, remediation removes that placeholder only when the tag has no
+`/ActualText` and its sole child is an `/OBJR` referencing a `/Widget` with a
+nonblank `/TU` field description. The description can come from the widget or
+its field parent chain; a blank or invalid `/TU` stops the search.
+
+This cleanup preserves custom alt text, links, figures, tags with multiple or
+nested children, and tags with `/ActualText`. It does not change field values,
+appearance streams, widgets, annotations, or structure associations, and it
+does not generate field descriptions with AI. PDFs outside these guards may
+still need manual remediation.
+
+See the [form annotation regression instructions](tests/server.tests/Integration/README.md#form-annotation-alt-text-regression)
+for offline coverage and the opt-in Adobe check.
+
 ### Database configuration
 
 The backend requires a SQL Server connection string. By default `appsettings.Development.json` has a connection string configured for the local SQL Server instance.
@@ -150,7 +168,6 @@ instead of deterministic fakes. This makes real API calls. Set `READABLE_EXTERNA
 to an output directory to retain the remediated PDFs and before/after Adobe reports for inspection.
 
 See [dependency update validation](docs/dependency-update-validation.md) for the September 2026 results.
-
 
 ## Development
 
