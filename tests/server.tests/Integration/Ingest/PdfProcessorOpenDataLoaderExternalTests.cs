@@ -20,6 +20,88 @@ public sealed class PdfProcessorOpenDataLoaderExternalTests
     private const string ExternalTestFlag = "READABLE_RUN_EXTERNAL_PDF_TESTS";
     private static readonly PdfName StructParentKey = new("StructParent");
 
+    [ExternalFormAltFact]
+    public async Task LabelledForm_WithRealAdobe_PassesHidesAnnotationWithoutRegressions()
+    {
+        var input = Environment.GetEnvironmentVariable("READABLE_EXTERNAL_FORM_PDF")!;
+        File.Exists(input).Should().BeTrue("provide the previously processed PDF with the annotation-alt failure");
+        var configuration = BuildConfiguration(FindRepoRoot());
+        AdobePdfServices.EnsureCredentialsConfigured(configuration);
+        var directory = Path.Combine(Path.GetTempPath(), "readable-tests", $"form-alt-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var adobe = new AdobePdfServices(configuration, NullLogger<AdobePdfServices>.Instance,
+                new NoopAdobePdfServicesRateLimiter());
+            var before = await adobe.RunAccessibilityCheckerAsync(input,
+                Path.Combine(directory, "before.checked.pdf"), Path.Combine(directory, "before.json"),
+                null, null, CancellationToken.None);
+            AdobeRuleStatus(before.ReportJson, "Alternate Text", "Hides annotation").Should().Be("Failed");
+
+            var output = Path.Combine(directory, "form.remediated.pdf");
+            using (var pdf = new PdfDocument(new PdfReader(input), new PdfWriter(output)))
+            {
+                // Isolate this cleanup from unrelated title, AI, or re-tagging changes.
+                PdfAnnotationRemediator.RemovePlaceholderAltFromLabelledWidgets(pdf, CancellationToken.None)
+                    .Should().BeGreaterThan(0);
+                PdfAnnotationRemediator.RemovePlaceholderAltFromLabelledWidgets(pdf, CancellationToken.None)
+                    .Should().Be(0, "cleanup should be idempotent");
+            }
+            var after = await adobe.RunAccessibilityCheckerAsync(output,
+                Path.Combine(directory, "after.checked.pdf"), Path.Combine(directory, "after.json"),
+                null, null, CancellationToken.None);
+
+            var artifactDirectory = Environment.GetEnvironmentVariable("READABLE_EXTERNAL_PDF_ARTIFACT_DIR");
+            if (!string.IsNullOrWhiteSpace(artifactDirectory))
+            {
+                Directory.CreateDirectory(artifactDirectory);
+                File.Copy(output, Path.Combine(artifactDirectory, "form.remediated.pdf"), overwrite: true);
+                await File.WriteAllTextAsync(Path.Combine(artifactDirectory, "form.before.json"), before.ReportJson);
+                await File.WriteAllTextAsync(Path.Combine(artifactDirectory, "form.after.json"), after.ReportJson);
+            }
+
+            AdobeRuleStatus(after.ReportJson, "Alternate Text", "Hides annotation").Should().Be("Passed");
+            using var report = JsonDocument.Parse(before.ReportJson!);
+            foreach (var section in report.RootElement.GetProperty("Detailed Report").EnumerateObject())
+            {
+                foreach (var rule in section.Value.EnumerateArray())
+                {
+                    if (rule.GetProperty("Status").GetString() == "Passed")
+                    {
+                        var name = rule.GetProperty("Rule").GetString()!;
+                        AdobeRuleStatus(after.ReportJson, section.Name, name).Should().Be("Passed",
+                            $"previously passing rule {section.Name}/{name} must not regress");
+                    }
+                }
+            }
+            ReadFormWidgetStats(output).Should().Be(ReadFormWidgetStats(input));
+            using var originalPdf = new PdfDocument(new PdfReader(input));
+            using var outputPdf = new PdfDocument(new PdfReader(output));
+            outputPdf.GetNumberOfPages().Should().Be(originalPdf.GetNumberOfPages());
+            for (var page = 1; page <= originalPdf.GetNumberOfPages(); page++)
+            {
+                PdfTextExtractor.GetTextFromPage(outputPdf.GetPage(page)).Should()
+                    .Be(PdfTextExtractor.GetTextFromPage(originalPdf.GetPage(page)));
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private sealed class ExternalFormAltFactAttribute : FactAttribute
+    {
+        public ExternalFormAltFactAttribute()
+        {
+            if (Environment.GetEnvironmentVariable(ExternalTestFlag) != "1"
+                || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("READABLE_EXTERNAL_FORM_PDF")))
+            {
+                Skip = $"Set {ExternalTestFlag}=1 and READABLE_EXTERNAL_FORM_PDF to run the Adobe form-alt regression.";
+            }
+        }
+    }
+
     [ExternalPdfTheory]
     [InlineData("forms.pdf", true)]
     [InlineData("untagged.pdf", false)]

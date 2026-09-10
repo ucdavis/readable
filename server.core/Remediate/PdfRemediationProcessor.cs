@@ -343,6 +343,15 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     fileId);
             }
 
+            using (LogStage.Begin(_logger, fileId, "remove_form_annotation_placeholder_alt", null, kind: "Remediation stage"))
+            {
+                var removedPlaceholderAlts = PdfAnnotationRemediator.RemovePlaceholderAltFromLabelledWidgets(pdf, cancellationToken);
+                _logger.LogInformation(
+                    "Removed {count} generic form annotation alt description(s) from {fileId}.",
+                    removedPlaceholderAlts,
+                    fileId);
+            }
+
             int removedAnnotations;
             using (LogStage.Begin(_logger, fileId, "remove_untagged_annotations", null, kind: "Remediation stage"))
             {
