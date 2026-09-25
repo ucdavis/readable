@@ -94,6 +94,7 @@ Components with Form draws, nested marked content, repeated MCIDs or ambiguous
 ownership also retain their roles. Pages with Pattern resources or potentially active
 soft masks retain all component Figure roles.
 
+- `INGEST_IMAGE_CLASSIFICATION_TIMEOUT_SECONDS` (default `30`, minimum `1`; also `Ingest:ImageClassificationTimeoutSeconds`): bounds each image-purpose call. Timeouts preserve the original image. Calls use `INGEST_OPENAI_MAX_CONCURRENCY` (default `4`, clamped to `1`–`8`), with results applied in page draw order. Page text is parsed once for all candidate regions.
 - `INGEST_CLASSIFY_IMAGES_OUTSIDE_FIGURES` (default `true`): disable to roll back image-purpose classification. Composite-figure normalization still runs.
 - `INGEST_IMAGE_MEANINGFUL_CONFIDENCE_THRESHOLD` (default `0.80`, range `(0, 1]`): minimum confidence for a separate description.
 

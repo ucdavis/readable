@@ -52,6 +52,9 @@ public sealed partial class PdfRemediationProcessor
                     _logger.LogWarning(ex, "Cannot render image context on page {page}; preserving images.", number);
                     continue;
                 }
+                var candidates = new List<(PdfImageOccurrenceEditor.Draw Draw, ImageAltTextRequest Image,
+                    byte[] Region, LocationTextExtractionStrategy Text)>();
+                var textListener = new FilteredEventListener();
                 // Match repeated uses in paint order, never dedupe purpose by image bytes. Form XObject
                 // occurrences can share page MCIDs; ambiguous groups are intentionally not rewritten.
                 foreach (var group in editor.Draws.GroupBy(d => (d.Mcid, d.Image.GetIndirectReference())))
@@ -71,27 +74,67 @@ public sealed partial class PdfRemediationProcessor
                             if (!IsSupportedAltTextImageMimeType(mime)) continue;
                             var crop = TryComputeCropRectPx(occ.Bounds, page.GetPageSize(), bitmap, 64, 8);
                             if (crop is null || crop.Value.IsEmpty) continue;
-                            var overlap = PdfTextExtractor.GetTextFromPage(page, new FilteredTextEventListener(
-                                new LocationTextExtractionStrategy(), new TextRegionEventFilter(occ.Bounds)));
-                            var result = await _altTextService.ClassifyImageAsync(new ImagePurposeRequest(
+                            var strategy = textListener.AttachEventListener(new LocationTextExtractionStrategy(),
+                                new TextRegionEventFilter(occ.Bounds));
+                            candidates.Add((draws[i],
                                 new ImageAltTextRequest(bytes, mime, occ.ContextBefore, occ.ContextAfter, primaryLanguage),
-                                PngEncoder.EncodeBgra32(BgraBitmapCropper.Crop(bitmap, crop.Value)), overlap), cancellationToken);
-                            if (result is null) continue;
-                            if (!Enum.IsDefined(result.Purpose) || !double.IsFinite(result.Confidence) || result.Confidence < 0
-                                || result.Confidence > 1 || string.IsNullOrWhiteSpace(result.Reason))
-                                throw new InvalidDataException("Invalid image-purpose classification.");
-                            var meaningful = result.Purpose == ImagePurpose.Meaningful && result.Confidence >= _options.ImageMeaningfulConfidenceThreshold;
-                            if (meaningful && (string.IsNullOrWhiteSpace(result.AltText) || IsPlaceholderImageAltText(result.AltText)))
-                                throw new InvalidDataException("Meaningful image classification requires a usable description.");
-                            editor.Add(draws[i], meaningful ? result.AltText : null);
-                            _logger.LogInformation("Image purpose page={page} mcid={mcid} confidence={confidence} action={action} reason={reason}",
-                                number, occ.Mcid, result.Confidence, meaningful ? "Figure" : "Artifact", result.Reason);
+                                PngEncoder.EncodeBgra32(BgraBitmapCropper.Crop(bitmap, crop.Value)), strategy));
                         }
                         catch (Exception ex) when (ex is not OperationCanceledException)
                         {
                             _logger.LogWarning(ex, "Image classification failed on page {page} MCID {mcid}; preserving content.", number, occ.Mcid);
                         }
                     }
+                }
+                if (candidates.Count == 0) continue;
+                // Parse page text once, retaining layout-aware text assembly for each image region.
+                try { new PdfCanvasProcessor(textListener).ProcessPageContent(page); }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex, "Cannot extract image context on page {page}; preserving images.", number);
+                    continue;
+                }
+                var requests = candidates.Select(c => new ImagePurposeRequest(c.Image, c.Region, c.Text.GetResultantText())).ToArray();
+                var results = new ImagePurposeResult?[requests.Length];
+                await Parallel.ForEachAsync(Enumerable.Range(0, requests.Length), new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = Math.Clamp(_options.OpenAiMaxConcurrency, 1, 8),
+                    CancellationToken = cancellationToken
+                }, async (index, token) =>
+                {
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.ImageClassificationTimeoutSeconds)));
+                    try
+                    {
+                        var result = await _altTextService.ClassifyImageAsync(requests[index], timeout.Token)
+                            .WaitAsync(timeout.Token);
+                        if (result is null) return;
+                        if (!Enum.IsDefined(result.Purpose) || !double.IsFinite(result.Confidence) || result.Confidence < 0
+                            || result.Confidence > 1 || string.IsNullOrWhiteSpace(result.Reason))
+                            throw new InvalidDataException("Invalid image-purpose classification.");
+                        var meaningful = result.Purpose == ImagePurpose.Meaningful && result.Confidence >= _options.ImageMeaningfulConfidenceThreshold;
+                        if (meaningful && (string.IsNullOrWhiteSpace(result.AltText) || IsPlaceholderImageAltText(result.AltText)))
+                            throw new InvalidDataException("Meaningful image classification requires a usable description.");
+                        results[index] = result;
+                    }
+                    catch (OperationCanceledException) when (!token.IsCancellationRequested && timeout.IsCancellationRequested)
+                    {
+                        _logger.LogWarning("Image classification timed out on page {page} MCID {mcid}; preserving content.", number, candidates[index].Draw.Mcid);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _logger.LogWarning(ex, "Image classification failed on page {page} MCID {mcid}; preserving content.", number, candidates[index].Draw.Mcid);
+                    }
+                });
+                cancellationToken.ThrowIfCancellationRequested();
+                // iText objects are accessed only on this thread; service completion order cannot reorder content.
+                foreach (var index in Enumerable.Range(0, candidates.Count).OrderBy(i => candidates[i].Draw.Start))
+                {
+                    if (results[index] is not { } result) continue;
+                    var meaningful = result.Purpose == ImagePurpose.Meaningful && result.Confidence >= _options.ImageMeaningfulConfidenceThreshold;
+                    editor.Add(candidates[index].Draw, meaningful ? result.AltText : null);
+                    _logger.LogInformation("Image purpose page={page} mcid={mcid} confidence={confidence} action={action} reason={reason}",
+                        number, candidates[index].Draw.Mcid, result.Confidence, meaningful ? "Figure" : "Artifact", result.Reason);
                 }
                 editor.Apply();
             }

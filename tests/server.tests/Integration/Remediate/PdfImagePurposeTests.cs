@@ -158,18 +158,51 @@ public sealed class PdfImagePurposeTests : IDisposable
         if (mode == "disabled") service.Requests.Should().BeEmpty();
     }
 
-    [Fact]
-    public async Task DescribedComposite_DemotesOnlyUnlabelledVectorLeaf()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DescribedComposite_DemotesOnlyUnlabelledVectorLeaf(bool mappedParent)
     {
-        var output = await Process(CreateInput(nested: true), new Classifier());
+        var input = CreateInput(nested: true);
+        if (mappedParent)
+        {
+            var mapped = Path.Combine(_root, "mapped.pdf");
+            using (var document = new PdfDocument(new PdfReader(input), new PdfWriter(mapped)))
+            {
+                var composite = (PdfStructElem)((PdfStructElem)document.GetStructTreeRoot().GetKids()[0]).GetKids()[0];
+                composite.GetPdfObject().Put(PdfName.S, new PdfName("Badge"));
+                composite.GetPdfObject().Remove(PdfName.NS);
+                document.GetStructTreeRoot().AddRoleMapping("Badge", "Figure");
+            }
+            input = mapped;
+        }
+        var service = new Classifier { ImageAlt = "Generated component description" };
+        var output = await Process(input, service);
         using var pdf = new PdfDocument(new PdfReader(output));
         var parent = (PdfStructElem)((PdfStructElem)pdf.GetStructTreeRoot().GetKids()[0]).GetKids()[0];
-        parent.GetRole().Should().Be(PdfName.Figure);
+        PdfImageOccurrenceEditor.ResolveRole(parent.GetPdfObject(), pdf).Should().Be(PdfName.Figure);
         parent.GetAlt().ToUnicodeString().Should().Be("Composite badge");
         var children = parent.GetKids().Cast<PdfStructElem>().ToArray();
         children.Select(c => c.GetRole().GetValue()).Should().Equal("Span", "Figure", "Figure", "Figure");
         children[1].GetAlt().ToUnicodeString().Should().Be("Explicit component");
         children[2].GetActualText().ToUnicodeString().Should().Be("Actual component");
+    }
+
+    [Fact]
+    public async Task NewlyDescribedComposite_NormalizesComponentsAfterAltGeneration()
+    {
+        var input = CreateInput(nested: true);
+        var undescribed = Path.Combine(_root, "undescribed.pdf");
+        using (var pdf = new PdfDocument(new PdfReader(input), new PdfWriter(undescribed)))
+        {
+            var parent = (PdfStructElem)((PdfStructElem)pdf.GetStructTreeRoot().GetKids()[0]).GetKids()[0];
+            parent.GetPdfObject().Remove(PdfName.Alt);
+        }
+        var output = await Process(undescribed, new Classifier { ImageAlt = "Generated composite description" });
+        using var result = new PdfDocument(new PdfReader(output));
+        var composite = (PdfStructElem)((PdfStructElem)result.GetStructTreeRoot().GetKids()[0]).GetKids()[0];
+        composite.GetAlt().ToUnicodeString().Should().Be("Generated composite description");
+        ((PdfStructElem)composite.GetKids()[0]).GetRole().Should().Be(PdfName.Span);
     }
 
     [Theory]
@@ -460,12 +493,102 @@ public sealed class PdfImagePurposeTests : IDisposable
         await action.Should().ThrowAsync<OperationCanceledException>();
     }
 
-    private async Task<string> Process(string input, Classifier service, string name = "output.pdf", PdfRemediationOptions? options = null)
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Classification_BoundsConcurrency_AndKeepsDrawOrder(int concurrency)
+    {
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var active = 0;
+        var maximum = 0;
+        var service = new Classifier
+        {
+            Handler = async (request, token) =>
+            {
+                var count = Interlocked.Increment(ref active);
+                Interlocked.Exchange(ref maximum, Math.Max(count, maximum));
+                try
+                {
+                    if (request.OverlappingText.Contains("After first"))
+                    {
+                        firstStarted.TrySetResult();
+                        await releaseFirst.Task.WaitAsync(token);
+                        return new(ImagePurpose.Meaningful, 0.95, "First symbol", "Independent content");
+                    }
+                    request.OverlappingText.Should().Contain("After second");
+                    secondFinished.TrySetResult();
+                    return new(ImagePurpose.Decorative, 0.95, "", "Decorative copy");
+                }
+                finally { Interlocked.Decrement(ref active); }
+            }
+        };
+        var processing = Process(CreateInput(), service, options: new() { OpenAiMaxConcurrency = concurrency });
+        await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        if (concurrency == 2) await secondFinished.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        else secondFinished.Task.IsCompleted.Should().BeFalse();
+        releaseFirst.SetResult();
+        var output = await processing.WaitAsync(TimeSpan.FromSeconds(10));
+        maximum.Should().Be(concurrency);
+        using var pdf = new PdfDocument(new PdfReader(output));
+        var images = Images(pdf.GetPage(1));
+        images[0].Roles.Should().Equal("Figure");
+        images[1].Roles.Should().Equal("Artifact");
+        PdfImageOccurrenceEditor.PageContentOwners(pdf.GetPage(1))[images[0].Mcid].GetAlt().ToUnicodeString().Should().Be("First symbol");
+        PdfTextExtractor.GetTextFromPage(pdf.GetPage(1)).Should().Be("Before\nAfter first\nAfter second");
+    }
+
+    [Fact]
+    public async Task ClassificationTimeout_PreservesImage_AndContinuesOtherRequests()
+    {
+        var stalled = new TaskCompletionSource<ImagePurposeResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = new Classifier
+        {
+            Handler = (request, _) => request.OverlappingText.Contains("After first")
+                ? stalled.Task // Even a provider that ignores cancellation cannot block the job.
+                : Task.FromResult<ImagePurposeResult?>(new(ImagePurpose.Decorative, 0.95, "", "Decoration"))
+        };
+        try
+        {
+            var output = await Process(CreateInput(), service, options: new() { ImageClassificationTimeoutSeconds = 1 })
+                .WaitAsync(TimeSpan.FromSeconds(10));
+            using var pdf = new PdfDocument(new PdfReader(output));
+            var images = Images(pdf.GetPage(1));
+            images[0].Roles.Should().Equal("P");
+            images[0].Mcid.Should().Be(0);
+            images[1].Roles.Should().Equal("Artifact");
+        }
+        finally { stalled.TrySetResult(null); }
+    }
+
+    [Fact]
+    public async Task CallerCancellation_DuringClassification_Propagates()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = new Classifier
+        {
+            Handler = async (_, token) =>
+            {
+                started.TrySetResult();
+                await Task.Delay(Timeout.Infinite, token);
+                return null;
+            }
+        };
+        var processing = Process(CreateInput(), service, cancellationToken: cancellation.Token);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        cancellation.Cancel();
+        var action = async () => await processing.WaitAsync(TimeSpan.FromSeconds(10));
+        await action.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    private async Task<string> Process(string input, Classifier service, string name = "output.pdf", PdfRemediationOptions? options = null, CancellationToken cancellationToken = default)
     {
         var output = Path.Combine(_root, name);
         var processor = new PdfRemediationProcessor(service, new NoopPdfBookmarkService(), new Rasterizer(),
-            new SamplePdfTitleService(), Options.Create(options ?? new()), NullLogger<PdfRemediationProcessor>.Instance);
-        await processor.ProcessAsync("test", input, output, CancellationToken.None);
+            new SamplePdfTitleService(), Options.Create(options ?? new() { OpenAiMaxConcurrency = 1 }), NullLogger<PdfRemediationProcessor>.Instance);
+        await processor.ProcessAsync("test", input, output, cancellationToken);
         return output;
     }
 
@@ -534,16 +657,22 @@ public sealed class PdfImagePurposeTests : IDisposable
     private sealed class Classifier(params ImagePurposeResult[] results) : IAltTextService
     {
         public List<ImagePurposeRequest> Requests { get; } = new();
+        public Func<ImagePurposeRequest, CancellationToken, Task<ImagePurposeResult?>>? Handler { get; init; }
+        public string ImageAlt { get; init; } = "";
         public bool Fail { get; init; }
         public bool Cancel { get; init; }
         public Task<ImagePurposeResult?> ClassifyImageAsync(ImagePurposeRequest request, CancellationToken cancellationToken)
         {
-            Requests.Add(request);
-            if (Cancel) throw new OperationCanceledException();
-            if (Fail) throw new IOException("Unavailable");
-            return Task.FromResult<ImagePurposeResult?>(results.ElementAtOrDefault(Requests.Count - 1));
+            if (Handler is not null) return Handler(request, cancellationToken);
+            lock (Requests)
+            {
+                Requests.Add(request);
+                if (Cancel) throw new OperationCanceledException();
+                if (Fail) throw new IOException("Unavailable");
+                return Task.FromResult<ImagePurposeResult?>(results.ElementAtOrDefault(Requests.Count - 1));
+            }
         }
-        public Task<string> GetAltTextForImageAsync(ImageAltTextRequest request, CancellationToken cancellationToken) => Task.FromResult("");
+        public Task<string> GetAltTextForImageAsync(ImageAltTextRequest request, CancellationToken cancellationToken) => Task.FromResult(ImageAlt);
         public Task<string> GetAltTextForLinkAsync(LinkAltTextRequest request, CancellationToken cancellationToken) => Task.FromResult("");
         public string GetFallbackAltTextForImage() => "";
         public string GetFallbackAltTextForLink() => "";

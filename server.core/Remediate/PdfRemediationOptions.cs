@@ -2,6 +2,9 @@ namespace server.core.Remediate;
 
 public sealed class PdfRemediationOptions
 {
+    /// <summary>Per-image classification timeout; timed-out images retain their original structure.</summary>
+    public int ImageClassificationTimeoutSeconds { get; set; } = 30;
+
     public bool ClassifyImagesOutsideFigures { get; set; } = true;
 
     /// <summary>Valid classifications below this cutoff become artifacts; failures leave content unchanged.</summary>

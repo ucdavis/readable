@@ -384,6 +384,8 @@ public sealed partial class PdfRemediationProcessor : IPdfRemediationProcessor
                 xObjectStructureRemediation.InlineAltApplied);
 
             await RemediateImagesOutsideFiguresAsync(pdf, inputPdfPath, primaryLanguage, cancellationToken);
+            // Normalize already described composites before their children can become alt-text candidates.
+            NormalizeNestedFigureComponents(pdf, cancellationToken);
 
             Dictionary<int, int> pageObjNumToPageNumber;
             PdfStructTreeIndex figureIndex;
@@ -867,6 +869,7 @@ public sealed partial class PdfRemediationProcessor : IPdfRemediationProcessor
                 }
             }
 
+            // Parents may have gained descriptions during this pass.
             NormalizeNestedFigureComponents(pdf, cancellationToken);
 
             // Clean up objectively broken structure, but do not hide unresolved figures behind placeholder alt text.
@@ -2514,7 +2517,7 @@ public sealed partial class PdfRemediationProcessor : IPdfRemediationProcessor
                 return new PdfStructTreeIndex(byMcid, byObjRef);
             }
 
-            TraverseTagTree(rootKids, pageObjNumToPageNumber, targetRole, byMcid, byObjRef);
+            TraverseTagTree(pdf, rootKids, pageObjNumToPageNumber, targetRole, byMcid, byObjRef);
             return new PdfStructTreeIndex(byMcid, byObjRef);
         }
 
@@ -2574,6 +2577,7 @@ public sealed partial class PdfRemediationProcessor : IPdfRemediationProcessor
         }
 
         private static void TraverseTagTree(
+            PdfDocument pdf,
             PdfObject node,
             Dictionary<int, int> pageObjNumToPageNumber,
             PdfName targetRole,
@@ -2586,7 +2590,7 @@ public sealed partial class PdfRemediationProcessor : IPdfRemediationProcessor
             {
                 foreach (var item in array)
                 {
-                    TraverseTagTree(item, pageObjNumToPageNumber, targetRole, structElemByMcid, structElemByObjRef);
+                    TraverseTagTree(pdf, item, pageObjNumToPageNumber, targetRole, structElemByMcid, structElemByObjRef);
                 }
 
                 return;
@@ -2597,8 +2601,8 @@ public sealed partial class PdfRemediationProcessor : IPdfRemediationProcessor
                 return;
             }
 
-            var role = dict.GetAsName(PdfName.S);
-            if (targetRole.Equals(role))
+            var role = PdfImageOccurrenceEditor.ResolveRole(dict, pdf);
+            if (!PdfImageOccurrenceEditor.HasUnknownNamespace(dict) && targetRole.Equals(role))
             {
                 IndexStructElemContent(dict, pageObjNumToPageNumber, structElemByMcid, structElemByObjRef);
             }
@@ -2606,7 +2610,7 @@ public sealed partial class PdfRemediationProcessor : IPdfRemediationProcessor
             var kids = dict.Get(PdfName.K);
             if (kids is not null)
             {
-                TraverseTagTree(kids, pageObjNumToPageNumber, targetRole, structElemByMcid, structElemByObjRef);
+                TraverseTagTree(pdf, kids, pageObjNumToPageNumber, targetRole, structElemByMcid, structElemByObjRef);
             }
         }
 
