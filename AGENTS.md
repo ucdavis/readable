@@ -217,7 +217,7 @@ When generating code, ensure it follows these patterns and integrates well with 
 - The remediation implementation is `server.core/Remediate/PdfRemediationProcessor.cs` (runs inside ingest).
 - Alt-text service implementations live in `server.core/Remediate/AltText/`:
   - `IAltTextService` + request models
-  - `OpenAIAltTextService` (chat-based generation)
+  - `OpenAIAltTextService`
   - `SampleAltTextService` (local fallback when no API key)
 - PDF-title service implementations live in `server.core/Remediate/Title/`:
   - `IPdfTitleService` + `PdfTitleRequest`
@@ -233,16 +233,11 @@ When generating code, ensure it follows these patterns and integrates well with 
     - If the PDF already has a title, keep it.
     - If the title is missing/blank, set a placeholder (currently `"Untitled PDF document"`).
   - If there is enough text, it calls `IPdfTitleService.GenerateTitleAsync()` and writes the returned title into PDF metadata (`DocumentInfo.Title`).
-- Alt text remediation runs only for tagged PDFs:
-  - Iterates pages, matches content-stream occurrences to tag-tree elements (role `Figure` and `Link`) using MCID/object refs.
-  - Calls `IAltTextService` for images/links missing `Alt`.
-  - Includes a fallback “safety net” pass that sets `Alt` on any remaining `Figure`/`Link` tag-tree nodes.
+- See [README remediation behavior](README.md#what-remediation-currently-does) for alt text, image-purpose classification and composite-figure preservation rules.
 
 ### Environment variables for AI-backed remediation
 
-- `OPENAI_API_KEY`: enables OpenAI-backed services; otherwise “Sample\*” services are used.
-- `OPENAI_ALT_TEXT_MODEL`: model for `OpenAIAltTextService` (default `gpt-4o-mini`).
-- `OPENAI_PDF_TITLE_MODEL`: model for `OpenAIPdfTitleService` (default `gpt-4o-mini`).
+See [README AI configuration](README.md#ai-configuration-optional) for provider selection and model defaults.
 
 ### Adding a new remediation step
 

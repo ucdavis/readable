@@ -56,7 +56,7 @@ public sealed class NoopPdfRemediationProcessor : IPdfRemediationProcessor
     }
 }
 
-public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
+public sealed partial class PdfRemediationProcessor : IPdfRemediationProcessor
 {
     private const int ContextMaxCharsPerSide = 800;
     private const int LangContextMinWords = 20;
@@ -132,6 +132,11 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         _characterEncodingRepairService = characterEncodingRepairService ?? throw new ArgumentNullException(nameof(characterEncodingRepairService));
         _pdfTitleService = pdfTitleService ?? throw new ArgumentNullException(nameof(pdfTitleService));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        if (!double.IsFinite(_options.ImageMeaningfulConfidenceThreshold)
+            || _options.ImageMeaningfulConfidenceThreshold <= 0 || _options.ImageMeaningfulConfidenceThreshold > 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "Image confidence threshold must be in (0, 1].");
+        }
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -377,6 +382,10 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 xObjectStructureRemediation.Protected,
                 xObjectStructureRemediation.Disconnected,
                 xObjectStructureRemediation.InlineAltApplied);
+
+            await RemediateImagesOutsideFiguresAsync(pdf, inputPdfPath, primaryLanguage, cancellationToken);
+            // Normalize already described composites before their children can become alt-text candidates.
+            NormalizeNestedFigureComponents(pdf, cancellationToken);
 
             Dictionary<int, int> pageObjNumToPageNumber;
             PdfStructTreeIndex figureIndex;
@@ -859,6 +868,9 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                     }
                 }
             }
+
+            // Parents may have gained descriptions during this pass.
+            NormalizeNestedFigureComponents(pdf, cancellationToken);
 
             // Clean up objectively broken structure, but do not hide unresolved figures behind placeholder alt text.
             // Remaining /Figure nodes without /Alt should still be visible to accessibility QA/manual remediation.
@@ -2505,7 +2517,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 return new PdfStructTreeIndex(byMcid, byObjRef);
             }
 
-            TraverseTagTree(rootKids, pageObjNumToPageNumber, targetRole, byMcid, byObjRef);
+            TraverseTagTree(pdf, rootKids, pageObjNumToPageNumber, targetRole, byMcid, byObjRef);
             return new PdfStructTreeIndex(byMcid, byObjRef);
         }
 
@@ -2565,6 +2577,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
         }
 
         private static void TraverseTagTree(
+            PdfDocument pdf,
             PdfObject node,
             Dictionary<int, int> pageObjNumToPageNumber,
             PdfName targetRole,
@@ -2577,7 +2590,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             {
                 foreach (var item in array)
                 {
-                    TraverseTagTree(item, pageObjNumToPageNumber, targetRole, structElemByMcid, structElemByObjRef);
+                    TraverseTagTree(pdf, item, pageObjNumToPageNumber, targetRole, structElemByMcid, structElemByObjRef);
                 }
 
                 return;
@@ -2588,8 +2601,8 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
                 return;
             }
 
-            var role = dict.GetAsName(PdfName.S);
-            if (targetRole.Equals(role))
+            var role = PdfImageOccurrenceEditor.ResolveRole(dict, pdf);
+            if (!PdfImageOccurrenceEditor.HasUnknownNamespace(dict) && targetRole.Equals(role))
             {
                 IndexStructElemContent(dict, pageObjNumToPageNumber, structElemByMcid, structElemByObjRef);
             }
@@ -2597,7 +2610,7 @@ public sealed class PdfRemediationProcessor : IPdfRemediationProcessor
             var kids = dict.Get(PdfName.K);
             if (kids is not null)
             {
-                TraverseTagTree(kids, pageObjNumToPageNumber, targetRole, structElemByMcid, structElemByObjRef);
+                TraverseTagTree(pdf, kids, pageObjNumToPageNumber, targetRole, structElemByMcid, structElemByObjRef);
             }
         }
 

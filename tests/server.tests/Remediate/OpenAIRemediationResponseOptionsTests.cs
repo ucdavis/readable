@@ -14,6 +14,40 @@ namespace server.tests.Remediate;
 
 public sealed class OpenAIRemediationResponseOptionsTests
 {
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("null")]
+    [InlineData("not JSON")]
+    [InlineData("{\"kind\":\"meaningful_image\",\"confidence\":1.1,\"altText\":\"a\",\"reason\":\"b\"}")]
+    [InlineData("{\"kind\":\"meaningful_image\",\"confidence\":0.1,\"altText\":null,\"reason\":\"b\"}")]
+    public async Task ImageClassification_RejectsUnusableResponses(string response)
+    {
+        var service = new OpenAIAltTextService("test-model", new CapturingResponseGenerationClient(response));
+        var action = () => service.ClassifyImageAsync(new ImagePurposeRequest(
+            new ImageAltTextRequest([1], "image/png", "before", "after"), [2], "overlap"), CancellationToken.None);
+        await action.Should().ThrowAsync<Exception>();
+    }
+
+    [Fact]
+    public async Task ImageClassification_SendsBothImagesAndReturnsConfidence()
+    {
+        var client = new CapturingResponseGenerationClient("""
+            {"kind":"decorative","confidence":0.95,"altText":"","reason":"Text shadow overlaps real text"}
+            """);
+        var service = new OpenAIAltTextService("test-model", client);
+        var result = await service.ClassifyImageAsync(new ImagePurposeRequest(
+            new ImageAltTextRequest([1,2,3], "image/png", "before", "after", "en"), [4,5,6], "Title"), CancellationToken.None);
+        result!.Purpose.Should().Be(ImagePurpose.Decorative);
+        result.Confidence.Should().Be(0.95);
+        result.AltText.Should().BeEmpty();
+        var options = client.SingleRequest();
+        AssertCommonOptions(options, "pdf_image_purpose", 1024);
+        using var json = Serialize(options);
+        var content = json.RootElement.GetProperty("input")[0].GetProperty("content");
+        content.EnumerateArray().Count(p => p.GetProperty("type").GetString() == "input_image").Should().Be(2);
+        json.RootElement.GetProperty("text").GetProperty("format").GetProperty("strict").GetBoolean().Should().BeTrue();
+    }
+
     [Fact]
     public void ResponseGenerationClient_WhenEndpointMissing_UsesUsRegionalEndpoint()
     {
