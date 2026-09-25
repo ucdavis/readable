@@ -80,7 +80,14 @@ internal sealed class PdfImageOccurrenceEditor
         if (stack.Count != 0) throw new InvalidDataException("Unbalanced marked content.");
         // Repeated MCIDs cannot be split unambiguously without repairing the source structure first.
         Draws = draws.Where(d => counts[d.Mcid] == 1).ToArray();
-        VectorOnlyMcids = paths.Where(id => counts[id] == 1 && !unsupportedComponents.Contains(id)).ToHashSet();
+        var resources = page.GetResources();
+        var graphicsStates = resources.GetResource(PdfName.ExtGState);
+        var hasComplexPaint = resources.GetResource(PdfName.Pattern)?.Size() > 0
+            || graphicsStates is not null && graphicsStates.KeySet().Any(name =>
+                graphicsStates.GetAsDictionary(name) is not { } state
+                || state.ContainsKey(PdfName.SMask) && !PdfName.None.Equals(state.GetAsName(PdfName.SMask)));
+        VectorOnlyMcids = hasComplexPaint ? new HashSet<int>()
+            : paths.Where(id => counts[id] == 1 && !unsupportedComponents.Contains(id)).ToHashSet();
     }
 
     public void Add(Draw draw, string? alt) => _edits.Add((draw, alt));

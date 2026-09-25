@@ -175,7 +175,100 @@ public sealed class PdfImagePurposeTests : IDisposable
         PdfTextExtractor.GetTextFromPage(pdf.GetPage(1)).Should().Be(PdfTextExtractor.GetTextFromPage(original.GetPage(1)));
     }
 
-    private string CreateComponentInput(string mode)
+    [Theory]
+    [InlineData("fill", "image", false)]
+    [InlineData("fill", "image", true)]
+    [InlineData("fill", "text", false)]
+    [InlineData("fill", "text", true)]
+    [InlineData("stroke", "image", false)]
+    [InlineData("stroke", "image", true)]
+    [InlineData("stroke", "text", false)]
+    [InlineData("stroke", "text", true)]
+    [InlineData("mask", "image", false)]
+    [InlineData("mask", "image", true)]
+    [InlineData("mask", "text", false)]
+    [InlineData("mask", "text", true)]
+    [InlineData("plain", "", false)]
+    [InlineData("mask-none", "", true)]
+    public async Task CompositeComponents_RequireSafePaintResources(string paint, string payload, bool beforeBdc)
+    {
+        var input = CreateComponentInput("plain", paint, payload, beforeBdc);
+        var service = new Classifier();
+        var output = await Process(input, service);
+        service.Requests.Should().BeEmpty();
+        using var pdf = new PdfDocument(new PdfReader(output));
+        using var original = new PdfDocument(new PdfReader(input));
+        var parent = (PdfStructElem)((PdfStructElem)pdf.GetStructTreeRoot().GetKids()[0]).GetKids()[0];
+        var expected = paint is "plain" or "mask-none" ? PdfName.Span : PdfName.Figure;
+        parent.GetKids().Cast<PdfStructElem>().Should().OnlyContain(c => c.GetRole().Equals(expected));
+        parent.GetAlt().ToUnicodeString().Should().Be("Composite badge");
+        pdf.GetPage(1).GetContentBytes().Should().Equal(original.GetPage(1).GetContentBytes());
+    }
+
+    [Theory]
+    [InlineData("fill")]
+    [InlineData("stroke")]
+    [InlineData("mask")]
+    public async Task ComplexPaintResources_DoNotDisableImagePurposeClassification(string paint)
+    {
+        var input = CreateInput();
+        var withResources = Path.Combine(_root, "resources.pdf");
+        using (var pdf = new PdfDocument(new PdfReader(input), new PdfWriter(withResources)))
+            AddPaintResources(pdf, pdf.GetPage(1), paint, "image");
+        var service = new Classifier(new(ImagePurpose.Meaningful, 0.79, "", "Decorative copy"),
+            new(ImagePurpose.Meaningful, 0.80, "Informative symbol", "Independent content"));
+        var output = await Process(withResources, service);
+        service.Requests.Should().HaveCount(2);
+        using var result = new PdfDocument(new PdfReader(output));
+        Images(result.GetPage(1)).Select(i => i.Roles.Single()).Should().Equal("Artifact", "Figure");
+    }
+
+    private static string AddPaintResources(PdfDocument pdf, PdfPage page, string paint, string payload)
+    {
+        if (paint == "plain") return "";
+        var form = new PdfFormXObject(new iText.Kernel.Geom.Rectangle(0, 0, 40, 40));
+        var inner = new PdfCanvas(form, pdf);
+        if (payload == "image")
+        {
+            var image = new PdfImageXObject(ImageDataFactory.Create(1, 1, 3, 8, new byte[] { 255, 0, 0 }, null));
+            inner.AddXObjectWithTransformationMatrix(image, 40, 0, 0, 40, 0, 0);
+        }
+        else if (payload == "text")
+            inner.BeginText().SetFontAndSize(PdfFontFactory.CreateFont(StandardFonts.HELVETICA), 12)
+                .MoveText(0, 10).ShowText("Content").EndText();
+        inner.Release();
+        var stream = form.GetPdfObject();
+        stream.MakeIndirect(pdf);
+        var resources = page.GetResources().GetPdfObject();
+        if (paint is "fill" or "stroke")
+        {
+            stream.Put(PdfName.Type, PdfName.Pattern);
+            stream.Remove(PdfName.Subtype);
+            stream.Put(PdfName.PatternType, new PdfNumber(1));
+            stream.Put(PdfName.PaintType, new PdfNumber(1));
+            stream.Put(PdfName.TilingType, new PdfNumber(1));
+            stream.Put(PdfName.XStep, new PdfNumber(40));
+            stream.Put(PdfName.YStep, new PdfNumber(40));
+            var patterns = new PdfDictionary(); patterns.Put(new PdfName("P1"), stream);
+            resources.Put(PdfName.Pattern, patterns);
+            return paint == "fill" ? "/Pattern cs /P1 scn\n" : "/Pattern CS /P1 SCN\n";
+        }
+        var group = new PdfDictionary();
+        group.Put(PdfName.S, PdfName.Transparency);
+        group.Put(PdfName.CS, PdfName.DeviceRGB);
+        stream.Put(PdfName.Group, group);
+        var mask = new PdfDictionary();
+        mask.Put(PdfName.S, PdfName.Luminosity);
+        mask.Put(PdfName.G, stream);
+        var state = new PdfDictionary();
+        state.Put(PdfName.Type, PdfName.ExtGState);
+        state.Put(PdfName.SMask, paint == "mask-none" ? PdfName.None : mask);
+        var states = new PdfDictionary(); states.Put(new PdfName("GS1"), state);
+        resources.Put(PdfName.ExtGState, states);
+        return "/GS1 gs\n";
+    }
+
+    private string CreateComponentInput(string mode, string paint = "plain", string payload = "", bool beforeBdc = false)
     {
         var path = Path.Combine(_root, "component.pdf");
         using var pdf = new PdfDocument(new PdfWriter(path));
@@ -185,6 +278,7 @@ public sealed class PdfImagePurposeTests : IDisposable
         var parent = new PdfStructElem(pdf, PdfName.Figure, page); document.AddKid(parent);
         parent.SetAlt(new PdfString("Composite badge"));
         var canvas = new PdfCanvas(page);
+        var paintState = AddPaintResources(pdf, page, paint, payload);
         for (var i = 0; i < 2; i++)
         {
             var child = new PdfStructElem(pdf, PdfName.Figure, page); parent.AddKid(child);
@@ -194,8 +288,12 @@ public sealed class PdfImagePurposeTests : IDisposable
             if (i == 1 && (mode.StartsWith("inline-") || mode.StartsWith("named-")))
                 properties.Put(mode.EndsWith("actualtext") ? PdfName.ActualText : PdfName.Alt, new PdfString("Inline description"));
             if (i == 1 && mode.StartsWith("named-")) properties.MakeIndirect(pdf);
+            if (i == 1 && beforeBdc) canvas.WriteLiteral(paintState);
             canvas.BeginMarkedContent(PdfName.Figure, properties);
-            canvas.Rectangle(100 + i * 60, 500, 40, 40).Fill();
+            if (i == 1 && !beforeBdc) canvas.WriteLiteral(paintState);
+            canvas.Rectangle(100 + i * 60, 500, 40, 40);
+            if (i == 1 && paint == "stroke") canvas.Stroke();
+            else canvas.Fill();
             if (i == 1 && mode.StartsWith("form-"))
             {
                 var form = new PdfFormXObject(new iText.Kernel.Geom.Rectangle(0, 0, 40, 40));
