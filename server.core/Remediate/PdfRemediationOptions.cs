@@ -2,6 +2,11 @@ namespace server.core.Remediate;
 
 public sealed class PdfRemediationOptions
 {
+    public bool ClassifyImagesOutsideFigures { get; set; } = true;
+
+    /// <summary>Valid classifications below this cutoff become artifacts; failures leave content unchanged.</summary>
+    public double ImageMeaningfulConfidenceThreshold { get; set; } = 0.80;
+
     /// <summary>
     /// When enabled, generates <c>/Alt</c> values for <c>/Link</c> structure elements.
     /// </summary>

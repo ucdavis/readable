@@ -94,6 +94,10 @@ public static class IngestServiceCollectionExtensions
         {
             services.AddOptions<PdfRemediationOptions>().Configure<IConfiguration>((o, configuration) =>
             {
+                o.ClassifyImagesOutsideFigures = configuration.GetValue<bool?>("Ingest:ClassifyImagesOutsideFigures")
+                    ?? configuration.GetValue<bool?>("INGEST_CLASSIFY_IMAGES_OUTSIDE_FIGURES") ?? true;
+                o.ImageMeaningfulConfidenceThreshold = configuration.GetValue<double?>("Ingest:ImageMeaningfulConfidenceThreshold")
+                    ?? configuration.GetValue<double?>("INGEST_IMAGE_MEANINGFUL_CONFIDENCE_THRESHOLD") ?? 0.80;
                 o.GenerateLinkAltText =
                     configuration.GetValue<bool>("Ingest:GenerateLinkAltText")
                     || configuration.GetValue<bool>("INGEST_GENERATE_LINK_ALT_TEXT");

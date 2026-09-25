@@ -64,6 +64,37 @@ At a high level, PDFs flow through:
 - **PDF title**: extracts text from the first pages and writes a descriptive title into PDF metadata. If there isn't enough text, the existing title is kept (or a placeholder is used when missing).
 - **Alt text (tagged PDFs only)**: fills missing `Alt` text for tagged `Figure` elements, using AI when configured and a fallback otherwise. (Optional) link `Alt` generation is off by default; enable with `INGEST_GENERATE_LINK_ALT_TEXT=true`.
 
+#### Images outside Figure tags and composite figures
+
+Images inside paragraphs can be meaningful illustrations or redundant text effects.
+Remediation classifies each supported image occurrence using its isolated raster,
+rendered page region, overlapping extractable text, and surrounding text. The existing
+tag alone does not determine its purpose. A valid meaningful-image confidence at or
+above the cutoff creates a Figure with the returned description; a lower confidence
+marks only that image draw as Artifact. Uncertain valid results therefore become
+artifacts. Model errors, malformed responses, or unavailable rendering leave the
+original content unchanged.
+
+Splitting a paragraph preserves its text, drawing operations and content order, and
+registers new content references in the structure parent tree. Existing Figure,
+Formula, Link and annotation semantics, explicit Alt/ActualText, and artifacts are
+protected. This pass currently handles page-level image XObject draws inside a
+single marked-content sequence on unrotated, zero-origin pages with matching media
+and crop boxes. Inline images, images inside Form XObjects, nested marked-content
+sequences and ambiguous structure associations are left for existing remediation
+or manual review.
+
+For composite figures with an existing usable description, vector-only leaf Figure
+components without their own Alt/ActualText become Span tags. Raster images, text
+components and explicitly described children retain their roles.
+
+- `INGEST_CLASSIFY_IMAGES_OUTSIDE_FIGURES` (default `true`): disable to roll back image-purpose classification.
+- `INGEST_IMAGE_MEANINGFUL_CONFIDENCE_THRESHOLD` (default `0.80`, range `(0, 1]`): minimum confidence for a separate description.
+
+The corresponding configuration keys are `Ingest:ClassifyImagesOutsideFigures` and
+`Ingest:ImageMeaningfulConfidenceThreshold`. Classification uses `OPENAI_ALT_TEXT_MODEL`.
+Sample providers do not classify images. Decisions and preservation failures are logged.
+
 #### Form annotation alt text
 
 ODL 2.5.7 can add `/Alt` text of exactly `Annotation` to a `/Form` tag,

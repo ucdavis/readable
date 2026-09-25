@@ -14,8 +14,21 @@ public sealed record LinkAltTextRequest(
     string ContextAfter,
     string? PrimaryLanguage = null);
 
+public sealed record ImagePurposeRequest(
+    ImageAltTextRequest Image,
+    byte[] PageRegionPng,
+    string OverlappingText);
+
+public enum ImagePurpose { Meaningful, Decorative }
+
+public sealed record ImagePurposeResult(ImagePurpose Purpose, double Confidence, string AltText, string Reason);
+
 public interface IAltTextService
 {
+    // Providers without classification support leave the original structure untouched.
+    Task<ImagePurposeResult?> ClassifyImageAsync(ImagePurposeRequest request, CancellationToken cancellationToken)
+        => Task.FromResult<ImagePurposeResult?>(null);
+
     Task<string> GetAltTextForImageAsync(ImageAltTextRequest request, CancellationToken cancellationToken);
     Task<string> GetAltTextForLinkAsync(LinkAltTextRequest request, CancellationToken cancellationToken);
 
