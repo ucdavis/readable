@@ -503,12 +503,14 @@ public sealed class PdfImagePurposeTests : IDisposable
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var active = 0;
         var maximum = 0;
+        var maximumLock = new object();
         var service = new Classifier
         {
             Handler = async (request, token) =>
             {
                 var count = Interlocked.Increment(ref active);
-                Interlocked.Exchange(ref maximum, Math.Max(count, maximum));
+                lock (maximumLock)
+                    maximum = Math.Max(count, maximum);
                 try
                 {
                     if (request.OverlappingText.Contains("After first"))
