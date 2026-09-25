@@ -32,12 +32,19 @@ directory. Keep source PDFs and generated artifacts out of Git.
 
 ## Image-purpose and composite-figure regression
 
+See [image-purpose behavior](../../../README.md#images-outside-figure-tags-and-composite-figures)
+for classification policy, supported scope and preservation rules.
+
 `PdfImagePurposeTests` runs offline through the remediation processor, with real
 PDF content streams and a deterministic classifier/rasterizer. It covers per-occurrence
 classification of a shared image, the confidence cutoff, paragraph text and reading
 order, parent-tree persistence after closing/reopening, PDF 2.0 namespaces,
 role-mapped protected owners, errors, cancellation, rollback, invalid configuration,
 repeat processing, and preservation of explicit or raster figure components.
+Preservation regressions cover object-reference claims, ambiguous owners, inline
+descriptions, Form and nested content, and fill/stroke patterns and soft masks,
+including graphics state set before marked content. The mixed Form/page MCID
+fixture checks reading order for both classification outcomes after reopening.
 `OpenAIRemediationResponseOptionsTests` checks the classifier's two-image request
 and rejects malformed model responses. Run both with:
 

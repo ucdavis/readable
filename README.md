@@ -69,34 +69,42 @@ At a high level, PDFs flow through:
 Images inside paragraphs can be meaningful illustrations or redundant text effects.
 Remediation classifies each supported image occurrence using its isolated raster,
 rendered page region, overlapping extractable text, and surrounding text. The existing
-tag alone does not determine its purpose. A valid meaningful-image confidence at or
-above the cutoff creates a Figure with the returned description; a lower confidence
-marks only that image draw as Artifact. Uncertain valid results therefore become
-artifacts. Model errors, malformed responses, or unavailable rendering leave the
-original content unchanged.
+tag alone does not determine its purpose. A valid meaningful classification at or
+above the confidence cutoff creates a Figure with a usable returned description.
+A valid decorative classification at any confidence, or a valid meaningful
+classification below the cutoff, marks only that image draw as Artifact.
+Model errors, malformed responses, unavailable rendering and unsafe mappings leave
+the original image semantics unchanged by this pass.
 
 Splitting a paragraph preserves its text, drawing operations and content order, and
 registers new content references in the structure parent tree. Existing Figure,
 Formula, Link and annotation semantics, explicit Alt/ActualText, and artifacts are
-protected, including images claimed through object references. This pass currently handles page-level image XObject draws inside a
-single marked-content sequence on unrotated, zero-origin pages with matching media
-and crop boxes. Inline images, images inside Form XObjects, nested marked-content
+protected, including images claimed through object references. This pass currently
+handles page-level image XObject draws inside a single marked-content sequence on
+unrotated, zero-origin pages with matching media and crop boxes. Inline images,
+images inside Form XObjects, nested marked-content
 sequences and ambiguous structure associations are left for existing remediation
 or manual review.
 
 For composite figures with an existing usable description, vector-only leaf Figure
 components without their own Alt/ActualText become Span tags. Raster images, text
-components and children described in structure or marked-content properties retain their roles.
+components and children described in structure or marked-content properties retain
+their roles.
 Components with Form draws, nested marked content, repeated MCIDs or ambiguous
 ownership also retain their roles. Pages with Pattern resources or potentially active
 soft masks retain all component Figure roles.
 
-- `INGEST_CLASSIFY_IMAGES_OUTSIDE_FIGURES` (default `true`): disable to roll back image-purpose classification.
+- `INGEST_CLASSIFY_IMAGES_OUTSIDE_FIGURES` (default `true`): disable to roll back image-purpose classification. Composite-figure normalization still runs.
 - `INGEST_IMAGE_MEANINGFUL_CONFIDENCE_THRESHOLD` (default `0.80`, range `(0, 1]`): minimum confidence for a separate description.
 
 The corresponding configuration keys are `Ingest:ClassifyImagesOutsideFigures` and
-`Ingest:ImageMeaningfulConfidenceThreshold`. Classification uses `OPENAI_ALT_TEXT_MODEL`.
+`Ingest:ImageMeaningfulConfidenceThreshold`; these take precedence over the
+`INGEST_` variables. Invalid thresholds reject processor initialization, even when
+classification is disabled. Classification uses `OPENAI_ALT_TEXT_MODEL`.
 Sample providers do not classify images. Decisions and preservation failures are logged.
+
+See the [image-purpose regression instructions](tests/server.tests/Integration/README.md#image-purpose-and-composite-figure-regression)
+for offline coverage and live-document verification.
 
 #### Form annotation alt text
 
