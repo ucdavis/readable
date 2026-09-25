@@ -85,6 +85,156 @@ public sealed class PdfImagePurposeTests : IDisposable
     }
 
     [Theory]
+    [InlineData("objr", ImagePurpose.Decorative)]
+    [InlineData("objr", ImagePurpose.Meaningful)]
+    [InlineData("objr-without-hook", ImagePurpose.Decorative)]
+    [InlineData("objr-without-hook", ImagePurpose.Meaningful)]
+    [InlineData("multiple-objr", ImagePurpose.Decorative)]
+    [InlineData("multiple-objr", ImagePurpose.Meaningful)]
+    [InlineData("duplicate-mcid", ImagePurpose.Decorative)]
+    [InlineData("duplicate-mcid", ImagePurpose.Meaningful)]
+    public async Task ClaimedOrAmbiguousImages_ArePreservedBeforeClassification(string mode, ImagePurpose purpose)
+    {
+        var input = CreateInput();
+        var claimed = Path.Combine(_root, "claimed.pdf");
+        using (var pdf = new PdfDocument(new PdfReader(input), new PdfWriter(claimed)))
+        {
+            var page = pdf.GetPage(1);
+            var document = (PdfStructElem)pdf.GetStructTreeRoot().GetKids()[0];
+            if (mode == "duplicate-mcid")
+            {
+                var duplicate = new PdfStructElem(pdf, PdfName.P, page);
+                document.AddKid(duplicate);
+                duplicate.AddKid(new PdfMcrNumber(new PdfNumber(0), duplicate));
+            }
+            else
+            {
+                var resources = page.GetResources().GetResource(PdfName.XObject);
+                var image = resources.GetAsStream(resources.KeySet().First());
+                image.Put(PdfName.StructParent, new PdfNumber(10));
+                for (var i = 0; i < (mode == "multiple-objr" ? 2 : 1); i++)
+                {
+                    var figure = new PdfStructElem(pdf, PdfName.Figure, page);
+                    figure.SetAlt(new PdfString("Existing image description"));
+                    document.AddKid(figure);
+                    var reference = new PdfDictionary();
+                    reference.Put(PdfName.Type, PdfName.OBJR);
+                    reference.Put(PdfName.Obj, image);
+                    reference.Put(PdfName.Pg, page.GetPdfObject());
+                    figure.AddKid(new PdfObjRef(reference, figure));
+                }
+                if (mode == "objr-without-hook") image.Remove(PdfName.StructParent);
+            }
+        }
+        byte[] originalContent;
+        using (var pdf = new PdfDocument(new PdfReader(claimed))) originalContent = pdf.GetPage(1).GetContentBytes();
+        var classification = new ImagePurposeResult(purpose, 0.95, "Replacement description", "Visual evidence");
+        var service = new Classifier(classification, classification);
+        var output = await Process(claimed, service);
+        service.Requests.Should().BeEmpty();
+        using var result = new PdfDocument(new PdfReader(output));
+        result.GetPage(1).GetContentBytes().Should().Equal(originalContent);
+        Images(result.GetPage(1)).Should().OnlyContain(i => i.Mcid == 0 && i.Roles.SequenceEqual(new[] { "P" }));
+        var root = (PdfStructElem)result.GetStructTreeRoot().GetKids()[0];
+        var figures = root.GetKids().OfType<PdfStructElem>().Where(e => e.GetRole().Equals(PdfName.Figure)).ToArray();
+        figures.Should().HaveCount(mode == "duplicate-mcid" ? 0 : mode == "multiple-objr" ? 2 : 1);
+        foreach (var figure in figures)
+        {
+            figure.GetAlt().ToUnicodeString().Should().Be("Existing image description");
+            figure.GetKids().Should().ContainSingle().Which.Should().BeOfType<PdfObjRef>();
+        }
+    }
+
+    [Theory]
+    [InlineData("inline-alt")]
+    [InlineData("inline-actualtext")]
+    [InlineData("named-alt")]
+    [InlineData("named-actualtext")]
+    [InlineData("form-image")]
+    [InlineData("form-text")]
+    [InlineData("form-vector")]
+    [InlineData("nested-image")]
+    [InlineData("nested-text")]
+    [InlineData("nested-vector")]
+    [InlineData("repeated-mcid")]
+    [InlineData("ambiguous-owner")]
+    public async Task CompositeComponents_WithUnprovenOrDescribedContent_KeepFigureRole(string mode)
+    {
+        var input = CreateComponentInput(mode);
+        var service = new Classifier();
+        var output = await Process(input, service);
+        service.Requests.Should().BeEmpty();
+        using var pdf = new PdfDocument(new PdfReader(output));
+        var parent = (PdfStructElem)((PdfStructElem)pdf.GetStructTreeRoot().GetKids()[0]).GetKids()[0];
+        parent.GetAlt().ToUnicodeString().Should().Be("Composite badge");
+        var children = parent.GetKids().Cast<PdfStructElem>().ToArray();
+        children[0].GetRole().Should().Be(PdfName.Span);
+        children[1].GetRole().Should().Be(PdfName.Figure);
+        using var original = new PdfDocument(new PdfReader(input));
+        pdf.GetPage(1).GetContentBytes().Should().Equal(original.GetPage(1).GetContentBytes());
+        PdfTextExtractor.GetTextFromPage(pdf.GetPage(1)).Should().Be(PdfTextExtractor.GetTextFromPage(original.GetPage(1)));
+    }
+
+    private string CreateComponentInput(string mode)
+    {
+        var path = Path.Combine(_root, "component.pdf");
+        using var pdf = new PdfDocument(new PdfWriter(path));
+        pdf.SetTagged(); pdf.GetDocumentInfo().SetTitle("Test");
+        var page = pdf.AddNewPage();
+        var document = new PdfStructElem(pdf, PdfName.Document); pdf.GetStructTreeRoot().AddKid(document);
+        var parent = new PdfStructElem(pdf, PdfName.Figure, page); document.AddKid(parent);
+        parent.SetAlt(new PdfString("Composite badge"));
+        var canvas = new PdfCanvas(page);
+        for (var i = 0; i < 2; i++)
+        {
+            var child = new PdfStructElem(pdf, PdfName.Figure, page); parent.AddKid(child);
+            var id = i == 0 ? 1 : 5;
+            child.AddKid(new PdfMcrNumber(new PdfNumber(id), child));
+            var properties = Props(id);
+            if (i == 1 && (mode.StartsWith("inline-") || mode.StartsWith("named-")))
+                properties.Put(mode.EndsWith("actualtext") ? PdfName.ActualText : PdfName.Alt, new PdfString("Inline description"));
+            if (i == 1 && mode.StartsWith("named-")) properties.MakeIndirect(pdf);
+            canvas.BeginMarkedContent(PdfName.Figure, properties);
+            canvas.Rectangle(100 + i * 60, 500, 40, 40).Fill();
+            if (i == 1 && mode.StartsWith("form-"))
+            {
+                var form = new PdfFormXObject(new iText.Kernel.Geom.Rectangle(0, 0, 40, 40));
+                var inner = new PdfCanvas(form, pdf);
+                PaintNested(inner);
+                inner.Release();
+                canvas.AddXObjectWithTransformationMatrix(form, 1, 0, 0, 1, 160, 500);
+            }
+            if (i == 1 && mode.StartsWith("nested-")) PaintNested(canvas);
+            canvas.EndMarkedContent();
+            if (i == 1 && mode == "repeated-mcid")
+                canvas.BeginMarkedContent(PdfName.Figure, Props(id)).Rectangle(220, 500, 40, 40).Fill().EndMarkedContent();
+            if (i == 1 && mode == "ambiguous-owner")
+            {
+                var other = new PdfStructElem(pdf, PdfName.Span, page); parent.AddKid(other);
+                other.AddKid(new PdfMcrNumber(new PdfNumber(id), other));
+                child.AddKid(new PdfMcrNumber(new PdfNumber(6), child));
+                canvas.BeginMarkedContent(PdfName.Figure, Props(6)).Rectangle(220, 500, 40, 40).Fill().EndMarkedContent();
+            }
+        }
+        canvas.Release();
+        return path;
+
+        void PaintNested(PdfCanvas inner)
+        {
+            inner.BeginMarkedContent(PdfName.Span, Props(0));
+            if (mode.EndsWith("image"))
+            {
+                var image = new PdfImageXObject(ImageDataFactory.Create(1, 1, 3, 8, new byte[] { 255, 0, 0 }, null));
+                inner.AddXObjectWithTransformationMatrix(image, 20, 0, 0, 20, 0, 0);
+            }
+            else if (mode.EndsWith("text"))
+                inner.BeginText().SetFontAndSize(PdfFontFactory.CreateFont(StandardFonts.HELVETICA), 12).MoveText(0, 10).ShowText("Content").EndText();
+            else inner.Rectangle(0, 0, 20, 20).Fill();
+            inner.EndMarkedContent();
+        }
+    }
+
+    [Theory]
     [InlineData("Figure")]
     [InlineData("Link")]
     [InlineData("Formula")]

@@ -1,6 +1,5 @@
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas.Parser;
-using iText.Kernel.Pdf.Canvas.Parser.Data;
 using iText.Kernel.Pdf.Canvas.Parser.Listener;
 using iText.Kernel.Pdf.Canvas.Parser.Filter;
 using iText.Kernel.Pdf.Tagging;
@@ -107,9 +106,15 @@ public sealed partial class PdfRemediationProcessor
         {
             cancellationToken.ThrowIfCancellationRequested();
             var page = pdf.GetPage(number);
-            var content = new ComponentContentListener();
-            new PdfCanvasProcessor(content).ProcessPageContent(page);
-            foreach (var owner in PdfImageOccurrenceEditor.PageContentOwners(page).Values.DistinctBy(e => e.GetPdfObject()))
+            PdfImageOccurrenceEditor content;
+            try { content = new PdfImageOccurrenceEditor(page); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Cannot safely map figure components on page {page}; preserving them.", number);
+                continue;
+            }
+            var owners = PdfImageOccurrenceEditor.PageContentOwners(page);
+            foreach (var owner in owners.Values.DistinctBy(e => e.GetPdfObject()))
             {
                 var child = owner.GetPdfObject();
                 var parent = child.GetAsDictionary(PdfName.P);
@@ -125,24 +130,13 @@ public sealed partial class PdfRemediationProcessor
                 if (kids.Count == 0 || kids.Any(k => k is not PdfMcr m || m is PdfObjRef
                     || m.GetPdfObject() is PdfDictionary d && d.ContainsKey(PdfName.Stm)
                     || !page.GetPdfObject().Equals(m.GetPageObject())
-                    || !content.Paths.Contains(m.GetMcid()) || content.Other.Contains(m.GetMcid()))) continue;
+                    || !owners.TryGetValue(m.GetMcid(), out var uniqueOwner)
+                    || !uniqueOwner.GetPdfObject().Equals(child)
+                    || !content.VectorOnlyMcids.Contains(m.GetMcid()))) continue;
                 child.Put(PdfName.S, RoleSpan);
                 demoted++;
             }
         }
         _logger.LogInformation("Normalized {count} vector components inside described composite figures.", demoted);
-    }
-
-    private sealed class ComponentContentListener : IEventListener
-    {
-        public HashSet<int> Paths { get; } = new();
-        public HashSet<int> Other { get; } = new();
-        public void EventOccurred(IEventData data, EventType type)
-        {
-            if (data is PathRenderInfo path) Paths.Add(path.GetMcid());
-            else if (data is TextRenderInfo text) Other.Add(text.GetMcid());
-            else if (data is ImageRenderInfo image) Other.Add(image.GetMcid());
-        }
-        public ICollection<EventType> GetSupportedEvents() => [EventType.RENDER_PATH, EventType.RENDER_TEXT, EventType.RENDER_IMAGE];
     }
 }

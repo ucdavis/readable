@@ -17,12 +17,16 @@ internal sealed class PdfImageOccurrenceEditor
     private readonly byte[] _content;
     private readonly List<(Draw Draw, string? Alt)> _edits = new();
     public IReadOnlyList<Draw> Draws { get; }
+    public IReadOnlySet<int> VectorOnlyMcids { get; }
 
     public PdfImageOccurrenceEditor(PdfPage page)
     {
         _page = page;
         _content = page.GetContentBytes();
-        var owners = PageContentOwners(page);
+        var objectClaims = new HashSet<PdfObject>();
+        var owners = PageContentOwners(page, objectClaims);
+        var paths = new HashSet<int>();
+        var unsupportedComponents = new HashSet<int>();
         var draws = new List<Draw>();
         var stack = new Stack<(PdfName? Role, PdfDictionary? Properties)>();
         var counts = new Dictionary<int, int>();
@@ -49,7 +53,18 @@ internal sealed class PdfImageOccurrenceEditor
             {
                 if (!stack.TryPop(out _)) throw new InvalidDataException("Unbalanced marked content.");
             }
-            else if (op == "Do" && stack.Count == 1)
+            if (stack.Count > 1 || stack.Any(t => t.Properties is { } p
+                && (p.ContainsKey(PdfName.Alt) || p.ContainsKey(PdfName.ActualText)))
+                || op is "Do" or "BI" or "EI" or "BT" or "Tj" or "TJ" or "'" or "\"" or "sh")
+            {
+                foreach (var tag in stack)
+                    if (tag.Properties?.GetAsNumber(PdfName.MCID) is { } id)
+                        unsupportedComponents.Add(id.IntValue());
+            }
+            if (stack.Count == 1 && stack.Peek().Properties?.GetAsNumber(PdfName.MCID) is { } pathId
+                && op is "S" or "s" or "f" or "F" or "f*" or "B" or "B*" or "b" or "b*" or "n")
+                paths.Add(pathId.IntValue());
+            if (op == "Do" && stack.Count == 1)
             {
                 var (role, properties) = stack.Peek();
                 var mcid = properties?.GetAsNumber(PdfName.MCID)?.IntValue();
@@ -57,6 +72,7 @@ internal sealed class PdfImageOccurrenceEditor
                 if (mcid is null || role is null || PdfName.Artifact.Equals(role)
                     || properties!.ContainsKey(PdfName.ActualText) || properties.ContainsKey(PdfName.Alt)
                     || !PdfName.Image.Equals(image?.GetAsName(PdfName.Subtype))
+                    || objectClaims.Contains(image!) || image!.ContainsKey(PdfName.StructParent)
                     || !owners.TryGetValue(mcid.Value, out var owner) || IsProtected(owner, page.GetDocument())) continue;
                 draws.Add(new Draw(start, end, mcid.Value, role, properties, image!, owner));
             }
@@ -64,6 +80,7 @@ internal sealed class PdfImageOccurrenceEditor
         if (stack.Count != 0) throw new InvalidDataException("Unbalanced marked content.");
         // Repeated MCIDs cannot be split unambiguously without repairing the source structure first.
         Draws = draws.Where(d => counts[d.Mcid] == 1).ToArray();
+        VectorOnlyMcids = paths.Where(id => counts[id] == 1 && !unsupportedComponents.Contains(id)).ToHashSet();
     }
 
     public void Add(Draw draw, string? alt) => _edits.Add((draw, alt));
@@ -128,7 +145,7 @@ internal sealed class PdfImageOccurrenceEditor
         }
     }
 
-    internal static Dictionary<int, PdfStructElem> PageContentOwners(PdfPage page)
+    internal static Dictionary<int, PdfStructElem> PageContentOwners(PdfPage page, ISet<PdfObject>? objectClaims = null)
     {
         var owners = new Dictionary<int, PdfStructElem>();
         var ambiguous = new HashSet<int>();
@@ -141,6 +158,9 @@ internal sealed class PdfImageOccurrenceEditor
             if (node is not PdfStructElem elem || !visited.Add(elem.GetPdfObject())) return;
             foreach (var kid in elem.GetKids())
             {
+                if (kid is PdfObjRef objRef && objRef.GetPdfObject() is PdfDictionary reference
+                    && reference.Get(PdfName.Obj) is { } target)
+                    objectClaims?.Add(target);
                 if (kid is PdfMcr mcr && mcr.GetMcid() >= 0 && page.GetPdfObject().Equals(mcr.GetPageObject())
                     && !(mcr.GetPdfObject() is PdfDictionary d && d.ContainsKey(PdfName.Stm)))
                 {

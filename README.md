@@ -78,7 +78,7 @@ original content unchanged.
 Splitting a paragraph preserves its text, drawing operations and content order, and
 registers new content references in the structure parent tree. Existing Figure,
 Formula, Link and annotation semantics, explicit Alt/ActualText, and artifacts are
-protected. This pass currently handles page-level image XObject draws inside a
+protected, including images claimed through object references. This pass currently handles page-level image XObject draws inside a
 single marked-content sequence on unrotated, zero-origin pages with matching media
 and crop boxes. Inline images, images inside Form XObjects, nested marked-content
 sequences and ambiguous structure associations are left for existing remediation
@@ -86,7 +86,9 @@ or manual review.
 
 For composite figures with an existing usable description, vector-only leaf Figure
 components without their own Alt/ActualText become Span tags. Raster images, text
-components and explicitly described children retain their roles.
+components and children described in structure or marked-content properties retain their roles.
+Components with Form draws, nested marked content, repeated MCIDs or ambiguous
+ownership also retain their roles.
 
 - `INGEST_CLASSIFY_IMAGES_OUTSIDE_FIGURES` (default `true`): disable to roll back image-purpose classification.
 - `INGEST_IMAGE_MEANINGFUL_CONFIDENCE_THRESHOLD` (default `0.80`, range `(0, 1]`): minimum confidence for a separate description.
