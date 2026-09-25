@@ -56,6 +56,94 @@ public sealed class PdfImagePurposeTests : IDisposable
     }
 
     [Theory]
+    [InlineData(ImagePurpose.Decorative, false)]
+    [InlineData(ImagePurpose.Meaningful, false)]
+    [InlineData(ImagePurpose.Decorative, true)]
+    [InlineData(ImagePurpose.Meaningful, true)]
+    public async Task SharedFormAndPageMcid_PreservesStructureReadingOrder(ImagePurpose purpose, bool dictionaryPageReference)
+    {
+        var input = CreateInput();
+        var mixed = Path.Combine(_root, "mixed.pdf");
+        byte[] formContent;
+        using (var pdf = new PdfDocument(new PdfReader(input), new PdfWriter(mixed)))
+        {
+            var page = pdf.GetPage(1);
+            var owner = PdfImageOccurrenceEditor.PageContentOwners(page)[0];
+            if (dictionaryPageReference)
+            {
+                owner.RemoveKid(0);
+                var reference = Props(0);
+                reference.Put(PdfName.Type, PdfName.MCR);
+                reference.Put(PdfName.Pg, page.GetPdfObject());
+                owner.AddKid(new PdfMcrDictionary(reference, owner));
+            }
+            var form = new PdfFormXObject(new iText.Kernel.Geom.Rectangle(0, 0, 100, 30));
+            form.GetPdfObject().Put(PdfName.StructParents, new PdfNumber(50));
+            form.GetPdfObject().MakeIndirect(pdf);
+            var inner = new PdfCanvas(form, pdf);
+            inner.BeginMarkedContent(PdfName.Span, Props(0)).BeginText()
+                .SetFontAndSize(PdfFontFactory.CreateFont(StandardFonts.HELVETICA), 12)
+                .MoveText(0, 10).ShowText("Form").EndText().EndMarkedContent();
+            inner.Release();
+            formContent = form.GetPdfObject().GetBytes();
+            var formReference = Props(0);
+            formReference.Put(PdfName.Type, PdfName.MCR);
+            formReference.Put(PdfName.Pg, page.GetPdfObject());
+            formReference.Put(PdfName.Stm, form.GetPdfObject());
+            owner.AddKid(0, new PdfMcrDictionary(formReference, owner));
+            var canvas = new PdfCanvas(page.NewContentStreamBefore(), page.GetResources(), pdf);
+            canvas.AddXObjectWithTransformationMatrix(form, 1, 0, 0, 1, 100, 650);
+            canvas.Release();
+        }
+        var direct = Path.Combine(_root, "direct.pdf");
+        using (var pdf = new PdfDocument(new PdfReader(mixed), new PdfWriter(direct)))
+        {
+            var editor = new PdfImageOccurrenceEditor(pdf.GetPage(1));
+            editor.Draws.Should().HaveCount(2);
+            foreach (var draw in editor.Draws)
+                editor.Add(draw, purpose == ImagePurpose.Meaningful ? "Informative symbol" : null);
+            editor.Apply();
+            AssertOrder(pdf);
+        }
+        using (var reopened = new PdfDocument(new PdfReader(direct))) AssertOrder(reopened);
+        var classification = new ImagePurposeResult(purpose, 0.95, "Informative symbol", "Visual evidence");
+        var service = new Classifier(classification, classification);
+        var output = await Process(mixed, service);
+        service.Requests.Should().HaveCount(2);
+        using var result = new PdfDocument(new PdfReader(output));
+        AssertOrder(result);
+
+        void AssertOrder(PdfDocument pdf)
+        {
+            var page = pdf.GetPage(1);
+            var owner = PdfImageOccurrenceEditor.PageContentOwners(page)[0];
+            var text = new ParagraphTextListener();
+            new PdfCanvasProcessor(text).ProcessPageContent(page);
+            var order = owner.GetKids().Select(k =>
+            {
+                if (k is PdfStructElem figure)
+                {
+                    figure.GetRole().Should().Be(PdfName.Figure);
+                    figure.GetAlt().ToUnicodeString().Should().Be("Informative symbol");
+                    return "Figure";
+                }
+                var mcr = (PdfMcr)k;
+                if (mcr.GetPdfObject() is PdfDictionary d && d.GetAsStream(PdfName.Stm) is { } stream)
+                {
+                    mcr.GetMcid().Should().Be(0);
+                    mcr.GetPageObject().Should().Be(page.GetPdfObject());
+                    stream.GetBytes().Should().Equal(formContent);
+                    return "Form";
+                }
+                return text.ByMcid[mcr.GetMcid()];
+            });
+            order.Should().Equal(purpose == ImagePurpose.Meaningful
+                ? new[] { "Form", "Before", "Figure", "After first", "Figure", "After second" }
+                : new[] { "Form", "Before", "After first", "After second" });
+        }
+    }
+
+    [Theory]
     [InlineData("failure")]
     [InlineData("invalid")]
     [InlineData("missing-alt")]
@@ -423,6 +511,16 @@ public sealed class PdfImagePurposeTests : IDisposable
     private static List<(int Mcid, string[] Roles)> Images(PdfPage page)
     {
         var listener = new ImageListener(); new PdfCanvasProcessor(listener).ProcessPageContent(page); return listener.Images;
+    }
+    private sealed class ParagraphTextListener : IEventListener
+    {
+        public Dictionary<int, string> ByMcid { get; } = new();
+        public void EventOccurred(IEventData data, EventType type)
+        {
+            if (data is TextRenderInfo text && text.GetCanvasTagHierarchy().Any(t => PdfName.P.Equals(t.GetRole())))
+                ByMcid[text.GetMcid()] = ByMcid.GetValueOrDefault(text.GetMcid(), "") + text.GetText();
+        }
+        public ICollection<EventType> GetSupportedEvents() => [EventType.RENDER_TEXT];
     }
     private sealed class ImageListener : IEventListener
     {

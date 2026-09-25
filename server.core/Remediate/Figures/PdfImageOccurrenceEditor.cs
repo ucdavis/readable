@@ -105,7 +105,8 @@ internal sealed class PdfImageOccurrenceEditor
             var prior = previousMcid.GetValueOrDefault(draw.Mcid, draw.Mcid);
             var kids = draw.Owner.GetKids();
             var index = kids.ToList().FindIndex(k => k is PdfMcr mcr && mcr.GetMcid() == prior
-                && mcr.GetPageObject().Equals(_page.GetPdfObject()));
+                && mcr.GetPageObject().Equals(_page.GetPdfObject())
+                && !(mcr.GetPdfObject() is PdfDictionary d && d.ContainsKey(PdfName.Stm)));
             if (index < 0) throw new InvalidDataException("Missing image content owner.");
             if (alt is null)
             {
