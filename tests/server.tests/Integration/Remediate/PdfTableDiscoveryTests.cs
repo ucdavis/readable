@@ -98,6 +98,41 @@ public sealed class PdfTableDiscoveryTests
         }
     }
 
+    [Fact]
+    public void CancellationDuringDiscovery_StopsBeforeMutatingLaterTable()
+    {
+        using var output = new MemoryStream();
+        using var pdf = new PdfDocument(new PdfWriter(output));
+        using var cancellation = new CancellationTokenSource();
+        pdf.SetTagged();
+        pdf.AddNewPage();
+        var prefix = new CancellingDictionary(cancellation);
+        var table = new PdfDictionary();
+        table.Put(PdfName.S, PdfName.Table);
+        var root = pdf.GetStructTreeRoot().GetPdfObject();
+        root.Put(PdfName.K, new PdfArray(new PdfObject[] { prefix, table }));
+        try
+        {
+            Action remediate = () => PdfTableRoleRemediator.DemoteLikelyLayoutTables(pdf, true, cancellation.Token);
+            remediate.Should().Throw<OperationCanceledException>()
+                .Which.CancellationToken.Should().Be(cancellation.Token);
+            table.GetAsName(PdfName.S).Should().Be(PdfName.Table);
+        }
+        finally
+        {
+            root.Remove(PdfName.K);
+        }
+    }
+
+    private sealed class CancellingDictionary(CancellationTokenSource cancellation) : PdfDictionary
+    {
+        public override PdfObject Get(PdfName key)
+        {
+            if (PdfName.K.Equals(key)) cancellation.Cancel();
+            return base.Get(key);
+        }
+    }
+
     private sealed class Classifier(PdfTableKind kind) : IPdfTableClassificationService
     {
         public int Calls { get; private set; }
