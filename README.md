@@ -107,6 +107,14 @@ Sample providers do not classify images. Decisions and preservation failures are
 See the [image-purpose regression instructions](tests/server.tests/Integration/README.md#image-purpose-and-composite-figure-regression)
 for offline coverage and live-document verification.
 
+#### Table discovery
+
+Table remediation scans the full document tag tree, including tables after long
+runs of tagged content. Discovery uses an iterative traversal with object-identity
+tracking to stop cycles and avoid processing repeated references twice. It has no
+fixed document-wide visit cutoff. Cancellation and the existing limits within
+individual table operations remain in place.
+
 #### Form annotation alt text
 
 ODL 2.5.7 can add `/Alt` text of exactly `Annotation` to a `/Form` tag,

@@ -1228,17 +1228,15 @@ internal static class PdfTableRoleRemediator
     {
         var stack = new Stack<PdfObject?>();
         var visited = new HashSet<(int objNum, int genNum)>();
-        var nodesVisited = 0;
+        // Document discovery must cover the whole tree. A fixed visit budget silently skipped
+        // late tables in otherwise valid PDFs. Track object identity for both indirect objects
+        // and direct containers so malformed cycles terminate without truncating later siblings.
+        var visitedObjects = new HashSet<PdfObject>(ReferenceEqualityComparer.Instance);
         stack.Push(node);
 
         while (stack.Count > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            if (++nodesVisited > MaxStructTreeTraversalNodes)
-            {
-                return;
-            }
 
             var current = stack.Pop();
             if (current is null)
@@ -1252,7 +1250,7 @@ internal static class PdfTableRoleRemediator
             }
 
             var dereferenced = Dereference(current);
-            if (dereferenced is null)
+            if (dereferenced is null || !visitedObjects.Add(dereferenced))
             {
                 continue;
             }
