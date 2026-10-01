@@ -178,7 +178,7 @@ production entrypoint is now a queue worker, not a public HTTP API.
 
 The worker passes `--reading-order off` to skip ODL's final XY-Cut sort, which can interleave content
 across columns. ODL still analyzes layout and creates tags. This applies when ingest selects ODL;
-it does not change which PDFs are selected for tagging.
+it does not change which PDFs are selected for tagging. Reading-order errors can still remain.
 
 Useful environment variables:
 
