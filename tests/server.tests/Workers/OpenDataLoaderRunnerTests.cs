@@ -6,7 +6,7 @@ namespace server.tests.Workers;
 public sealed class OpenDataLoaderRunnerTests
 {
     [Fact]
-    public void BuildArguments_WithoutHybrid_UsesTaggedPdfAndQuiet()
+    public void BuildArguments_WithoutHybrid_DisablesFinalReadingOrderSort()
     {
         var options = new OpenDataLoaderOptions
         {
@@ -22,6 +22,8 @@ public sealed class OpenDataLoaderRunnerTests
             "/tmp/output",
             "--format",
             "tagged-pdf",
+            "--reading-order",
+            "off",
             "--quiet");
     }
 
@@ -43,6 +45,8 @@ public sealed class OpenDataLoaderRunnerTests
             "/tmp/output",
             "--format",
             "tagged-pdf",
+            "--reading-order",
+            "off",
             "--quiet",
             "--hybrid",
             "docling-fast",
