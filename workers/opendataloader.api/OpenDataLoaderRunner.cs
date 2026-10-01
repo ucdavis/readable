@@ -101,6 +101,9 @@ public sealed class OpenDataLoaderRunner : IOpenDataLoaderRunner
             outputDirectory,
             "--format",
             options.OutputFormat,
+            // Skip the final XY-Cut sort, which can interleave content across columns.
+            "--reading-order",
+            "off",
             "--quiet",
         };
 

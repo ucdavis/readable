@@ -176,6 +176,10 @@ production entrypoint is now a queue worker, not a public HTTP API.
   and sends a `FinalizePdfMessage` to `pdf-finalize`.
 - The ingest Function App still owns intake, remediation/finalization, report persistence, and DB status updates.
 
+The worker passes `--reading-order off` to skip ODL's final XY-Cut sort, which can interleave content
+across columns. ODL still analyzes layout and creates tags. This applies when ingest selects ODL;
+it does not change which PDFs are selected for tagging.
+
 Useful environment variables:
 
 - `ServiceBus`: Service Bus connection string.
