@@ -5,8 +5,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.40.2.10011",
-      "templateHash": "9634679418267114427"
+      "version": "0.46.1.21595",
+      "templateHash": "4210428097876939546"
     }
   },
   "parameters": {
@@ -67,6 +67,14 @@
       "defaultValue": "",
       "metadata": {
         "description": "Service Bus queue base name. Leave empty for `files`."
+      }
+    },
+    "maxUploadPages": {
+      "type": "int",
+      "defaultValue": 100,
+      "minValue": 0,
+      "metadata": {
+        "description": "Maximum allowed page count for uploaded PDFs. Set to 0 to disable the temporary upload page limit."
       }
     },
     "tags": {
@@ -290,8 +298,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.40.2.10011",
-              "templateHash": "107702304975801708"
+              "version": "0.46.1.21595",
+              "templateHash": "4149506841307443944"
             }
           },
           "parameters": {
@@ -494,8 +502,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.40.2.10011",
-              "templateHash": "10864392149399477197"
+              "version": "0.46.1.21595",
+              "templateHash": "5750190778610898153"
             }
           },
           "parameters": {
@@ -609,8 +617,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.40.2.10011",
-              "templateHash": "15889256795400945576"
+              "version": "0.46.1.21595",
+              "templateHash": "8979487407009704846"
             }
           },
           "parameters": {
@@ -755,8 +763,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.40.2.10011",
-              "templateHash": "7258916140003400791"
+              "version": "0.46.1.21595",
+              "templateHash": "6604953824071747873"
             }
           },
           "parameters": {
@@ -872,8 +880,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.40.2.10011",
-              "templateHash": "5510166543789126718"
+              "version": "0.46.1.21595",
+              "templateHash": "15233281545416162393"
             }
           },
           "parameters": {
@@ -1020,8 +1028,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.40.2.10011",
-              "templateHash": "12980482392011394938"
+              "version": "0.46.1.21595",
+              "templateHash": "5068747511529185748"
             }
           },
           "parameters": {
@@ -1141,8 +1149,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.40.2.10011",
-              "templateHash": "5276911922350752544"
+              "version": "0.46.1.21595",
+              "templateHash": "2051613147752359161"
             }
           },
           "parameters": {
@@ -1302,6 +1310,9 @@
           },
           "ingestFailedQueueName": {
             "value": "[variables('failedQueueName')]"
+          },
+          "maxUploadPages": {
+            "value": "[parameters('maxUploadPages')]"
           }
         },
         "template": {
@@ -1310,8 +1321,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.40.2.10011",
-              "templateHash": "1616710636045396217"
+              "version": "0.46.1.21595",
+              "templateHash": "2155391772818574907"
             }
           },
           "parameters": {
@@ -1485,6 +1496,14 @@
                 "description": "Queue consumed by the ingest failure function."
               }
             },
+            "maxUploadPages": {
+              "type": "int",
+              "defaultValue": 100,
+              "minValue": 0,
+              "metadata": {
+                "description": "Maximum allowed page count for uploaded PDFs. Set to 0 to disable the temporary upload page limit."
+              }
+            },
             "functionInstanceMemoryMB": {
               "type": "int",
               "defaultValue": 2048,
@@ -1539,7 +1558,7 @@
                 "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('webPlanName'))]",
                 "httpsOnly": true,
                 "siteConfig": {
-                  "linuxFxVersion": "DOTNETCORE|8.0",
+                  "linuxFxVersion": "DOTNETCORE|10.0",
                   "appSettings": [
                     {
                       "name": "ASPNETCORE_ENVIRONMENT",
@@ -1609,7 +1628,7 @@
                 "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('functionPlanName'))]",
                 "httpsOnly": true,
                 "siteConfig": {
-                  "appSettings": "[concat(createArray(createObject('name', 'AzureWebJobsStorage', 'value', parameters('functionStorageConnectionString')), createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'DB_CONNECTION', 'value', parameters('sqlConnectionString')), createObject('name', 'ServiceBus__FullyQualifiedNamespace', 'value', parameters('serviceBusFullyQualifiedNamespace')), createObject('name', 'ServiceBus', 'value', parameters('serviceBusConnectionString')), createObject('name', 'Storage__AccountName', 'value', parameters('dataStorageAccountName')), createObject('name', 'Storage__ConnectionString', 'value', parameters('dataStorageConnectionString')), createObject('name', 'Storage__IncomingContainer', 'value', parameters('incomingContainerName')), createObject('name', 'Storage__ProcessedContainer', 'value', parameters('processedContainerName')), createObject('name', 'Storage__TempContainer', 'value', parameters('tempContainerName')), createObject('name', 'Storage__ReportsContainer', 'value', parameters('reportsContainerName')), createObject('name', 'Pipeline__ChunkSizePages', 'value', string(parameters('pipelineChunkSizePages'))), createObject('name', 'INGEST_AUTOTAG_PROVIDER', 'value', parameters('ingestAutotagProvider')), createObject('name', 'INGEST_FILES_QUEUE_NAME', 'value', parameters('ingestFilesQueueName')), createObject('name', 'INGEST_ODL_AUTOTAG_QUEUE_NAME', 'value', parameters('ingestOpenDataLoaderAutotagQueueName')), createObject('name', 'INGEST_FINALIZE_QUEUE_NAME', 'value', parameters('ingestFinalizeQueueName')), createObject('name', 'INGEST_FAILED_QUEUE_NAME', 'value', parameters('ingestFailedQueueName'))), if(not(equals(parameters('appInsightsConnectionString'), '')), createArray(createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', parameters('appInsightsConnectionString')), createObject('name', 'APPINSIGHTS_INSTRUMENTATIONKEY', 'value', parameters('appInsightsInstrumentationKey')), createObject('name', 'APPLICATIONINSIGHTS_AGENT_EXTENSION_VERSION', 'value', '~3')), createArray()))]"
+                  "appSettings": "[concat(createArray(createObject('name', 'AzureWebJobsStorage', 'value', parameters('functionStorageConnectionString')), createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'DB_CONNECTION', 'value', parameters('sqlConnectionString')), createObject('name', 'ServiceBus__FullyQualifiedNamespace', 'value', parameters('serviceBusFullyQualifiedNamespace')), createObject('name', 'ServiceBus', 'value', parameters('serviceBusConnectionString')), createObject('name', 'Storage__AccountName', 'value', parameters('dataStorageAccountName')), createObject('name', 'Storage__ConnectionString', 'value', parameters('dataStorageConnectionString')), createObject('name', 'Storage__IncomingContainer', 'value', parameters('incomingContainerName')), createObject('name', 'Storage__ProcessedContainer', 'value', parameters('processedContainerName')), createObject('name', 'Storage__TempContainer', 'value', parameters('tempContainerName')), createObject('name', 'Storage__ReportsContainer', 'value', parameters('reportsContainerName')), createObject('name', 'Pipeline__ChunkSizePages', 'value', string(parameters('pipelineChunkSizePages'))), createObject('name', 'INGEST_AUTOTAG_PROVIDER', 'value', parameters('ingestAutotagProvider')), createObject('name', 'INGEST_FILES_QUEUE_NAME', 'value', parameters('ingestFilesQueueName')), createObject('name', 'INGEST_ODL_AUTOTAG_QUEUE_NAME', 'value', parameters('ingestOpenDataLoaderAutotagQueueName')), createObject('name', 'INGEST_FINALIZE_QUEUE_NAME', 'value', parameters('ingestFinalizeQueueName')), createObject('name', 'INGEST_FAILED_QUEUE_NAME', 'value', parameters('ingestFailedQueueName')), createObject('name', 'INGEST_MAX_UPLOAD_PAGES', 'value', string(parameters('maxUploadPages')))), if(not(equals(parameters('appInsightsConnectionString'), '')), createArray(createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', parameters('appInsightsConnectionString')), createObject('name', 'APPINSIGHTS_INSTRUMENTATIONKEY', 'value', parameters('appInsightsInstrumentationKey')), createObject('name', 'APPLICATIONINSIGHTS_AGENT_EXTENSION_VERSION', 'value', '~3')), createArray()))]"
                 },
                 "functionAppConfig": {
                   "deployment": {
@@ -1624,7 +1643,7 @@
                   },
                   "runtime": {
                     "name": "dotnet-isolated",
-                    "version": "8.0"
+                    "version": "10.0"
                   },
                   "scaleAndConcurrency": {
                     "instanceMemoryMB": "[parameters('functionInstanceMemoryMB')]",
@@ -1690,8 +1709,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.40.2.10011",
-              "templateHash": "12732451450925337952"
+              "version": "0.46.1.21595",
+              "templateHash": "11005120285192007735"
             }
           },
           "parameters": {
@@ -1783,8 +1802,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.40.2.10011",
-              "templateHash": "12041487527914216278"
+              "version": "0.46.1.21595",
+              "templateHash": "7322879138315097433"
             }
           },
           "parameters": {
@@ -1905,8 +1924,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.40.2.10011",
-              "templateHash": "10160557537707078986"
+              "version": "0.46.1.21595",
+              "templateHash": "10826543653587251669"
             }
           },
           "parameters": {
@@ -2065,8 +2084,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.40.2.10011",
-              "templateHash": "5897749174550608595"
+              "version": "0.46.1.21595",
+              "templateHash": "11738910799869084299"
             }
           },
           "parameters": {

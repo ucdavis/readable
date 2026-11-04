@@ -6,7 +6,7 @@ It uses the same `server.core` ingest services that the `function_ingest` Azure 
 
 ## Prereqs
 
-- .NET SDK in the `8.0.4xx` feature band, version `8.0.425` or later within that band. The `latestPatch` policy in `global.json` selects the latest installed patch in this band; it does not accept other feature bands or SDK major versions.
+- .NET SDK in the `10.0.4xx` feature band, version `10.0.403` or later within that band. The `latestPatch` policy in `global.json` selects the latest installed patch in this band; it does not accept other feature bands or SDK major versions.
 
 ## Run
 

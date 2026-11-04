@@ -1,6 +1,7 @@
-FROM mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.403-noble AS build
 WORKDIR /src
 
+COPY ["global.json", "./"]
 COPY ["workers/opendataloader.api/opendataloader.api.csproj", "workers/opendataloader.api/"]
 COPY ["server.core/server.core.csproj", "server.core/"]
 RUN dotnet restore "workers/opendataloader.api/opendataloader.api.csproj"
@@ -11,7 +12,7 @@ RUN dotnet publish "workers/opendataloader.api/opendataloader.api.csproj" \
     -o /app/publish \
     /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/aspnet:8.0-bookworm-slim AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS final
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \

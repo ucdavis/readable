@@ -35,6 +35,12 @@ export SQL_ADMIN_PASSWORD='your-strong-password'
 
 - The script expects Azure CLI to be installed and will fail fast if it is missing.
 - The wrapper scripts set defaults for subscription, resource group, and environment for each target (`dev`, `test`, `prod`).
+- The web app uses `DOTNETCORE|10.0`. The ingest Function uses the .NET 10
+  isolated worker on Flex Consumption with Functions runtime v4. Apply the
+  updated Bicep before deploying .NET 10 packages to an existing environment.
+  For the first upgrade, keep `deployInfra` enabled in Azure Pipelines.
+- The OpenDataLoader image uses .NET 10 on Ubuntu 24.04 with Java 17 and
+  Python 3. Rebuild and deploy it along with the web and Function packages.
 
 ## Deploy function code (ingest)
 

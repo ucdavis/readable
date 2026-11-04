@@ -4,7 +4,7 @@ This project will allow uploading PDF files to Azure Blob Storage. We'll then qu
 
 ## Architecture
 
-- **Backend**: .NET 8 Web API with ASP.NET Core
+- **Backend**: .NET 10 Web API with ASP.NET Core
 - **Frontend**: React 19 with Vite, TypeScript, and TanStack Router/Query/Table
 - **Authentication**: OIDC with Microsoft Entra ID (Azure AD)
 - **Styling**: Tailwind CSS
@@ -12,6 +12,12 @@ This project will allow uploading PDF files to Azure Blob Storage. We'll then qu
 - **Diagrams**: See `docs/architecture.md`
 
 ## Quick Start
+
+Use the .NET 10 SDK in the `10.0.4xx` feature band, version `10.0.403` or
+later within that band, as pinned by `global.json`. The Web API, ingest
+Function, OpenDataLoader worker, tests, and command-line runners target
+`net10.0`. Local Function development also requires Azure Functions Core
+Tools v4 with .NET 10 support.
 
 1. **Clone the repository**
 
@@ -282,7 +288,7 @@ You can update individual packages or you can use the `--upgrade` flag to update
 dotnet-outdated --upgrade --version-lock Major
 ```
 
-If you update `Microsoft.EntityFrameworkCore.Design` or another package that a tool depends on, you'll want to update that tool as well to match, ex: `dotnet tool update dotnet-ef --local --version 8.0.31`. That will update it for you but also set the value in our `dotnet-tools.json` so it's consistent for everyone.
+If you update `Microsoft.EntityFrameworkCore.Design` or another package that a tool depends on, you'll want to update that tool as well to match, ex: `dotnet tool update dotnet-ef --local --version 10.0.14`. That will update it for you but also set the value in our `dotnet-tools.json` so it's consistent for everyone.
 
 And as always, after updating dependencies, make sure to run `dotnet build` and `dotnet test` to verify everything is working.
 
