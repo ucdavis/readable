@@ -13,8 +13,9 @@ This project will allow uploading PDF files to Azure Blob Storage. We'll then qu
 
 ## Quick Start
 
-Use the .NET 10 SDK in the `10.0.4xx` feature band, version `10.0.403` or
-later within that band, as pinned by `global.json`. The Web API, ingest
+Use the .NET SDK specified in [global.json](global.json). Its `latestPatch`
+policy accepts the pinned version or a later patch in the same feature band,
+but not another feature band or major version. The Web API, ingest
 Function, OpenDataLoader worker, tests, and command-line runners target
 `net10.0`. Local Function development also requires Azure Functions Core
 Tools v4 with .NET 10 support.
@@ -260,7 +261,7 @@ The frontend uses Vite's hot module replacement (HMR). Changes to React componen
 
 - Run `dotnet test` from the repository root to execute the .NET test project included in `app.sln`.
 - Alternatively, target the project directly with `dotnet test tests/server.tests/server.tests.csproj`.
-- The tests use EF Core's in-memory provider (see `tests/server.tests/TestDbContextFactory.cs`) so no SQL Server instance is required.
+- Database tests use EF Core's in-memory provider (see `tests/server.tests/TestDbContextFactory.cs`). The [migration compatibility test](tests/server.tests/Data/MigrationCompatibilityTests.cs) uses the SQL Server provider to compare the model with the latest migration without connecting to a database. Neither requires a SQL Server instance.
 - PDF remediation tests live under `tests/server.tests/Integration/Remediate/` and may use PDFs from `tests/server.tests/Fixtures/pdfs/` or generate simple PDFs on the fly.
 
 ## Updating Dependencies
@@ -291,7 +292,7 @@ You can update individual packages or you can use the `--upgrade` flag to update
 dotnet tool run dotnet-outdated --upgrade --version-lock Major
 ```
 
-If you update `Microsoft.EntityFrameworkCore.Design` or another package that a tool depends on, you'll want to update that tool as well to match, ex: `dotnet tool update dotnet-ef --local --version 10.0.14`. That will update it for you but also set the value in our `dotnet-tools.json` so it's consistent for everyone.
+When updating `Microsoft.EntityFrameworkCore.Design` in [server/server.csproj](server/server.csproj), update the local EF tool to the same version with `dotnet tool update dotnet-ef --local --version <package-version>`. This records the tool version in [.config/dotnet-tools.json](.config/dotnet-tools.json) for everyone to use.
 
 And as always, after updating dependencies, make sure to run `dotnet build` and `dotnet test` to verify everything is working.
 
