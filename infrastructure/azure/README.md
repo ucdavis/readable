@@ -76,8 +76,13 @@ infrastructure work during the first transition.
    `INGEST_AUTOTAG_PROVIDER`. Store settings containing secrets securely.
    Confirm .NET 8 remains available as a rollback target in the target region.
 3. Confirm the .NET 10 build and package validation succeeded before starting
-   the window. Keep `deployInfra=true`, deploy the same release to TEST and then
-   production, and monitor every deployment task. For a manual rollout, prepare
+   the window. For both pipeline and manual rollouts, confirm the pipeline
+   identity and recovery operator can publish both web and Function packages,
+   update both apps' runtime and app settings, push and deploy the new
+   OpenDataLoader image, and restore the retained image in the target environment.
+   Resolve missing permissions before any runtime change. Keep `deployInfra=true`,
+   deploy the same release to TEST and then production, and monitor every
+   deployment task. For a manual rollout, prepare
    both packages and the image first, apply Bicep, then deploy both packages and
    the image within the same window. The infra scripts never publish either
    application package; the Function-only publish command below cannot complete
