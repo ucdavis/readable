@@ -128,7 +128,7 @@ resource webApp 'Microsoft.Web/sites@2025-03-01' = {
     serverFarmId: webPlan.id
     httpsOnly: true
     siteConfig: {
-      linuxFxVersion: 'DOTNETCORE|8.0'
+      linuxFxVersion: 'DOTNETCORE|10.0'
       appSettings: [
         {
           name: 'ASPNETCORE_ENVIRONMENT'
@@ -193,93 +193,98 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
     serverFarmId: functionPlan.id
     httpsOnly: true
     siteConfig: {
-      appSettings: concat([
-        {
-          name: 'AzureWebJobsStorage'
-          value: functionStorageConnectionString
-        }
-        {
-          name: 'FUNCTIONS_EXTENSION_VERSION'
-          value: '~4'
-        }
-        {
-          name: 'DB_CONNECTION'
-          value: sqlConnectionString
-        }
-        {
-          name: 'ServiceBus__FullyQualifiedNamespace'
-          value: serviceBusFullyQualifiedNamespace
-        }
-        {
-          name: 'ServiceBus'
-          value: serviceBusConnectionString
-        }
-        {
-          name: 'Storage__AccountName'
-          value: dataStorageAccountName
-        }
-        {
-          name: 'Storage__ConnectionString'
-          value: dataStorageConnectionString
-        }
-        {
-          name: 'Storage__IncomingContainer'
-          value: incomingContainerName
-        }
-        {
-          name: 'Storage__ProcessedContainer'
-          value: processedContainerName
-        }
-        {
-          name: 'Storage__TempContainer'
-          value: tempContainerName
-        }
-        {
-          name: 'Storage__ReportsContainer'
-          value: reportsContainerName
-        }
-        {
-          name: 'Pipeline__ChunkSizePages'
-          value: string(pipelineChunkSizePages)
-        }
-        {
-          name: 'INGEST_AUTOTAG_PROVIDER'
-          value: ingestAutotagProvider
-        }
-        {
-          name: 'INGEST_FILES_QUEUE_NAME'
-          value: ingestFilesQueueName
-        }
-        {
-          name: 'INGEST_ODL_AUTOTAG_QUEUE_NAME'
-          value: ingestOpenDataLoaderAutotagQueueName
-        }
-        {
-          name: 'INGEST_FINALIZE_QUEUE_NAME'
-          value: ingestFinalizeQueueName
-        }
-        {
-          name: 'INGEST_FAILED_QUEUE_NAME'
-          value: ingestFailedQueueName
-        }
-        {
-          name: 'INGEST_MAX_UPLOAD_PAGES'
-          value: string(maxUploadPages)
-        }
-      ], appInsightsConnectionString != '' ? [
-        {
-          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-          value: appInsightsConnectionString
-        }
-        {
-          name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
-          value: appInsightsInstrumentationKey
-        }
-        {
-          name: 'APPLICATIONINSIGHTS_AGENT_EXTENSION_VERSION'
-          value: '~3'
-        }
-      ] : [])
+      appSettings: concat(
+        [
+          {
+            name: 'AzureWebJobsStorage'
+            value: functionStorageConnectionString
+          }
+          {
+            name: 'FUNCTIONS_EXTENSION_VERSION'
+            value: '~4'
+          }
+          {
+            name: 'DB_CONNECTION'
+            value: sqlConnectionString
+          }
+          {
+            name: 'ServiceBus__FullyQualifiedNamespace'
+            value: serviceBusFullyQualifiedNamespace
+          }
+          {
+            name: 'ServiceBus'
+            value: serviceBusConnectionString
+          }
+          {
+            name: 'Storage__AccountName'
+            value: dataStorageAccountName
+          }
+          {
+            name: 'Storage__ConnectionString'
+            value: dataStorageConnectionString
+          }
+          {
+            name: 'Storage__IncomingContainer'
+            value: incomingContainerName
+          }
+          {
+            name: 'Storage__ProcessedContainer'
+            value: processedContainerName
+          }
+          {
+            name: 'Storage__TempContainer'
+            value: tempContainerName
+          }
+          {
+            name: 'Storage__ReportsContainer'
+            value: reportsContainerName
+          }
+          {
+            name: 'Pipeline__ChunkSizePages'
+            value: string(pipelineChunkSizePages)
+          }
+          {
+            name: 'INGEST_AUTOTAG_PROVIDER'
+            value: ingestAutotagProvider
+          }
+          {
+            name: 'INGEST_FILES_QUEUE_NAME'
+            value: ingestFilesQueueName
+          }
+          {
+            name: 'INGEST_ODL_AUTOTAG_QUEUE_NAME'
+            value: ingestOpenDataLoaderAutotagQueueName
+          }
+          {
+            name: 'INGEST_FINALIZE_QUEUE_NAME'
+            value: ingestFinalizeQueueName
+          }
+          {
+            name: 'INGEST_FAILED_QUEUE_NAME'
+            value: ingestFailedQueueName
+          }
+          {
+            name: 'INGEST_MAX_UPLOAD_PAGES'
+            value: string(maxUploadPages)
+          }
+        ],
+        appInsightsConnectionString != ''
+          ? [
+              {
+                name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+                value: appInsightsConnectionString
+              }
+              {
+                name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
+                value: appInsightsInstrumentationKey
+              }
+              {
+                name: 'APPLICATIONINSIGHTS_AGENT_EXTENSION_VERSION'
+                value: '~3'
+              }
+            ]
+          : []
+      )
     }
     functionAppConfig: {
       deployment: {
@@ -294,7 +299,7 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
       }
       runtime: {
         name: 'dotnet-isolated'
-        version: '8.0'
+        version: '10.0'
       }
       scaleAndConcurrency: {
         instanceMemoryMB: functionInstanceMemoryMB

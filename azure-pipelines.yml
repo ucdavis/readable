@@ -42,10 +42,10 @@ stages:
         displayName: Build & Test
         steps:
           - task: UseDotNet@2
-            displayName: Use .NET SDK (8.x)
+            displayName: Use .NET SDK from global.json
             inputs:
               packageType: sdk
-              version: 8.x
+              useGlobalJson: true
 
           - task: NodeTool@0
             displayName: Use Node.js $(NodeVersion)
@@ -58,8 +58,8 @@ stages:
           - script: dotnet build app.sln -c $(BuildConfiguration) --no-restore
             displayName: dotnet build
 
-          # - script: dotnet test app.sln --configuration $(buildConfiguration) --logger trx
-          #   displayName: Run server tests
+          - script: dotnet test tests/server.tests/server.tests.csproj -c $(BuildConfiguration) --no-build --logger trx
+            displayName: Run server tests
 
           - script: |
               set -euo pipefail

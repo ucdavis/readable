@@ -520,6 +520,8 @@ public sealed class PdfImagePurposeTests : IDisposable
                         return new(ImagePurpose.Meaningful, 0.95, "First symbol", "Independent content");
                     }
                     request.OverlappingText.Should().Contain("After second");
+                    // Either parallel worker can enter the classifier first.
+                    await firstStarted.Task.WaitAsync(token);
                     secondFinished.TrySetResult();
                     return new(ImagePurpose.Decorative, 0.95, "", "Decorative copy");
                 }
