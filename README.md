@@ -272,12 +272,15 @@ The frontend uses Vite's hot module replacement (HMR). Changes to React componen
 
 ### Server
 
-.Net is a bit more complicated, but we're going to use the dotnet-outdated tool to help.
+Use the repository's pinned dotnet-outdated tool to check .NET dependencies.
+Its local tool manifest enables runtime roll-forward so it can run with only
+the .NET 10 SDK installed.
 
-Run the following command from the repository root:
+Restore and run it from the repository root:
 
 ```
-dotnet-outdated
+dotnet tool restore
+dotnet tool run dotnet-outdated
 ```
 
 and it'll show you a nice table of what can be updated. Be careful when updating major versions, especially with packages that are pinned to the .net version.
@@ -285,7 +288,7 @@ and it'll show you a nice table of what can be updated. Be careful when updating
 You can update individual packages or you can use the `--upgrade` flag to update all at once. Here's a nice way to do it and only update minor/patch versions:
 
 ```
-dotnet-outdated --upgrade --version-lock Major
+dotnet tool run dotnet-outdated --upgrade --version-lock Major
 ```
 
 If you update `Microsoft.EntityFrameworkCore.Design` or another package that a tool depends on, you'll want to update that tool as well to match, ex: `dotnet tool update dotnet-ef --local --version 10.0.14`. That will update it for you but also set the value in our `dotnet-tools.json` so it's consistent for everyone.
